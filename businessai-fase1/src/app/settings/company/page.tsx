@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 
-async function saveCompanyProfile(formData: FormData) {
+export async function saveCompanyProfile(formData: FormData) {
   'use server'
 
   const supabase = await createClient()
