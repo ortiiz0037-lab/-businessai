@@ -1,7 +1,10 @@
+
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
+
+export const dynamic = 'force-dynamic'
 
 type ClientRow = {
   id: string
@@ -10,11 +13,34 @@ type ClientRow = {
   email: string | null
 }
 
+type InvoiceRow = {
+  id: string
+  document_number: string | null
+  title: string | null
+  total: number | null
+  due_date: string | null
+  client_id: string | null
+}
+
 function today() {
   return new Date().toISOString().slice(0, 10)
 }
 
-async function createInvoice(formData: FormData) {
+function text(data: FormData, key: string) {
+  return String(data.get(key) ?? '').trim()
+}
+
+function docTitle(type: string) {
+  const titles: Record<string, string> = {
+    invoice: 'Factura',
+    letter: 'Carta comercial',
+    work_order: 'Orden de trabajo',
+    payment_reminder: 'Recordatorio de pago',
+  }
+  return titles[type] ?? 'Documento'
+}
+
+async function createDocument(formData: FormData) {
   'use server'
 
   const supabase = await createClient()
@@ -23,105 +49,180 @@ async function createInvoice(formData: FormData) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  if (!user) {
-    redirect('/login')
-  }
+  if (!user) redirect('/login')
 
-  const { data: membership, error: membershipError } = await supabase
+  const { data: membership } = await supabase
     .from('memberships')
     .select('company_id')
     .eq('user_id', user.id)
     .limit(1)
     .maybeSingle()
 
-  if (membershipError || !membership?.company_id) {
-    redirect('/documents/new?type=invoice&error=company')
-  }
+  if (!membership?.company_id) redirect('/documents')
 
   const companyId = membership.company_id
+  const type = text(formData, 'type')
 
-  const clientId = String(formData.get('client_id') ?? '').trim()
-  const service = String(formData.get('service') ?? '').trim()
-  const quantity = Number(formData.get('quantity') ?? 1)
-  const unitPrice = Number(formData.get('unit_price') ?? 0)
-  const taxRate = Number(formData.get('tax_rate') ?? 0)
-  const issueDate =
-    String(formData.get('issue_date') ?? '').trim() || today()
-  const notes = String(formData.get('notes') ?? '').trim()
-
-  if (!clientId || !service || !Number.isFinite(quantity) || quantity <= 0) {
-    redirect('/documents/new?type=invoice&error=required')
+  if (!['invoice', 'letter', 'work_order', 'payment_reminder'].includes(type)) {
+    redirect('/documents/new?error=type')
   }
 
-  if (!Number.isFinite(unitPrice) || unitPrice < 0) {
-    redirect('/documents/new?type=invoice&error=price')
+  const clientId = text(formData, 'client_id')
+  const title = text(formData, 'title')
+  const issueDate = text(formData, 'issue_date') || today()
+  const dueDate = text(formData, 'due_date')
+  const notes = text(formData, 'notes')
+
+  let clientName = ''
+  let total = 0
+  let subtotal = 0
+  let tax = 0
+  let documentNotes = notes
+
+  if (type === 'invoice') {
+    const service = text(formData, 'service')
+    const quantity = Number(formData.get('quantity') ?? 1)
+    const unitPrice = Number(formData.get('unit_price') ?? 0)
+    const taxRate = Number(formData.get('tax_rate') ?? 0)
+
+    if (
+      !clientId ||
+      !service ||
+      !Number.isFinite(quantity) ||
+      quantity <= 0
+    ) redirect('/documents/new?type=invoice&error=required')
+
+    if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+      redirect('/documents/new?type=invoice&error=price')
+    }
+
+    if (!Number.isFinite(taxRate) || taxRate < 0) {
+      redirect('/documents/new?type=invoice&error=tax')
+    }
+
+    const { data: client } = await supabase
+      .from('clients')
+      .select('name,business_name')
+      .eq('id', clientId)
+      .eq('company_id', companyId)
+      .maybeSingle()
+
+    if (!client) redirect('/documents/new?type=invoice&error=client')
+
+    clientName = client.business_name?.trim() || client.name?.trim() || 'Cliente'
+    subtotal = Number((quantity * unitPrice).toFixed(2))
+    tax = Number((subtotal * taxRate / 100).toFixed(2))
+    total = Number((subtotal + tax).toFixed(2))
+
+    documentNotes = [
+      `Servicio: ${service}`,
+      `Cantidad: ${quantity}`,
+      `Precio unitario: $${unitPrice.toFixed(2)}`,
+      taxRate > 0 ? `Impuesto: ${taxRate}%` : null,
+      notes ? `Notas: ${notes}` : null,
+    ].filter(Boolean).join('\n')
+  } else if (type === 'payment_reminder') {
+    const invoiceId = text(formData, 'invoice_id')
+
+    if (!invoiceId) {
+      redirect('/documents/new?type=payment_reminder&error=invoice')
+    }
+
+    const { data: invoice } = await supabase
+      .from('documents')
+      .select('id,document_number,title,total,due_date,client_id')
+      .eq('id', invoiceId)
+      .eq('company_id', companyId)
+      .eq('document_type', 'invoice')
+      .in('status', ['draft', 'sent', 'overdue'])
+      .maybeSingle()
+
+    if (!invoice || !invoice.client_id) {
+      redirect('/documents/new?type=payment_reminder&error=invoice')
+    }
+
+    const { data: client } = await supabase
+      .from('clients')
+      .select('name,business_name')
+      .eq('id', invoice.client_id)
+      .eq('company_id', companyId)
+      .maybeSingle()
+
+    if (!client) {
+      redirect('/documents/new?type=payment_reminder&error=client')
+    }
+
+    clientName = client.business_name?.trim() || client.name?.trim() || 'Cliente'
+    total = Number(invoice.total ?? 0)
+
+    documentNotes = [
+      `Factura relacionada: ${invoice.document_number || invoice.title || invoice.id}`,
+      `Importe pendiente: $${total.toFixed(2)}`,
+      invoice.due_date ? `Fecha de vencimiento: ${invoice.due_date}` : null,
+      '',
+      notes || 'Le recordamos amablemente que tiene un pago pendiente. Gracias por su atención.',
+    ].filter((line) => line !== null).join('\n')
+  } else {
+    if (!title || !notes) {
+      redirect(`/documents/new?type=${type}&error=required`)
+    }
+
+    if (clientId) {
+      const { data: client } = await supabase
+        .from('clients')
+        .select('name,business_name')
+        .eq('id', clientId)
+        .eq('company_id', companyId)
+        .maybeSingle()
+
+      if (!client) redirect(`/documents/new?type=${type}&error=client`)
+
+      clientName = client.business_name?.trim() || client.name?.trim() || 'Cliente'
+    }
+
+    documentNotes = notes
   }
 
-  if (!Number.isFinite(taxRate) || taxRate < 0) {
-    redirect('/documents/new?type=invoice&error=tax')
+  const prefix: Record<string, string> = {
+    invoice: 'FAC',
+    letter: 'CARTA',
+    work_order: 'OT',
+    payment_reminder: 'REC',
   }
 
-  const subtotal = Number((quantity * unitPrice).toFixed(2))
-  const tax = Number((subtotal * (taxRate / 100)).toFixed(2))
-  const total = Number((subtotal + tax).toFixed(2))
-
-  const { data: client } = await supabase
-    .from('clients')
-    .select('name, business_name')
-    .eq('id', clientId)
-    .eq('company_id', companyId)
-    .maybeSingle()
-
-  if (!client) {
-    redirect('/documents/new?type=invoice&error=client')
-  }
-
-  const clientName =
-    client.business_name?.trim() ||
-    client.name?.trim() ||
-    'Cliente'
-
-  const documentNumber = `FAC-${new Date().getFullYear()}-${crypto
-    .randomUUID()
-    .slice(0, 8)
-    .toUpperCase()}`
-
-  const detailNotes = [
-    `Servicio: ${service}`,
-    `Cantidad: ${quantity}`,
-    `Precio unitario: $${unitPrice.toFixed(2)}`,
-    taxRate > 0 ? `Impuesto: ${taxRate}%` : null,
-    notes ? `Notas: ${notes}` : null,
-  ]
-    .filter(Boolean)
-    .join(' | ')
+  const documentNumber = `${prefix[type]}-${new Date().getFullYear()}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`
 
   const { data: document, error } = await supabase
     .from('documents')
     .insert({
       company_id: companyId,
-      document_type: 'invoice',
-      title: `Factura - ${clientName}`,
+      document_type: type,
+      title: type === 'invoice'
+        ? `Factura - ${clientName}`
+        : type === 'payment_reminder'
+          ? `Recordatorio de pago - ${clientName}`
+          : title,
       document_number: documentNumber,
-      client_id: clientId,
+      client_id: clientId || null,
       issue_date: issueDate,
+      due_date: dueDate || null,
       subtotal,
       tax,
       total,
       status: 'draft',
-      notes: detailNotes,
+      notes: documentNotes,
     })
     .select('id')
     .single()
 
   if (error || !document) {
-    console.error('INVOICE_CREATE_ERROR', error)
-
-    redirect('/documents/new?type=invoice&error=save')
+    console.error('DOCUMENT_CREATE_ERROR', error)
+    redirect(`/documents/new?type=${type}&error=save`)
   }
 
   revalidatePath('/documents')
   revalidatePath('/dashboard')
+  revalidatePath('/payments')
 
   redirect(`/documents/${document.id}`)
 }
@@ -129,10 +230,7 @@ async function createInvoice(formData: FormData) {
 export default async function NewDocumentPage({
   searchParams,
 }: {
-  searchParams?: Promise<{
-    type?: string
-    error?: string
-  }>
+  searchParams?: Promise<{ type?: string; error?: string }>
 }) {
   const params = await searchParams
   const type = params?.type ?? 'invoice'
@@ -144,9 +242,7 @@ export default async function NewDocumentPage({
     data: { user },
   } = await supabase.auth.getUser()
 
-  if (!user) {
-    redirect('/login')
-  }
+  if (!user) redirect('/login')
 
   const { data: membership } = await supabase
     .from('memberships')
@@ -155,326 +251,232 @@ export default async function NewDocumentPage({
     .limit(1)
     .maybeSingle()
 
-  if (!membership?.company_id) {
-    return (
-      <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-red-700">
-        No encontramos la empresa asociada a tu cuenta.
-      </div>
-    )
-  }
+  if (!membership?.company_id) redirect('/dashboard')
 
   const { data: clients } = await supabase
     .from('clients')
-    .select('id, name, business_name, email')
+    .select('id,name,business_name,email')
     .eq('company_id', membership.company_id)
-    .order('name', { ascending: true })
+    .order('name')
+
+  const { data: invoices } = await supabase
+    .from('documents')
+    .select('id,document_number,title,total,due_date,client_id')
+    .eq('company_id', membership.company_id)
+    .eq('document_type', 'invoice')
+    .in('status', ['draft', 'sent', 'overdue'])
+    .order('created_at', { ascending: false })
 
   const clientList = (clients ?? []) as ClientRow[]
+  const invoiceList = (invoices ?? []) as InvoiceRow[]
+  const validTypes = ['invoice', 'letter', 'work_order', 'payment_reminder']
+  const selectedType = validTypes.includes(type) ? type : 'invoice'
 
-  if (type !== 'invoice') {
-    return (
-      <div className="space-y-6">
-        <Link
-          href="/documents"
-          className="inline-flex text-sm font-semibold text-slate-600 hover:text-slate-950"
-        >
-          ← Volver a Documentos
-        </Link>
-
-        <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
-          <h1 className="text-2xl font-bold text-slate-950">
-            Crear documento
-          </h1>
-
-          <p className="mt-2 text-slate-500">
-            Por ahora estamos preparando el creador de facturas. Los demás
-            documentos se añadirán a continuación.
-          </p>
-
-          <Link
-            href="/documents/new?type=invoice"
-            className="mt-6 inline-flex rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white"
-          >
-            Crear factura
-          </Link>
-        </div>
-      </div>
-    )
+  const errorMessage: Record<string, string> = {
+    required: 'Completa los campos obligatorios.',
+    price: 'El precio debe ser cero o mayor.',
+    tax: 'El impuesto debe ser un número válido.',
+    client: 'No encontramos ese cliente en tu empresa.',
+    invoice: 'Selecciona una factura pendiente válida para el recordatorio.',
+    save: 'No se pudo guardar. Revisa los registros del servidor.',
+    type: 'Ese tipo de documento no está permitido.',
   }
 
+  const fieldClass = 'w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-950 focus:ring-2 focus:ring-slate-200'
+
   return (
-    <div className="mx-auto max-w-5xl space-y-8">
-      <div>
-        <Link
-          href="/documents"
-          className="inline-flex text-sm font-semibold text-slate-500 transition hover:text-slate-950"
-        >
-          ← Volver a Documentos
-        </Link>
+    <main className="mx-auto max-w-5xl space-y-6 px-4 py-8">
+      <Link href="/documents" className="text-sm font-semibold text-slate-500 hover:text-slate-950">
+        ← Volver a Documentos
+      </Link>
 
-        <div className="mt-6 overflow-hidden rounded-3xl bg-slate-950 px-6 py-8 text-white shadow-xl sm:px-8">
-          <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10 text-2xl">
-              🧾
-            </div>
+      <header className="rounded-3xl bg-slate-950 p-7 text-white sm:p-9">
+        <p className="text-xs font-bold uppercase tracking-widest text-blue-300">
+          BUSINESSAI · DOCUMENTOS
+        </p>
+        <h1 className="mt-3 text-3xl font-bold">{docTitle(selectedType)}</h1>
+        <p className="mt-2 text-sm text-slate-300">
+          Crea y guarda documentos de tu empresa en un solo lugar.
+        </p>
+      </header>
 
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-blue-300">
-                BusinessAI
-              </p>
+      <nav className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {validTypes.map((item) => (
+          <Link
+            key={item}
+            href={`/documents/new?type=${item}`}
+            className={`rounded-xl border px-3 py-3 text-center text-sm font-semibold ${
+              selectedType === item
+                ? 'border-slate-950 bg-slate-950 text-white'
+                : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+            }`}
+          >
+            {docTitle(item)}
+          </Link>
+        ))}
+      </nav>
 
-              <h1 className="text-3xl font-bold tracking-tight">
-                Nueva factura
-              </h1>
-            </div>
-          </div>
-
-          <p className="mt-4 max-w-2xl text-sm leading-6 text-slate-300">
-            Crea una factura profesional seleccionando el cliente, indicando
-            el servicio y calculando automáticamente subtotal, impuestos y
-            total.
-          </p>
-        </div>
-      </div>
-
-      {error && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700">
-          {error === 'required' &&
-            'Completa el cliente, el servicio y una cantidad válida.'}
-
-          {error === 'price' &&
-            'El precio debe ser un número válido mayor o igual a cero.'}
-
-          {error === 'tax' &&
-            'El impuesto debe ser un porcentaje válido.'}
-
-          {error === 'client' &&
-            'No pudimos encontrar ese cliente en tu empresa.'}
-
-          {error === 'company' &&
-            'No pudimos identificar la empresa de tu cuenta.'}
-
-          {error === 'save' &&
-            'No pudimos guardar la factura. Revisa la consola para ver el detalle.'}
+      {error && errorMessage[error] && (
+        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+          {errorMessage[error]}
         </div>
       )}
 
-      <form action={createInvoice} className="space-y-6">
-        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-          <div className="mb-6">
-            <h2 className="text-xl font-bold text-slate-950">
-              Información del cliente
-            </h2>
+      <form action={createDocument} className="space-y-6">
+        <input type="hidden" name="type" value={selectedType} />
 
-            <p className="mt-1 text-sm text-slate-500">
-              Selecciona uno de tus clientes registrados.
-            </p>
-          </div>
-
-          {clientList.length === 0 ? (
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
-              <p className="font-semibold text-amber-900">
-                Todavía no tienes clientes registrados.
-              </p>
-
-              <p className="mt-1 text-sm text-amber-800">
-                Primero crea un cliente para poder facturarlo.
-              </p>
-
-              <Link
-                href="/clients"
-                className="mt-4 inline-flex rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white"
-              >
-                Ir a Clientes
-              </Link>
-            </div>
-          ) : (
-            <div>
-              <label
-                htmlFor="client_id"
-                className="mb-2 block text-sm font-semibold text-slate-800"
-              >
-                Cliente *
-              </label>
-
-              <select
-                id="client_id"
-                name="client_id"
-                required
-                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-slate-950 focus:ring-2 focus:ring-slate-200"
-                defaultValue=""
-              >
-                <option value="" disabled>
-                  Selecciona un cliente
-                </option>
-
-                {clientList.map((client) => (
-                  <option key={client.id} value={client.id}>
-                    {client.business_name || client.name || 'Cliente'}
-                    {client.email ? ` — ${client.email}` : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-        </section>
-
-        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-          <div className="mb-6">
-            <h2 className="text-xl font-bold text-slate-950">
-              Detalle del servicio
-            </h2>
-
-            <p className="mt-1 text-sm text-slate-500">
-              Indica qué servicio o producto estás facturando.
-            </p>
-          </div>
-
-          <div className="grid gap-5 sm:grid-cols-2">
-            <div className="sm:col-span-2">
-              <label
-                htmlFor="service"
-                className="mb-2 block text-sm font-semibold text-slate-800"
-              >
-                Servicio o descripción *
-              </label>
-
-              <input
-                id="service"
-                name="service"
-                type="text"
-                required
-                placeholder="Ej. Transporte médico"
-                className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-slate-950 focus:ring-2 focus:ring-slate-200"
-              />
-            </div>
-
-            <div>
-              <label
-                htmlFor="quantity"
-                className="mb-2 block text-sm font-semibold text-slate-800"
-              >
-                Cantidad *
-              </label>
-
-              <input
-                id="quantity"
-                name="quantity"
-                type="number"
-                min="0.01"
-                step="0.01"
-                defaultValue="1"
-                required
-                className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-slate-950 focus:ring-2 focus:ring-slate-200"
-              />
-            </div>
-
-            <div>
-              <label
-                htmlFor="unit_price"
-                className="mb-2 block text-sm font-semibold text-slate-800"
-              >
-                Precio unitario *
-              </label>
-
-              <div className="relative">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm text-slate-400">
-                  $
-                </span>
-
-                <input
-                  id="unit_price"
-                  name="unit_price"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  placeholder="0.00"
-                  required
-                  className="w-full rounded-xl border border-slate-300 py-3 pl-8 pr-4 text-sm outline-none transition focus:border-slate-950 focus:ring-2 focus:ring-slate-200"
-                />
+        {selectedType === 'payment_reminder' ? (
+          <section className="space-y-5 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="text-xl font-bold text-slate-950">Factura pendiente</h2>
+            {invoiceList.length === 0 ? (
+              <div className="rounded-xl bg-amber-50 p-4 text-sm text-amber-900">
+                No hay facturas pendientes disponibles. Crea una factura primero para poder preparar un recordatorio.
+                <Link href="/documents/new?type=invoice" className="mt-3 block font-bold underline">
+                  Crear factura
+                </Link>
               </div>
-            </div>
+            ) : (
+              <>
+                <label className="block text-sm font-semibold text-slate-700">
+                  Selecciona la factura *
+                  <select name="invoice_id" required defaultValue="" className={`${fieldClass} mt-2`}>
+                    <option value="" disabled>Seleccionar factura pendiente</option>
+                    {invoiceList.map((invoice) => (
+                      <option key={invoice.id} value={invoice.id}>
+                        {(invoice.document_number || invoice.title || 'Factura')} — ${Number(invoice.total ?? 0).toFixed(2)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block text-sm font-semibold text-slate-700">
+                  Fecha del recordatorio
+                  <input name="issue_date" type="date" defaultValue={today()} className={`${fieldClass} mt-2`} />
+                </label>
+                <label className="block text-sm font-semibold text-slate-700">
+                  Mensaje *
+                  <textarea name="notes" required rows={5} defaultValue="Le recordamos amablemente que tiene un pago pendiente. Si ya realizó el pago, puede ignorar este aviso. Gracias por su atención." className={`${fieldClass} mt-2`} />
+                </label>
+              </>
+            )}
+          </section>
+        ) : (
+          <>
+            {selectedType !== 'invoice' && (
+              <section className="space-y-5 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                <h2 className="text-xl font-bold text-slate-950">Información del documento</h2>
+                <label className="block text-sm font-semibold text-slate-700">
+                  Título *
+                  <input name="title" required className={`${fieldClass} mt-2`} placeholder={
+                    selectedType === 'letter' ? 'Ej. Carta comercial para cliente' : 'Ej. Reparación y mantenimiento'
+                  } />
+                </label>
+                <label className="block text-sm font-semibold text-slate-700">
+                  Cliente (opcional)
+                  <select name="client_id" defaultValue="" className={`${fieldClass} mt-2`}>
+                    <option value="">Sin cliente específico</option>
+                    {clientList.map((client) => (
+                      <option key={client.id} value={client.id}>
+                        {client.business_name || client.name || 'Cliente'}
+                        {client.email ? ` — ${client.email}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block text-sm font-semibold text-slate-700">
+                  Fecha
+                  <input name="issue_date" type="date" defaultValue={today()} className={`${fieldClass} mt-2`} />
+                </label>
+                {selectedType === 'work_order' && (
+                  <label className="block text-sm font-semibold text-slate-700">
+                    Fecha límite (opcional)
+                    <input name="due_date" type="date" className={`${fieldClass} mt-2`} />
+                  </label>
+                )}
+                <label className="block text-sm font-semibold text-slate-700">
+                  {selectedType === 'letter' ? 'Contenido de la carta *' : 'Descripción del trabajo *'}
+                  <textarea name="notes" required rows={8} className={`${fieldClass} mt-2`} placeholder={
+                    selectedType === 'letter'
+                      ? 'Escribe aquí el destinatario, el propósito y el contenido de la carta.'
+                      : 'Describe el trabajo solicitado, materiales, instrucciones y detalles importantes.'
+                  } />
+                </label>
+              </section>
+            )}
 
-            <div>
-              <label
-                htmlFor="tax_rate"
-                className="mb-2 block text-sm font-semibold text-slate-800"
-              >
-                Impuesto %
-              </label>
+            {selectedType === 'invoice' && (
+              <>
+                <section className="space-y-5 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <h2 className="text-xl font-bold text-slate-950">Información del cliente</h2>
+                  {clientList.length === 0 ? (
+                    <div className="rounded-xl bg-amber-50 p-4 text-sm text-amber-900">
+                      Primero registra un cliente.
+                      <Link href="/clients" className="ml-1 font-bold underline">Ir a Clientes</Link>
+                    </div>
+                  ) : (
+                    <label className="block text-sm font-semibold text-slate-700">
+                      Cliente *
+                      <select name="client_id" required defaultValue="" className={`${fieldClass} mt-2`}>
+                        <option value="" disabled>Selecciona un cliente</option>
+                        {clientList.map((client) => (
+                          <option key={client.id} value={client.id}>
+                            {client.business_name || client.name || 'Cliente'}
+                            {client.email ? ` — ${client.email}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                </section>
 
-              <input
-                id="tax_rate"
-                name="tax_rate"
-                type="number"
-                min="0"
-                step="0.01"
-                defaultValue="0"
-                className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-slate-950 focus:ring-2 focus:ring-slate-200"
-              />
-            </div>
+                <section className="space-y-5 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <h2 className="text-xl font-bold text-slate-950">Detalle de la factura</h2>
+                  <label className="block text-sm font-semibold text-slate-700">
+                    Servicio o descripción *
+                    <input name="service" required className={`${fieldClass} mt-2`} placeholder="Ej. Servicio profesional" />
+                  </label>
+                  <div className="grid gap-5 sm:grid-cols-2">
+                    <label className="block text-sm font-semibold text-slate-700">
+                      Cantidad *
+                      <input name="quantity" type="number" min="0.01" step="0.01" defaultValue="1" required className={`${fieldClass} mt-2`} />
+                    </label>
+                    <label className="block text-sm font-semibold text-slate-700">
+                      Precio unitario *
+                      <input name="unit_price" type="number" min="0" step="0.01" required className={`${fieldClass} mt-2`} placeholder="0.00" />
+                    </label>
+                    <label className="block text-sm font-semibold text-slate-700">
+                      Impuesto %
+                      <input name="tax_rate" type="number" min="0" step="0.01" defaultValue="0" className={`${fieldClass} mt-2`} />
+                    </label>
+                    <label className="block text-sm font-semibold text-slate-700">
+                      Fecha de factura
+                      <input name="issue_date" type="date" defaultValue={today()} className={`${fieldClass} mt-2`} />
+                    </label>
+                  </div>
+                  <label className="block text-sm font-semibold text-slate-700">
+                    Notas
+                    <textarea name="notes" rows={4} className={`${fieldClass} mt-2`} />
+                  </label>
+                </section>
+              </>
+            )}
+          </>
+        )}
 
-            <div>
-              <label
-                htmlFor="issue_date"
-                className="mb-2 block text-sm font-semibold text-slate-800"
-              >
-                Fecha de factura
-              </label>
-
-              <input
-                id="issue_date"
-                name="issue_date"
-                type="date"
-                defaultValue={today()}
-                className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-slate-950 focus:ring-2 focus:ring-slate-200"
-              />
-            </div>
-          </div>
-        </section>
-
-        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-          <div className="mb-6">
-            <h2 className="text-xl font-bold text-slate-950">
-              Notas
-            </h2>
-
-            <p className="mt-1 text-sm text-slate-500">
-              Añade información adicional para el cliente.
-            </p>
-          </div>
-
-          <textarea
-            id="notes"
-            name="notes"
-            rows={4}
-            placeholder="Ej. Servicio realizado según coordinación previa."
-            className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-slate-950 focus:ring-2 focus:ring-slate-200"
-          />
-        </section>
-
-        <section className="rounded-3xl border border-slate-200 bg-slate-50 p-6 sm:p-8">
-          <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-sm font-semibold text-slate-500">
-                Al guardar
-              </p>
-
-              <p className="mt-1 text-sm text-slate-600">
-                BusinessAI calculará automáticamente subtotal, impuesto y total.
-              </p>
-            </div>
-
-            <button
-              type="submit"
-              disabled={clientList.length === 0}
-              className="inline-flex items-center justify-center rounded-2xl bg-slate-950 px-7 py-4 text-sm font-bold text-white shadow-lg transition hover:-translate-y-0.5 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Guardar factura →
-            </button>
-          </div>
-        </section>
+        <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-5 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-slate-600">
+            El documento se guardará en la empresa asociada a tu cuenta.
+          </p>
+          <button
+            type="submit"
+            disabled={
+              selectedType === 'payment_reminder' && invoiceList.length === 0
+            }
+            className="rounded-xl bg-slate-950 px-6 py-3.5 text-sm font-bold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Guardar {docTitle(selectedType)} →
+          </button>
+        </div>
       </form>
-    </div>
+    </main>
   )
 }
