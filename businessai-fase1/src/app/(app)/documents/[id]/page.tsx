@@ -1,3 +1,4 @@
+
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
@@ -101,11 +102,13 @@ function statusLabel(value: string | null | undefined) {
 
 export default async function DocumentDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>
+  searchParams?: Promise<{ deleteError?: string; deleteMessage?: string }>
 }) {
   const { id } = await params
-
+  const query = searchParams ? await searchParams : undefined
   const supabase = await createClient()
 
   const {
@@ -127,11 +130,13 @@ export default async function DocumentDetailPage({
     redirect('/dashboard')
   }
 
+  const companyId = membership.company_id
+
   const { data: document, error } = await supabase
     .from('documents')
     .select('*')
     .eq('id', id)
-    .eq('company_id', membership.company_id)
+    .eq('company_id', companyId)
     .maybeSingle()
 
   if (error || !document) {
@@ -139,9 +144,11 @@ export default async function DocumentDetailPage({
       <main className="mx-auto max-w-4xl px-4 py-12">
         <div className="rounded-3xl border border-red-200 bg-red-50 p-8 text-center">
           <div className="text-4xl">⚠️</div>
+
           <h1 className="mt-4 text-2xl font-bold text-slate-900">
             Documento no encontrado
           </h1>
+
           <p className="mt-2 text-sm text-slate-600">
             No pudimos encontrar este documento o no tienes acceso a él.
           </p>
@@ -164,109 +171,202 @@ export default async function DocumentDetailPage({
         .from('clients')
         .select('*')
         .eq('id', doc.client_id)
-        .eq('company_id', membership.company_id)
+        .eq('company_id', companyId)
         .maybeSingle()
     : { data: null }
 
   const { data: company } = await supabase
     .from('company_profiles')
     .select('*')
-    .eq('company_id', membership.company_id)
+    .eq('company_id', companyId)
     .maybeSingle()
 
   const clientData = client as ClientRow | null
   const companyData = company as CompanyRow | null
-  
-async function updateStatus(formData: FormData) {
-  'use server'
 
-  const status = String(formData.get('status') || '')
+  async function updateStatus(formData: FormData) {
+    'use server'
 
-  if (status !== 'sent' && status !== 'paid') {
-    return
-  }
+    const status = String(formData.get('status') || '')
 
-  const supabase = await createClient()
+    if (status !== 'sent' && status !== 'paid') {
+      return
+    }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+    const supabase = await createClient()
 
-  if (!user) {
-    redirect('/login')
-  }
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
 
-  const { data: member } = await supabase
-    .from('memberships')
-    .select('company_id')
-    .eq('user_id', user.id)
-    .limit(1)
-    .maybeSingle()
+    if (!user) {
+      redirect('/login')
+    }
 
-  if (!member?.company_id) {
-    redirect('/documents')
-  }
+    const { data: member } = await supabase
+      .from('memberships')
+      .select('company_id')
+      .eq('user_id', user.id)
+      .limit(1)
+      .maybeSingle()
 
-  const { data: currentDoc } = await supabase
-    .from('documents')
-    .select('id, document_type, total, status')
-    .eq('id', id)
-    .eq('company_id', member.company_id)
-    .maybeSingle()
+    if (!member?.company_id) {
+      redirect('/documents')
+    }
 
-  if (!currentDoc) {
-    redirect('/documents')
-  }
+    const { data: currentDoc } = await supabase
+      .from('documents')
+      .select('id, total, status')
+      .eq('id', id)
+      .eq('company_id', member.company_id)
+      .maybeSingle()
 
-  if (status === 'paid') {
-    const amount = Number(currentDoc.total ?? 0)
+    if (!currentDoc) {
+      redirect('/documents')
+    }
 
-    if (amount <= 0) {
+    if (status === 'paid') {
+      const amount = Number(currentDoc.total ?? 0)
+
+      if (amount <= 0) {
+        redirect(`/documents/${id}`)
+      }
+
+      const {
+        data: existingPayment,
+        error: existingPaymentError,
+      } = await supabase
+        .from('payments')
+        .select('id')
+        .eq('company_id', member.company_id)
+        .eq('document_id', id)
+        .limit(1)
+        .maybeSingle()
+
+      if (existingPaymentError) {
+        console.error(
+          'PAYMENT_CHECK_ERROR',
+          existingPaymentError
+        )
+        redirect(`/documents/${id}`)
+      }
+
+      if (!existingPayment) {
+        const { error: paymentError } = await supabase
+          .from('payments')
+          .insert({
+            company_id: member.company_id,
+            document_id: id,
+            amount,
+            payment_method: 'manual',
+            created_by: user.id,
+          })
+
+        if (paymentError) {
+          console.error('PAYMENT_CREATE_ERROR', paymentError)
+          redirect(`/documents/${id}`)
+        }
+      }
+    }
+
+    const { error: updateError } = await supabase
+      .from('documents')
+      .update({ status })
+      .eq('id', id)
+      .eq('company_id', member.company_id)
+
+    if (updateError) {
+      console.error('DOCUMENT_STATUS_ERROR', updateError)
       redirect(`/documents/${id}`)
     }
 
-    const { error: paymentError } = await supabase
-      .from('payments')
-      .insert({
-        company_id: member.company_id,
-        document_id: id,
-        amount,
-        payment_method: 'manual',
-        created_by: user.id,
-      })
-
-    if (paymentError) {
-      console.error('PAYMENT_CREATE_ERROR', paymentError)
-      redirect(`/documents/${id}`)
-    }
-  }
-
-  const { error: updateError } = await supabase
-    .from('documents')
-    .update({ status })
-    .eq('id', id)
-    .eq('company_id', member.company_id)
-
-  if (updateError) {
-    console.error('DOCUMENT_STATUS_ERROR', updateError)
     redirect(`/documents/${id}`)
   }
 
-  redirect(`/documents/${id}`)
-}
+  async function deleteDocument(formData: FormData) {
+    'use server'
+
+    if (formData.get('confirm_delete') !== 'yes') {
+      redirect(`/documents/${id}?deleteError=1`)
+    }
+
+    const supabase = await createClient()
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+      redirect('/login')
+    }
+
+    const { data: member } = await supabase
+      .from('memberships')
+      .select('company_id')
+      .eq('user_id', user.id)
+      .limit(1)
+      .maybeSingle()
+
+    if (!member?.company_id) {
+      redirect('/documents')
+    }
+
+    const { data: currentDoc, error: lookupError } =
+      await supabase
+        .from('documents')
+        .select('id')
+        .eq('id', id)
+        .eq('company_id', member.company_id)
+        .maybeSingle()
+
+    if (lookupError || !currentDoc) {
+      redirect('/documents')
+    }
+
+    const reason = String(formData.get('delete_reason') ?? '').trim()
+
+  if (formData.get('confirm_delete') !== 'yes' || reason.length < 3) {
+    redirect(`/documents/${id}?deleteError=1`)
+  }
+
+  const { error: deleteError } = await supabase.rpc(
+    'delete_document_with_audit',
+    {
+      p_document_id: id,
+      p_reason: reason,
+    }
+  )
+
+    if (deleteError) {
+      console.error('DOCUMENT_DELETE_ERROR', JSON.stringify({
+        message: deleteError.message,
+        code: deleteError.code,
+        details: deleteError.details,
+        hint: deleteError.hint,
+      }))
+      const message = encodeURIComponent(
+        `${deleteError.code ?? 'ERROR'}: ${deleteError.message}`
+      )
+      redirect(`/documents/${id}?deleteError=1&deleteMessage=${message}`)
+    }
+
+    redirect('/documents')
+  }
+
   const subtotal = Number(doc.subtotal ?? 0)
   const tax = Number(doc.tax ?? 0)
+
   const total =
     doc.total !== null && doc.total !== undefined
       ? Number(doc.total)
       : subtotal + tax
 
-  const primaryColor = companyData?.primary_color || '#0f172a'
+  const primaryColor =
+    companyData?.primary_color || '#0f172a'
 
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-5xl">
-        {/* TOP BAR */}
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <Link
@@ -285,48 +385,104 @@ async function updateStatus(formData: FormData) {
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="rounded-full bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
               {statusLabel(doc.status)}
             </span>
+
+            <form
+              action={deleteDocument}
+              className="flex flex-wrap items-center gap-2 rounded-xl border border-red-200 bg-white px-3 py-2"
+            >
+              <label className="block w-full text-xs font-medium text-slate-700">
+          Motivo de eliminación (obligatorio)
+          <textarea
+            name="delete_reason"
+            required
+            minLength={3}
+            rows={2}
+            placeholder="Explica por qué necesitas eliminar esta factura"
+            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          />
+        </label>
+        <label className="flex items-center gap-2 text-xs text-slate-700">
+                <input
+                  type="checkbox"
+                  name="confirm_delete"
+                  value="yes"
+                  required
+                  className="h-4 w-4 accent-red-600"
+                />
+                Confirmo eliminar
+              </label>
+
+              <button
+                type="submit"
+                className="rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700"
+              >
+                Eliminar documento
+              </button>
+            </form>
           </div>
         </div>
-{doc.document_type === 'invoice' && (
-  <div className="mt-4 flex flex-wrap gap-3">
-    {doc.status === 'draft' && (
-      <form action={updateStatus}>
-        <input type="hidden" name="status" value="sent" />
-        <button
-          type="submit"
-          className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white"
-        >
-          Marcar como enviada
-        </button>
-      </form>
-    )}
 
-    {(doc.status === 'sent' || doc.status === 'overdue') && (
-      <form action={updateStatus}>
-        <input type="hidden" name="status" value="paid" />
-        <button
-          type="submit"
-          className="rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white"
-        >
-          Marcar como pagada
-        </button>
-      </form>
-    )}
+        {query?.deleteError === '1' && (
+          <div
+            role="alert"
+            className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"
+          >
+            {query?.deleteMessage
+              ? `Error de eliminación: ${query.deleteMessage}`
+              : 'No se pudo eliminar el documento. Revisa el error de Supabase.'}
+          </div>
+        )}
 
-    {doc.status === 'paid' && (
-      <span className="rounded-xl bg-green-100 px-4 py-2 text-sm font-semibold text-green-700">
-        ✓ Factura pagada
-      </span>
-    )}
-  </div>
-)}
-        {/* DOCUMENT */}
+        {doc.document_type === 'invoice' && (
+          <div className="mb-5 flex flex-wrap gap-3">
+            {doc.status === 'draft' && (
+              <form action={updateStatus}>
+                <input
+                  type="hidden"
+                  name="status"
+                  value="sent"
+                />
+
+                <button
+                  type="submit"
+                  className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white"
+                >
+                  Marcar como enviada
+                </button>
+              </form>
+            )}
+
+            {(doc.status === 'sent' ||
+              doc.status === 'overdue') && (
+              <form action={updateStatus}>
+                <input
+                  type="hidden"
+                  name="status"
+                  value="paid"
+                />
+
+                <button
+                  type="submit"
+                  className="rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white"
+                >
+                  Marcar como pagada
+                </button>
+              </form>
+            )}
+
+            {doc.status === 'paid' && (
+              <span className="rounded-xl bg-green-100 px-4 py-2 text-sm font-semibold text-green-700">
+                ✓ Factura pagada
+              </span>
+            )}
+          </div>
+        )}
+
         <article className="overflow-hidden rounded-3xl bg-white shadow-xl ring-1 ring-slate-200">
-          {/* HEADER */}
           <header
             className="px-6 py-8 text-white sm:px-10"
             style={{ backgroundColor: primaryColor }}
@@ -352,27 +508,39 @@ async function updateStatus(formData: FormData) {
                 </h2>
 
                 {companyData?.legal_name &&
-                  companyData.display_name !== companyData.legal_name && (
+                  companyData.display_name !==
+                    companyData.legal_name && (
                     <p className="mt-1 text-sm text-white/70">
                       {companyData.legal_name}
                     </p>
                   )}
 
                 <div className="mt-4 space-y-1 text-sm text-white/75">
-                  {companyData?.address && <p>{companyData.address}</p>}
+                  {companyData?.address && (
+                    <p>{companyData.address}</p>
+                  )}
 
                   {(companyData?.city ||
                     companyData?.state ||
                     companyData?.postal_code) && (
                     <p>
-                      {[companyData.city, companyData.state, companyData.postal_code]
+                      {[
+                        companyData.city,
+                        companyData.state,
+                        companyData.postal_code,
+                      ]
                         .filter(Boolean)
                         .join(', ')}
                     </p>
                   )}
 
-                  {companyData?.phone && <p>{companyData.phone}</p>}
-                  {companyData?.email && <p>{companyData.email}</p>}
+                  {companyData?.phone && (
+                    <p>{companyData.phone}</p>
+                  )}
+
+                  {companyData?.email && (
+                    <p>{companyData.email}</p>
+                  )}
                 </div>
               </div>
 
@@ -406,7 +574,6 @@ async function updateStatus(formData: FormData) {
             </div>
           </header>
 
-          {/* CLIENT */}
           <section className="grid gap-6 border-b border-slate-200 px-6 py-7 sm:grid-cols-2 sm:px-10">
             <div>
               <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
@@ -419,21 +586,35 @@ async function updateStatus(formData: FormData) {
                   'Cliente no especificado'}
               </h3>
 
-              {clientData?.business_name && clientData?.name && (
-                <p className="mt-1 text-sm text-slate-600">
-                  {clientData.name}
-                </p>
-              )}
+              {clientData?.business_name &&
+                clientData?.name && (
+                  <p className="mt-1 text-sm text-slate-600">
+                    {clientData.name}
+                  </p>
+                )}
 
               <div className="mt-3 space-y-1 text-sm text-slate-500">
-                {clientData?.email && <p>{clientData.email}</p>}
-                {clientData?.phone && <p>{clientData.phone}</p>}
-                {clientData?.address && <p>{clientData.address}</p>}
+                {clientData?.email && (
+                  <p>{clientData.email}</p>
+                )}
+
+                {clientData?.phone && (
+                  <p>{clientData.phone}</p>
+                )}
+
+                {clientData?.address && (
+                  <p>{clientData.address}</p>
+                )}
+
                 {(clientData?.city ||
                   clientData?.state ||
                   clientData?.postal_code) && (
                   <p>
-                    {[clientData.city, clientData.state, clientData.postal_code]
+                    {[
+                      clientData.city,
+                      clientData.state,
+                      clientData.postal_code,
+                    ]
                       .filter(Boolean)
                       .join(', ')}
                   </p>
@@ -456,7 +637,6 @@ async function updateStatus(formData: FormData) {
             </div>
           </section>
 
-          {/* DESCRIPTION */}
           <section className="px-6 py-8 sm:px-10">
             <div className="rounded-2xl border border-slate-200">
               <div className="grid grid-cols-1 bg-slate-50 px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 sm:grid-cols-[1fr_140px]">
@@ -481,7 +661,6 @@ async function updateStatus(formData: FormData) {
               </div>
             </div>
 
-            {/* TOTALS */}
             <div className="mt-6 flex justify-end">
               <div className="w-full max-w-sm space-y-3">
                 <div className="flex justify-between text-sm text-slate-500">
@@ -516,7 +695,6 @@ async function updateStatus(formData: FormData) {
             </div>
           </section>
 
-          {/* NOTES */}
           {doc.notes && (
             <section className="border-t border-slate-200 px-6 py-7 sm:px-10">
               <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">
@@ -529,7 +707,6 @@ async function updateStatus(formData: FormData) {
             </section>
           )}
 
-          {/* PAYMENT INFO */}
           {companyData?.payment_info && (
             <section className="border-t border-slate-200 px-6 py-7 sm:px-10">
               <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">
@@ -542,7 +719,6 @@ async function updateStatus(formData: FormData) {
             </section>
           )}
 
-          {/* FOOTER */}
           <footer className="border-t border-slate-200 bg-slate-50 px-6 py-6 text-center sm:px-10">
             <p className="text-xs text-slate-400">
               Documento generado con BusinessAI
@@ -556,7 +732,6 @@ async function updateStatus(formData: FormData) {
           </footer>
         </article>
 
-        {/* BOTTOM */}
         <div className="mt-6 flex justify-center">
           <Link
             href="/documents"
