@@ -33,6 +33,7 @@ function text(data: FormData, key: string) {
 function docTitle(type: string) {
   const titles: Record<string, string> = {
     invoice: 'Factura',
+  quote: 'Cotización',
     letter: 'Carta comercial',
     work_order: 'Orden de trabajo',
     payment_reminder: 'Recordatorio de pago',
@@ -63,7 +64,7 @@ async function createDocument(formData: FormData) {
   const companyId = membership.company_id
   const type = text(formData, 'type')
 
-  if (!['invoice', 'letter', 'work_order', 'payment_reminder'].includes(type)) {
+  if (!['invoice', 'quote', 'letter', 'work_order', 'payment_reminder'].includes(type)) {
     redirect('/documents/new?error=type')
   }
 
@@ -185,6 +186,7 @@ async function createDocument(formData: FormData) {
 
   const prefix: Record<string, string> = {
     invoice: 'FAC',
+  quote: 'COT',
     letter: 'CARTA',
     work_order: 'OT',
     payment_reminder: 'REC',
@@ -199,9 +201,11 @@ async function createDocument(formData: FormData) {
       document_type: type,
       title: type === 'invoice'
         ? `Factura - ${clientName}`
-        : type === 'payment_reminder'
-          ? `Recordatorio de pago - ${clientName}`
-          : title,
+        : type === 'quote'
+          ? `Cotización - ${clientName}`
+          : type === 'payment_reminder'
+            ? `Recordatorio de pago - ${clientName}`
+            : title,
       document_number: documentNumber,
       client_id: clientId || null,
       issue_date: issueDate,
@@ -269,7 +273,7 @@ export default async function NewDocumentPage({
 
   const clientList = (clients ?? []) as ClientRow[]
   const invoiceList = (invoices ?? []) as InvoiceRow[]
-  const validTypes = ['invoice', 'letter', 'work_order', 'payment_reminder']
+  const validTypes = ['invoice', 'quote', 'letter', 'work_order', 'payment_reminder']
   const selectedType = validTypes.includes(type) ? type : 'invoice'
 
   const errorMessage: Record<string, string> = {
