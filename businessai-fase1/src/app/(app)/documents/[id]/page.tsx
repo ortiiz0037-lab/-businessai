@@ -2,6 +2,7 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import PrintButton from '@/components/PrintButton'
 
 type DocumentRow = {
   id: string
@@ -114,7 +115,9 @@ function parseQuoteNotes(notes: string | null | undefined) {
   if (discountMatch) discount = Number(discountMatch[1].replace(/,/g, '')) || 0
 
   cleanNotes = text
-    .replace(/COTIZACIÓN\s*[—-]\s*PARTIDAS[\s\S]*?TOTAL:\s*\$[\d,.]+/i, '')
+    .split(/\r?\n/)
+    .filter(line => !/^\s*(COTIZACIÓN\s*[—-]\s*PARTIDAS|\d+\.\s.*\|\s*Cantidad:|Subtotal:|Descuento:|Impuesto\s*\(|TOTAL:)/i.test(line))
+    .join('\n')
     .trim()
 
   return { items, discount, cleanNotes }
@@ -377,6 +380,7 @@ export default async function DocumentDetailPage({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <PrintButton />
             <span className="rounded-full bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
               {statusLabel(doc.status)}
             </span>
