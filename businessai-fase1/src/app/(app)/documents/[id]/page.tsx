@@ -88,6 +88,38 @@ function documentType(value: string | null | undefined) {
   return types[value ?? ''] ?? value ?? 'Documento'
 }
 
+
+function parseQuoteNotes(notes: string | null | undefined) {
+  const text = notes ?? ''
+  const items: { description: string; quantity: number; price: number; amount: number }[] = []
+  let discount = 0
+  let cleanNotes = text
+
+  for (const line of text.split(/\r?\n/)) {
+    const match = line.match(
+      /^\s*\d+\.\s*(.*?)\s*\|\s*Cantidad:\s*([\d.]+)\s*\|\s*Precio unitario:\s*\$([\d,.]+)\s*\|\s*Importe:\s*\$([\d,.]+)\s*$/i
+    )
+    if (match) {
+      const number = (v: string) => Number(v.replace(/,/g, '')) || 0
+      items.push({
+        description: match[1],
+        quantity: number(match[2]),
+        price: number(match[3]),
+        amount: number(match[4]),
+      })
+    }
+  }
+
+  const discountMatch = text.match(/Descuento:\s*\$([\d,.]+)/i)
+  if (discountMatch) discount = Number(discountMatch[1].replace(/,/g, '')) || 0
+
+  cleanNotes = text
+    .replace(/COTIZACIÓN\s*[—-]\s*PARTIDAS[\s\S]*?TOTAL:\s*\$[\d,.]+/i, '')
+    .trim()
+
+  return { items, discount, cleanNotes }
+}
+
 function statusLabel(value: string | null | undefined) {
   const statuses: Record<string, string> = {
     draft: 'Borrador',
@@ -323,6 +355,7 @@ export default async function DocumentDetailPage({
   const isQuote =
     doc.document_type === 'quote' ||
     doc.document_type === 'quotation'
+  const quoteDetails = parseQuoteNotes(doc.notes)
 
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-8 sm:px-6 lg:px-8">
@@ -625,6 +658,29 @@ export default async function DocumentDetailPage({
               </section>
 
               <section className="px-6 py-8 sm:px-10">
+                {isQuote ? (
+                  <div className="overflow-hidden rounded-2xl border border-slate-200">
+                    <div className="grid grid-cols-[minmax(0,1fr)_64px_100px_100px] gap-2 bg-slate-50 px-4 py-3 text-xs font-bold uppercase tracking-wide text-slate-500 sm:grid-cols-[minmax(0,1fr)_90px_130px_130px] sm:px-5">
+                      <span>Descripción</span>
+                      <span className="text-right">Cant.</span>
+                      <span className="text-right">Precio unit.</span>
+                      <span className="text-right">Importe</span>
+                    </div>
+                    {quoteDetails.items.length > 0 ? quoteDetails.items.map((item, index) => (
+                      <div key={`${item.description}-${index}`} className="grid grid-cols-[minmax(0,1fr)_64px_100px_100px] gap-2 border-t border-slate-100 px-4 py-4 text-sm text-slate-700 sm:grid-cols-[minmax(0,1fr)_90px_130px_130px] sm:px-5">
+                        <span className="break-words font-medium text-slate-900">{item.description}</span>
+                        <span className="text-right">{item.quantity}</span>
+                        <span className="text-right">{money(item.price)}</span>
+                        <span className="text-right font-semibold">{money(item.amount)}</span>
+                      </div>
+                    )) : (
+                      <div className="border-t border-slate-100 px-5 py-6">
+                        <p className="font-semibold text-slate-900">{doc.title || 'Cotización'}</p>
+                        <p className="mt-1 text-sm text-slate-500">No hay partidas detalladas guardadas en esta cotización.</p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
                 <div className="rounded-2xl border border-slate-200">
                   <div className="grid grid-cols-1 bg-slate-50 px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 sm:grid-cols-[1fr_140px]">
                     <span>Descripción</span>
@@ -645,6 +701,7 @@ export default async function DocumentDetailPage({
                   </div>
                 </div>
 
+) }
                 <div className="mt-6 flex justify-end">
                   <div className="w-full max-w-sm space-y-3">
                     <div className="flex justify-between text-sm text-slate-500">
@@ -653,6 +710,12 @@ export default async function DocumentDetailPage({
                         {money(subtotal)}
                       </span>
                     </div>
+                    {isQuote && quoteDetails.discount > 0 && (
+                      <div className="flex justify-between text-sm text-slate-500">
+                        <span>Descuento</span>
+                        <span className="font-medium text-slate-800">−{money(quoteDetails.discount)}</span>
+                      </div>
+                    )}
                     <div className="flex justify-between text-sm text-slate-500">
                       <span>Impuesto</span>
                       <span className="font-medium text-slate-800">
@@ -678,13 +741,13 @@ export default async function DocumentDetailPage({
             </>
           )}
 
-          {doc.notes && !isLetter && (
+          {(isQuote ? quoteDetails.cleanNotes : doc.notes) && !isLetter && (
             <section className="border-t border-slate-200 px-6 py-7 sm:px-10">
               <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">
                 {isWorkOrder ? 'Descripción del trabajo y notas' : 'Notas y condiciones'}
               </h3>
               <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-600">
-                {doc.notes}
+                {isQuote ? quoteDetails.cleanNotes : doc.notes}
               </p>
             </section>
           )}
