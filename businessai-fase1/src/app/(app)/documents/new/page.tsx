@@ -33,7 +33,7 @@ function text(data: FormData, key: string) {
 function docTitle(type: string) {
   const titles: Record<string, string> = {
     invoice: 'Factura',
-  quote: 'Cotización',
+    quote: 'Cotización',
     letter: 'Carta comercial',
     work_order: 'Orden de trabajo',
     payment_reminder: 'Recordatorio de pago',
@@ -45,11 +45,7 @@ async function createDocument(formData: FormData) {
   'use server'
 
   const supabase = await createClient()
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
+  const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
   const { data: membership } = await supabase
@@ -80,25 +76,63 @@ async function createDocument(formData: FormData) {
   let tax = 0
   let documentNotes = notes
 
-  if (type === 'invoice') {
-    const service = text(formData, 'service')
-    const quantity = Number(formData.get('quantity') ?? 1)
-    const unitPrice = Number(formData.get('unit_price') ?? 0)
-    const taxRate = Number(formData.get('tax_rate') ?? 0)
+  if (type === 'invoice' || type === 'quote') {
+    const items: {
+      description: string
+      quantity: number
+      unitPrice: number
+      amount: number
+    }[] = []
 
-    if (
-      !clientId ||
-      !service ||
-      !Number.isFinite(quantity) ||
-      quantity <= 0
-    ) redirect('/documents/new?type=invoice&error=required')
+    for (let i = 1; i <= 30; i++) {
+      const description = text(formData, `item_description_${i}`)
+      const quantityRaw = text(formData, `item_quantity_${i}`)
+      const priceRaw = text(formData, `item_price_${i}`)
 
-    if (!Number.isFinite(unitPrice) || unitPrice < 0) {
-      redirect('/documents/new?type=invoice&error=price')
+      if (!description && !quantityRaw && !priceRaw) continue
+      if (!description) redirect(`/documents/new?type=${type}&error=required`)
+
+      const quantity = Number(quantityRaw || 1)
+      const unitPrice = Number(priceRaw || 0)
+
+      if (!Number.isFinite(quantity) || quantity <= 0 ||
+          !Number.isFinite(unitPrice) || unitPrice < 0) {
+        redirect(`/documents/new?type=${type}&error=price`)
+      }
+
+      const amount = Number((quantity * unitPrice).toFixed(2))
+      subtotal += amount
+      items.push({ description, quantity, unitPrice, amount })
     }
 
-    if (!Number.isFinite(taxRate) || taxRate < 0) {
-      redirect('/documents/new?type=invoice&error=tax')
+    // Mantiene compatibilidad con el formulario anterior de factura.
+    if (items.length === 0 && type === 'invoice') {
+      const service = text(formData, 'service')
+      const quantity = Number(formData.get('quantity') ?? 1)
+      const unitPrice = Number(formData.get('unit_price') ?? 0)
+
+      if (service) {
+        if (!Number.isFinite(quantity) || quantity <= 0 ||
+            !Number.isFinite(unitPrice) || unitPrice < 0) {
+          redirect('/documents/new?type=invoice&error=price')
+        }
+
+        const amount = Number((quantity * unitPrice).toFixed(2))
+        subtotal = amount
+        items.push({ description: service, quantity, unitPrice, amount })
+      }
+    }
+
+    const taxRate = Number(formData.get('tax_rate') ?? 0)
+    const discount = Number(formData.get('discount') ?? 0)
+
+    if (!clientId || items.length === 0 || (type === 'quote' && !title)) {
+      redirect(`/documents/new?type=${type}&error=required`)
+    }
+
+    if (!Number.isFinite(taxRate) || taxRate < 0 ||
+        !Number.isFinite(discount) || discount < 0 || discount > subtotal) {
+      redirect(`/documents/new?type=${type}&error=tax`)
     }
 
     const { data: client } = await supabase
@@ -108,26 +142,28 @@ async function createDocument(formData: FormData) {
       .eq('company_id', companyId)
       .maybeSingle()
 
-    if (!client) redirect('/documents/new?type=invoice&error=client')
+    if (!client) redirect(`/documents/new?type=${type}&error=client`)
 
     clientName = client.business_name?.trim() || client.name?.trim() || 'Cliente'
-    subtotal = Number((quantity * unitPrice).toFixed(2))
-    tax = Number((subtotal * taxRate / 100).toFixed(2))
-    total = Number((subtotal + tax).toFixed(2))
+
+    const taxableAmount = Number((subtotal - discount).toFixed(2))
+    tax = Number((taxableAmount * taxRate / 100).toFixed(2))
+    total = Number((taxableAmount + tax).toFixed(2))
 
     documentNotes = [
-      `Servicio: ${service}`,
-      `Cantidad: ${quantity}`,
-      `Precio unitario: $${unitPrice.toFixed(2)}`,
-      taxRate > 0 ? `Impuesto: ${taxRate}%` : null,
-      notes ? `Notas: ${notes}` : null,
+      type === 'quote' ? 'COTIZACIÓN — PARTIDAS' : 'FACTURA — PARTIDAS',
+      ...items.map((item, index) =>
+        `${index + 1}. ${item.description} | Cantidad: ${item.quantity} | Precio unitario: $${item.unitPrice.toFixed(2)} | Importe: $${item.amount.toFixed(2)}`
+      ),
+      `Subtotal: $${subtotal.toFixed(2)}`,
+      `Descuento: $${discount.toFixed(2)}`,
+      `Impuesto (${taxRate}%): $${tax.toFixed(2)}`,
+      `TOTAL: $${total.toFixed(2)}`,
+      notes ? `Notas y condiciones: ${notes}` : null,
     ].filter(Boolean).join('\n')
   } else if (type === 'payment_reminder') {
     const invoiceId = text(formData, 'invoice_id')
-
-    if (!invoiceId) {
-      redirect('/documents/new?type=payment_reminder&error=invoice')
-    }
+    if (!invoiceId) redirect('/documents/new?type=payment_reminder&error=invoice')
 
     const { data: invoice } = await supabase
       .from('documents')
@@ -149,9 +185,7 @@ async function createDocument(formData: FormData) {
       .eq('company_id', companyId)
       .maybeSingle()
 
-    if (!client) {
-      redirect('/documents/new?type=payment_reminder&error=client')
-    }
+    if (!client) redirect('/documents/new?type=payment_reminder&error=client')
 
     clientName = client.business_name?.trim() || client.name?.trim() || 'Cliente'
     total = Number(invoice.total ?? 0)
@@ -164,9 +198,7 @@ async function createDocument(formData: FormData) {
       notes || 'Le recordamos amablemente que tiene un pago pendiente. Gracias por su atención.',
     ].filter((line) => line !== null).join('\n')
   } else {
-    if (!title || !notes) {
-      redirect(`/documents/new?type=${type}&error=required`)
-    }
+    if (!title || !notes) redirect(`/documents/new?type=${type}&error=required`)
 
     if (clientId) {
       const { data: client } = await supabase
@@ -177,7 +209,6 @@ async function createDocument(formData: FormData) {
         .maybeSingle()
 
       if (!client) redirect(`/documents/new?type=${type}&error=client`)
-
       clientName = client.business_name?.trim() || client.name?.trim() || 'Cliente'
     }
 
@@ -186,7 +217,7 @@ async function createDocument(formData: FormData) {
 
   const prefix: Record<string, string> = {
     invoice: 'FAC',
-  quote: 'COT',
+    quote: 'COT',
     letter: 'CARTA',
     work_order: 'OT',
     payment_reminder: 'REC',
@@ -202,7 +233,7 @@ async function createDocument(formData: FormData) {
       title: type === 'invoice'
         ? `Factura - ${clientName}`
         : type === 'quote'
-          ? `Cotización - ${clientName}`
+          ? title
           : type === 'payment_reminder'
             ? `Recordatorio de pago - ${clientName}`
             : title,
@@ -227,7 +258,6 @@ async function createDocument(formData: FormData) {
   revalidatePath('/documents')
   revalidatePath('/dashboard')
   revalidatePath('/payments')
-
   redirect(`/documents/${document.id}`)
 }
 
@@ -239,13 +269,8 @@ export default async function NewDocumentPage({
   const params = await searchParams
   const type = params?.type ?? 'invoice'
   const error = params?.error
-
   const supabase = await createClient()
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
+  const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
   const { data: membership } = await supabase
@@ -277,9 +302,9 @@ export default async function NewDocumentPage({
   const selectedType = validTypes.includes(type) ? type : 'invoice'
 
   const errorMessage: Record<string, string> = {
-    required: 'Completa los campos obligatorios.',
-    price: 'El precio debe ser cero o mayor.',
-    tax: 'El impuesto debe ser un número válido.',
+    required: 'Completa los campos obligatorios y añade al menos una partida.',
+    price: 'La cantidad debe ser mayor que cero y el precio no puede ser negativo.',
+    tax: 'Revisa el impuesto y el descuento.',
     client: 'No encontramos ese cliente en tu empresa.',
     invoice: 'Selecciona una factura pendiente válida para el recordatorio.',
     save: 'No se pudo guardar. Revisa los registros del servidor.',
@@ -295,26 +320,23 @@ export default async function NewDocumentPage({
       </Link>
 
       <header className="rounded-3xl bg-slate-950 p-7 text-white sm:p-9">
-        <p className="text-xs font-bold uppercase tracking-widest text-blue-300">
-          BUSINESSAI · DOCUMENTOS
-        </p>
+        <p className="text-xs font-bold uppercase tracking-widest text-blue-300">BUSINESSAI · DOCUMENTOS</p>
         <h1 className="mt-3 text-3xl font-bold">{docTitle(selectedType)}</h1>
         <p className="mt-2 text-sm text-slate-300">
-          Crea y guarda documentos de tu empresa en un solo lugar.
+          {selectedType === 'quote'
+            ? 'Prepara una propuesta comercial profesional con partidas y precios detallados.'
+            : 'Crea y guarda documentos de tu empresa en un solo lugar.'}
         </p>
       </header>
 
-      <nav className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <nav className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         {validTypes.map((item) => (
-          <Link
-            key={item}
-            href={`/documents/new?type=${item}`}
+          <Link key={item} href={`/documents/new?type=${item}`}
             className={`rounded-xl border px-3 py-3 text-center text-sm font-semibold ${
               selectedType === item
                 ? 'border-slate-950 bg-slate-950 text-white'
                 : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-            }`}
-          >
+            }`}>
             {docTitle(item)}
           </Link>
         ))}
@@ -334,149 +356,146 @@ export default async function NewDocumentPage({
             <h2 className="text-xl font-bold text-slate-950">Factura pendiente</h2>
             {invoiceList.length === 0 ? (
               <div className="rounded-xl bg-amber-50 p-4 text-sm text-amber-900">
-                No hay facturas pendientes disponibles. Crea una factura primero para poder preparar un recordatorio.
-                <Link href="/documents/new?type=invoice" className="mt-3 block font-bold underline">
-                  Crear factura
-                </Link>
+                No hay facturas pendientes disponibles. Crea una factura primero para preparar un recordatorio.
+                <Link href="/documents/new?type=invoice" className="mt-3 block font-bold underline">Crear factura</Link>
               </div>
             ) : (
               <>
-                <label className="block text-sm font-semibold text-slate-700">
-                  Selecciona la factura *
+                <label className="block text-sm font-semibold text-slate-700">Selecciona la factura *
                   <select name="invoice_id" required defaultValue="" className={`${fieldClass} mt-2`}>
                     <option value="" disabled>Seleccionar factura pendiente</option>
                     {invoiceList.map((invoice) => (
                       <option key={invoice.id} value={invoice.id}>
-                        {(invoice.document_number || invoice.title || 'Factura')} — ${Number(invoice.total ?? 0).toFixed(2)}
+                        {invoice.document_number || invoice.title || 'Factura'} — ${Number(invoice.total ?? 0).toFixed(2)}
                       </option>
                     ))}
                   </select>
                 </label>
-                <label className="block text-sm font-semibold text-slate-700">
-                  Fecha del recordatorio
+                <label className="block text-sm font-semibold text-slate-700">Fecha del recordatorio
                   <input name="issue_date" type="date" defaultValue={today()} className={`${fieldClass} mt-2`} />
                 </label>
-                <label className="block text-sm font-semibold text-slate-700">
-                  Mensaje *
+                <label className="block text-sm font-semibold text-slate-700">Mensaje *
                   <textarea name="notes" required rows={5} defaultValue="Le recordamos amablemente que tiene un pago pendiente. Si ya realizó el pago, puede ignorar este aviso. Gracias por su atención." className={`${fieldClass} mt-2`} />
                 </label>
               </>
             )}
           </section>
-        ) : (
+        ) : selectedType === 'invoice' || selectedType === 'quote' ? (
           <>
-            {selectedType !== 'invoice' && (
-              <section className="space-y-5 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-                <h2 className="text-xl font-bold text-slate-950">Información del documento</h2>
-                <label className="block text-sm font-semibold text-slate-700">
-                  Título *
-                  <input name="title" required className={`${fieldClass} mt-2`} placeholder={
-                    selectedType === 'letter' ? 'Ej. Carta comercial para cliente' : 'Ej. Reparación y mantenimiento'
-                  } />
+            <section className="space-y-5 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <h2 className="text-xl font-bold text-slate-950">Cliente y detalles</h2>
+              <label className="block text-sm font-semibold text-slate-700">Cliente *
+                <select name="client_id" required defaultValue="" className={`${fieldClass} mt-2`}>
+                  <option value="" disabled>Selecciona un cliente</option>
+                  {clientList.map((client) => (
+                    <option key={client.id} value={client.id}>
+                      {client.business_name || client.name || 'Cliente'}{client.email ? ` — ${client.email}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              {selectedType === 'quote' && (
+                <label className="block text-sm font-semibold text-slate-700">Título de la cotización *
+                  <input name="title" required className={`${fieldClass} mt-2`} placeholder="Ej. Cotización para remodelación" />
                 </label>
-                <label className="block text-sm font-semibold text-slate-700">
-                  Cliente (opcional)
-                  <select name="client_id" defaultValue="" className={`${fieldClass} mt-2`}>
-                    <option value="">Sin cliente específico</option>
-                    {clientList.map((client) => (
-                      <option key={client.id} value={client.id}>
-                        {client.business_name || client.name || 'Cliente'}
-                        {client.email ? ` — ${client.email}` : ''}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="block text-sm font-semibold text-slate-700">
-                  Fecha
+              )}
+
+              <div className="grid gap-5 sm:grid-cols-2">
+                <label className="block text-sm font-semibold text-slate-700">Fecha de emisión
                   <input name="issue_date" type="date" defaultValue={today()} className={`${fieldClass} mt-2`} />
                 </label>
-                {selectedType === 'work_order' && (
-                  <label className="block text-sm font-semibold text-slate-700">
-                    Fecha límite (opcional)
-                    <input name="due_date" type="date" className={`${fieldClass} mt-2`} />
-                  </label>
-                )}
-                <label className="block text-sm font-semibold text-slate-700">
-                  {selectedType === 'letter' ? 'Contenido de la carta *' : 'Descripción del trabajo *'}
-                  <textarea name="notes" required rows={8} className={`${fieldClass} mt-2`} placeholder={
-                    selectedType === 'letter'
-                      ? 'Escribe aquí el destinatario, el propósito y el contenido de la carta.'
-                      : 'Describe el trabajo solicitado, materiales, instrucciones y detalles importantes.'
-                  } />
+                <label className="block text-sm font-semibold text-slate-700">Válida hasta
+                  <input name="due_date" type="date" className={`${fieldClass} mt-2`} />
                 </label>
-              </section>
-            )}
+              </div>
+            </section>
 
-            {selectedType === 'invoice' && (
-              <>
-                <section className="space-y-5 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-                  <h2 className="text-xl font-bold text-slate-950">Información del cliente</h2>
-                  {clientList.length === 0 ? (
-                    <div className="rounded-xl bg-amber-50 p-4 text-sm text-amber-900">
-                      Primero registra un cliente.
-                      <Link href="/clients" className="ml-1 font-bold underline">Ir a Clientes</Link>
-                    </div>
-                  ) : (
-                    <label className="block text-sm font-semibold text-slate-700">
-                      Cliente *
-                      <select name="client_id" required defaultValue="" className={`${fieldClass} mt-2`}>
-                        <option value="" disabled>Selecciona un cliente</option>
-                        {clientList.map((client) => (
-                          <option key={client.id} value={client.id}>
-                            {client.business_name || client.name || 'Cliente'}
-                            {client.email ? ` — ${client.email}` : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
-                </section>
+            <section className="space-y-5 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div>
+                <h2 className="text-xl font-bold text-slate-950">
+                  {selectedType === 'quote' ? 'Partidas de la cotización' : 'Detalle de la factura'}
+                </h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Añade materiales, piezas, mano de obra o servicios. Puedes usar hasta 30 partidas.
+                </p>
+              </div>
 
-                <section className="space-y-5 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-                  <h2 className="text-xl font-bold text-slate-950">Detalle de la factura</h2>
-                  <label className="block text-sm font-semibold text-slate-700">
-                    Servicio o descripción *
-                    <input name="service" required className={`${fieldClass} mt-2`} placeholder="Ej. Servicio profesional" />
-                  </label>
-                  <div className="grid gap-5 sm:grid-cols-2">
-                    <label className="block text-sm font-semibold text-slate-700">
-                      Cantidad *
-                      <input name="quantity" type="number" min="0.01" step="0.01" defaultValue="1" required className={`${fieldClass} mt-2`} />
+              <div className="space-y-4">
+                {Array.from({ length: 30 }, (_, index) => index + 1).map((index) => (
+                  <div key={index} className="grid gap-3 rounded-2xl border border-slate-200 p-4 sm:grid-cols-6">
+                    <label className="block text-sm font-semibold text-slate-700 sm:col-span-3">
+                      {`Partida ${index} — descripción`}
+                      <input
+                        name={`item_description_${index}`}
+                        required={index === 1}
+                        className={`${fieldClass} mt-2`}
+                        placeholder={index === 1 ? 'Ej. Materiales de construcción' : 'Material, pieza o servicio (opcional)'}
+                      />
                     </label>
                     <label className="block text-sm font-semibold text-slate-700">
-                      Precio unitario *
-                      <input name="unit_price" type="number" min="0" step="0.01" required className={`${fieldClass} mt-2`} placeholder="0.00" />
+                      Cantidad
+                      <input name={`item_quantity_${index}`} type="number" min="0.01" step="0.01" defaultValue={index === 1 ? '1' : ''} required={index === 1} className={`${fieldClass} mt-2`} />
                     </label>
-                    <label className="block text-sm font-semibold text-slate-700">
-                      Impuesto %
-                      <input name="tax_rate" type="number" min="0" step="0.01" defaultValue="0" className={`${fieldClass} mt-2`} />
-                    </label>
-                    <label className="block text-sm font-semibold text-slate-700">
-                      Fecha de factura
-                      <input name="issue_date" type="date" defaultValue={today()} className={`${fieldClass} mt-2`} />
+                    <label className="block text-sm font-semibold text-slate-700 sm:col-span-2">
+                      Precio unitario ($)
+                      <input name={`item_price_${index}`} type="number" min="0" step="0.01" defaultValue="" required={index === 1} className={`${fieldClass} mt-2`} placeholder="0.00" />
                     </label>
                   </div>
-                  <label className="block text-sm font-semibold text-slate-700">
-                    Notas
-                    <textarea name="notes" rows={4} className={`${fieldClass} mt-2`} />
-                  </label>
-                </section>
-              </>
-            )}
+                ))}
+              </div>
+
+              <div className="grid gap-5 sm:grid-cols-2">
+                <label className="block text-sm font-semibold text-slate-700">Descuento ($)
+                  <input name="discount" type="number" min="0" step="0.01" defaultValue="0" className={`${fieldClass} mt-2`} />
+                </label>
+                <label className="block text-sm font-semibold text-slate-700">Impuesto (%)
+                  <input name="tax_rate" type="number" min="0" step="0.01" defaultValue="0" className={`${fieldClass} mt-2`} />
+                </label>
+              </div>
+
+              <label className="block text-sm font-semibold text-slate-700">Notas, condiciones y términos
+                <textarea name="notes" rows={4} className={`${fieldClass} mt-2`} placeholder="Vigencia, tiempo estimado, condiciones de pago y detalles adicionales." />
+              </label>
+            </section>
           </>
+        ) : (
+          <section className="space-y-5 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="text-xl font-bold text-slate-950">Información del documento</h2>
+            <label className="block text-sm font-semibold text-slate-700">Título *
+              <input name="title" required className={`${fieldClass} mt-2`} placeholder={selectedType === 'letter' ? 'Ej. Carta comercial para cliente' : 'Ej. Reparación y mantenimiento'} />
+            </label>
+            <label className="block text-sm font-semibold text-slate-700">Cliente (opcional)
+              <select name="client_id" defaultValue="" className={`${fieldClass} mt-2`}>
+                <option value="">Sin cliente específico</option>
+                {clientList.map((client) => (
+                  <option key={client.id} value={client.id}>{client.business_name || client.name || 'Cliente'}{client.email ? ` — ${client.email}` : ''}</option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-sm font-semibold text-slate-700">Fecha
+              <input name="issue_date" type="date" defaultValue={today()} className={`${fieldClass} mt-2`} />
+            </label>
+            {selectedType === 'work_order' && (
+              <label className="block text-sm font-semibold text-slate-700">Fecha límite (opcional)
+                <input name="due_date" type="date" className={`${fieldClass} mt-2`} />
+              </label>
+            )}
+            <label className="block text-sm font-semibold text-slate-700">
+              {selectedType === 'letter' ? 'Contenido de la carta *' : 'Descripción del trabajo *'}
+              <textarea name="notes" required rows={8} className={`${fieldClass} mt-2`} placeholder={selectedType === 'letter' ? 'Escribe aquí el destinatario, el propósito y el contenido de la carta.' : 'Describe el trabajo solicitado, materiales, instrucciones y detalles importantes.'} />
+            </label>
+          </section>
         )}
 
         <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-5 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-slate-600">
-            El documento se guardará en la empresa asociada a tu cuenta.
+            {selectedType === 'quote'
+              ? 'La cotización se guardará como borrador para revisarla antes de enviarla al cliente.'
+              : 'El documento se guardará en la empresa asociada a tu cuenta.'}
           </p>
-          <button
-            type="submit"
-            disabled={
-              selectedType === 'payment_reminder' && invoiceList.length === 0
-            }
-            className="rounded-xl bg-slate-950 px-6 py-3.5 text-sm font-bold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
-          >
+          <button type="submit" disabled={selectedType === 'payment_reminder' && invoiceList.length === 0}
+            className="rounded-xl bg-slate-950 px-6 py-3.5 text-sm font-bold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40">
             Guardar {docTitle(selectedType)} →
           </button>
         </div>
