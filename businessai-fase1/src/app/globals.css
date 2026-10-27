@@ -1,1 +1,57 @@
 @import "tailwindcss";
+
+
+
+/* BusinessAI: imprimir únicamente el documento comercial */
+@media print {
+  @page {
+    size: auto;
+    margin: 12mm;
+  }
+
+  html, body {
+    background: #fff !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    min-height: 0 !important;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  article, article * {
+    visibility: visible !important;
+  }
+
+  article {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    ring: 0 !important;
+    background: #fff !important;
+    color: #111827 !important;
+  }
+
+  article header {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  article section, article footer, article header {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  button, nav, aside {
+    display: none !important;
+  }
+}

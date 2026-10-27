@@ -664,14 +664,14 @@ export default async function DocumentDetailPage({
               <section className="px-6 py-8 sm:px-10">
                 {isQuote ? (
                   <div className="overflow-hidden rounded-2xl border border-slate-200">
-                    <div className="grid grid-cols-[minmax(0,1fr)_64px_100px_100px] gap-2 bg-slate-50 px-4 py-3 text-xs font-bold uppercase tracking-wide text-slate-500 sm:grid-cols-[minmax(0,1fr)_90px_130px_130px] sm:px-5">
+                    <div className="grid grid-cols-[minmax(100px,1fr)_42px_72px_78px] gap-1 bg-slate-50 px-2 py-3 text-[9px] font-bold uppercase tracking-wide text-slate-500 sm:grid-cols-[minmax(0,1fr)_90px_130px_130px] sm:gap-3 sm:px-5 sm:text-xs">
                       <span>Descripción</span>
                       <span className="text-right">Cant.</span>
                       <span className="text-right">Precio unit.</span>
                       <span className="text-right">Importe</span>
                     </div>
                     {quoteDetails.items.length > 0 ? quoteDetails.items.map((item, index) => (
-                      <div key={`${item.description}-${index}`} className="grid grid-cols-[minmax(0,1fr)_64px_100px_100px] gap-2 border-t border-slate-100 px-4 py-4 text-sm text-slate-700 sm:grid-cols-[minmax(0,1fr)_90px_130px_130px] sm:px-5">
+                      <div key={`${item.description}-${index}`} className="grid grid-cols-[minmax(100px,1fr)_42px_72px_78px] gap-1 border-t border-slate-100 px-2 py-4 text-xs text-slate-700 sm:grid-cols-[minmax(0,1fr)_90px_130px_130px] sm:gap-3 sm:px-5 sm:text-sm">
                         <span className="break-words font-medium text-slate-900">{item.description}</span>
                         <span className="text-right">{item.quantity}</span>
                         <span className="text-right">{money(item.price)}</span>
