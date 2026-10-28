@@ -1,3 +1,4 @@
+
 'use client'
 
 import { useState } from 'react'
@@ -20,26 +21,31 @@ export default function CompanyBranding({
   const [message, setMessage] = useState('')
   const [diagnostic, setDiagnostic] = useState('')
 
-  async function checkStorage() {
-    setDiagnostic('Comprobando conexión…')
+  const bucket = 'Company-assets'
 
+  async function diagnose() {
+    setDiagnostic('Comprobando conexión...')
     try {
       const supabase = createClient()
       const { data, error } = await supabase.storage.listBuckets()
 
       if (error) {
-        setDiagnostic(`Error de Storage: ${error.message}`)
+        setDiagnostic(`Error consultando Storage: ${error.message}`)
         return
       }
 
-      const names = (data ?? []).map((bucket) => bucket.name)
+      const found = data?.find((item) => item.name === bucket)
 
       setDiagnostic(
-        `Buckets visibles: ${names.length ? names.join(', ') : 'ninguno'}`
+        found
+          ? `Bucket encontrado: ${found.name}. Público: ${found.public ? 'sí' : 'no'}.`
+          : `La aplicación no encuentra "${bucket}". Buckets visibles: ${
+              data?.map((item) => item.name).join(', ') || 'ninguno'
+            }.`
       )
     } catch (error) {
       setDiagnostic(
-        error instanceof Error ? error.message : 'Error desconocido'
+        error instanceof Error ? error.message : 'Error desconocido.'
       )
     }
   }
@@ -48,20 +54,16 @@ export default function CompanyBranding({
     event: React.ChangeEvent<HTMLInputElement>,
     kind: 'logo' | 'signature'
   ) {
-    const input = event.currentTarget
-    const file = input.files?.[0]
-
+    const file = event.target.files?.[0]
     if (!file) return
 
     if (!file.type.startsWith('image/')) {
       setMessage('Selecciona una imagen válida.')
-      input.value = ''
       return
     }
 
     if (file.size > 5 * 1024 * 1024) {
       setMessage('La imagen no puede superar 5 MB.')
-      input.value = ''
       return
     }
 
@@ -70,7 +72,6 @@ export default function CompanyBranding({
 
     try {
       const supabase = createClient()
-      const bucket = 'Company-assets'
       const extension = file.name.split('.').pop()?.toLowerCase() || 'png'
       const path = `${companyId}/${kind}-${Date.now()}.${extension}`
 
@@ -81,11 +82,7 @@ export default function CompanyBranding({
           contentType: file.type,
         })
 
-      if (uploadError) {
-        throw new Error(
-          `Storage ${uploadError.name}: ${uploadError.message}`
-        )
-      }
+      if (uploadError) throw uploadError
 
       const { data } = supabase.storage.from(bucket).getPublicUrl(path)
       const url = data.publicUrl
@@ -97,34 +94,24 @@ export default function CompanyBranding({
         .eq('company_id', companyId)
         .select('company_id')
 
-      if (saveError) {
-        throw new Error(
-          `Perfil ${saveError.code ?? ''}: ${saveError.message}`
-        )
-      }
-
+      if (saveError) throw saveError
       if (!updated?.length) {
         throw new Error(
           'La imagen se subió, pero no se guardó en el perfil de la empresa.'
         )
       }
 
-      if (kind === 'logo') {
-        setLogo(url)
-      } else {
-        setSignature(url)
-      }
+      if (kind === 'logo') setLogo(url)
+      else setSignature(url)
 
       setMessage(kind === 'logo' ? 'Logo guardado.' : 'Firma guardada.')
     } catch (error) {
       setMessage(
-        error instanceof Error
-          ? error.message
-          : 'No se pudo guardar la imagen.'
+        error instanceof Error ? error.message : 'No se pudo guardar la imagen.'
       )
     } finally {
       setLoading(false)
-      input.value = ''
+      event.target.value = ''
     }
   }
 
@@ -134,8 +121,8 @@ export default function CompanyBranding({
 
       <button
         type="button"
-        onClick={checkStorage}
-        className="rounded-lg border px-3 py-2 text-sm"
+        onClick={diagnose}
+        className="rounded-lg border px-4 py-2 text-sm"
       >
         Diagnosticar conexión de Storage
       </button>
@@ -148,7 +135,6 @@ export default function CompanyBranding({
 
       <div className="space-y-2">
         <label className="block font-medium">Logo de la empresa</label>
-
         {logo && (
           <img
             src={logo}
@@ -156,10 +142,9 @@ export default function CompanyBranding({
             className="h-24 max-w-48 rounded border object-contain p-2"
           />
         )}
-
         <input
           type="file"
-          accept="image/png,image/jpeg,image/webp,image/svg+xml"
+          accept="image/png,image/jpeg,image/webp"
           disabled={loading}
           onChange={(event) => upload(event, 'logo')}
           className="block w-full text-sm"
@@ -168,7 +153,6 @@ export default function CompanyBranding({
 
       <div className="space-y-2">
         <label className="block font-medium">Firma para documentos</label>
-
         {signature && (
           <img
             src={signature}
@@ -176,7 +160,6 @@ export default function CompanyBranding({
             className="h-20 max-w-48 rounded border object-contain p-2"
           />
         )}
-
         <input
           type="file"
           accept="image/png,image/jpeg,image/webp"
@@ -187,12 +170,7 @@ export default function CompanyBranding({
       </div>
 
       {loading && <p>Guardando imagen…</p>}
-
-      {message && (
-        <p role="status" className="break-words text-sm">
-          {message}
-        </p>
-      )}
+      {message && <p role="status" className="text-sm">{message}</p>}
     </section>
   )
 }
