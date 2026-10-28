@@ -1,3 +1,4 @@
+import CompanyBranding from '@/components/CompanyBranding'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 
@@ -351,7 +352,14 @@ export default async function CompanySettingsPage({
             />
           </section>
 
-          <div className="flex justify-end">
+          
+        <CompanyBranding
+          companyId={membership.company_id}
+          logoUrl={profile?.logo_url ?? null}
+          signatureUrl={profile?.signature_url ?? null}
+        />
+
+<div className="flex justify-end">
             <button
               type="submit"
               className="rounded-xl bg-slate-950 px-7 py-3.5 text-sm font-bold text-white shadow-lg transition hover:bg-slate-800"
