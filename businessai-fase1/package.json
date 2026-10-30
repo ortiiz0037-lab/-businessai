@@ -2,7 +2,9 @@
   "name": "businessai",
   "version": "0.1.0",
   "private": true,
-  "engines": { "node": ">=20.9.0" },
+  "engines": {
+    "node": ">=20.9.0"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -11,11 +13,13 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@stripe/stripe-js": "^10.2.0",
     "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "^2.58.0",
     "next": "^16.0.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "stripe": "^23.1.0",
     "zod": "^4.0.0"
   },
   "devDependencies": {

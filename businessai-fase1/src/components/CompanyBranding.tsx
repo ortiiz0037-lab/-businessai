@@ -4,173 +4,187 @@
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
-type Props = {
+type CompanyBrandingProps = {
   companyId: string
-  logoUrl?: string | null
-  signatureUrl?: string | null
+  logoUrl: string | null
+  signatureUrl: string | null
 }
+
+const BUCKET = 'Company-assets'
 
 export default function CompanyBranding({
   companyId,
-  logoUrl = null,
-  signatureUrl = null,
-}: Props) {
+  logoUrl,
+  signatureUrl,
+}: CompanyBrandingProps) {
+  const supabase = createClient()
+
   const [logo, setLogo] = useState(logoUrl)
   const [signature, setSignature] = useState(signatureUrl)
-  const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
-  const [diagnostic, setDiagnostic] = useState('')
+  const [loading, setLoading] = useState(false)
 
-  const bucket = 'Company-assets'
+  async function diagnosticarStorage() {
+    setLoading(true)
+    setMessage('Comprobando conexión con Storage...')
 
-  async function diagnose() {
-    setDiagnostic('Comprobando conexión...')
-    try {
-      const supabase = createClient()
-      const { data, error } = await supabase.storage.listBuckets()
+    const { data, error } = await supabase.storage.listBuckets()
 
-      if (error) {
-        setDiagnostic(`Error consultando Storage: ${error.message}`)
-        return
-      }
-
-      const found = data?.find((item) => item.name === bucket)
-
-      setDiagnostic(
-        found
-          ? `Bucket encontrado: ${found.name}. Público: ${found.public ? 'sí' : 'no'}.`
-          : `La aplicación no encuentra "${bucket}". Buckets visibles: ${
-              data?.map((item) => item.name).join(', ') || 'ninguno'
-            }.`
-      )
-    } catch (error) {
-      setDiagnostic(
-        error instanceof Error ? error.message : 'Error desconocido.'
+    if (error) {
+      setMessage(`Error de conexión: ${error.message}`)
+    } else {
+      const names = data.map((bucket) => bucket.name)
+      setMessage(
+        `Buckets encontrados: ${names.join(', ') || 'ninguno visible'}`
       )
     }
+
+    setLoading(false)
   }
 
-  async function upload(
-    event: React.ChangeEvent<HTMLInputElement>,
-    kind: 'logo' | 'signature'
+  async function subirArchivo(
+    file: File | undefined,
+    tipo: 'logo' | 'signature'
   ) {
-    const file = event.target.files?.[0]
     if (!file) return
 
     if (!file.type.startsWith('image/')) {
-      setMessage('Selecciona una imagen válida.')
+      setMessage('Selecciona un archivo de imagen.')
       return
     }
 
     if (file.size > 5 * 1024 * 1024) {
-      setMessage('La imagen no puede superar 5 MB.')
+      setMessage('La imagen debe pesar menos de 5 MB.')
       return
     }
 
     setLoading(true)
-    setMessage('')
+    setMessage('Subiendo imagen...')
 
     try {
-      const supabase = createClient()
       const extension = file.name.split('.').pop()?.toLowerCase() || 'png'
-      const path = `${companyId}/${kind}-${Date.now()}.${extension}`
+      const path = `${companyId}/${tipo}-${Date.now()}.${extension}`
 
       const { error: uploadError } = await supabase.storage
-        .from(bucket)
+        .from(BUCKET)
         .upload(path, file, {
           upsert: true,
           contentType: file.type,
         })
 
-      if (uploadError) throw uploadError
+      if (uploadError) {
+        throw new Error(uploadError.message)
+      }
 
-      const { data } = supabase.storage.from(bucket).getPublicUrl(path)
-      const url = data.publicUrl
-      const column = kind === 'logo' ? 'logo_url' : 'signature_url'
+      const { data } = supabase.storage
+        .from(BUCKET)
+        .getPublicUrl(path)
 
-      const { data: updated, error: saveError } = await supabase
+      const publicUrl = data.publicUrl
+
+      const updateData =
+        tipo === 'logo'
+          ? { logo_url: publicUrl }
+          : { signature_url: publicUrl }
+
+      const { error: updateError } = await supabase
         .from('company_profiles')
-        .update({ [column]: url })
+        .update(updateData)
         .eq('company_id', companyId)
-        .select('company_id')
 
-      if (saveError) throw saveError
-      if (!updated?.length) {
+      if (updateError) {
         throw new Error(
-          'La imagen se subió, pero no se guardó en el perfil de la empresa.'
+          `La imagen se subió, pero no se pudo guardar en el perfil: ${updateError.message}`
         )
       }
 
-      if (kind === 'logo') setLogo(url)
-      else setSignature(url)
+      if (tipo === 'logo') {
+        setLogo(publicUrl)
+      } else {
+        setSignature(publicUrl)
+      }
 
-      setMessage(kind === 'logo' ? 'Logo guardado.' : 'Firma guardada.')
+      setMessage(
+        tipo === 'logo'
+          ? 'Logo guardado correctamente.'
+          : 'Firma guardada correctamente.'
+      )
     } catch (error) {
       setMessage(
-        error instanceof Error ? error.message : 'No se pudo guardar la imagen.'
+        error instanceof Error
+          ? `Error: ${error.message}`
+          : 'Ocurrió un error al subir la imagen.'
       )
     } finally {
       setLoading(false)
-      event.target.value = ''
     }
   }
 
   return (
-    <section className="space-y-6 rounded-2xl border border-slate-200 p-5">
-      <h2 className="text-lg font-semibold">Imagen de la empresa</h2>
+    <section className="space-y-6">
+      <div>
+        <h2 className="text-lg font-semibold">Imagen de la empresa</h2>
+        <p className="text-sm text-gray-500">
+          Sube el logo y la firma que aparecerán en tus documentos.
+        </p>
+      </div>
 
       <button
         type="button"
-        onClick={diagnose}
-        className="rounded-lg border px-4 py-2 text-sm"
+        onClick={diagnosticarStorage}
+        disabled={loading}
+        className="rounded border px-4 py-2 text-sm disabled:opacity-50"
       >
         Diagnosticar conexión de Storage
       </button>
 
-      {diagnostic && (
+      {message && (
         <p role="status" className="break-words text-sm">
-          {diagnostic}
+          {message}
         </p>
       )}
 
-      <div className="space-y-2">
-        <label className="block font-medium">Logo de la empresa</label>
+      <div className="space-y-3">
+        <h3 className="font-medium">Logo de la empresa</h3>
+
         {logo && (
           <img
             src={logo}
             alt="Logo de la empresa"
-            className="h-24 max-w-48 rounded border object-contain p-2"
+            className="max-h-32 max-w-48 rounded border object-contain"
           />
         )}
+
         <input
           type="file"
-          accept="image/png,image/jpeg,image/webp"
+          accept="image/*"
           disabled={loading}
-          onChange={(event) => upload(event, 'logo')}
-          className="block w-full text-sm"
+          onChange={(event) =>
+            subirArchivo(event.target.files?.[0], 'logo')
+          }
         />
       </div>
 
-      <div className="space-y-2">
-        <label className="block font-medium">Firma para documentos</label>
+      <div className="space-y-3">
+        <h3 className="font-medium">Firma para documentos</h3>
+
         {signature && (
           <img
             src={signature}
             alt="Firma de la empresa"
-            className="h-20 max-w-48 rounded border object-contain p-2"
+            className="max-h-32 max-w-48 rounded border object-contain"
           />
         )}
+
         <input
           type="file"
-          accept="image/png,image/jpeg,image/webp"
+          accept="image/*"
           disabled={loading}
-          onChange={(event) => upload(event, 'signature')}
-          className="block w-full text-sm"
+          onChange={(event) =>
+            subirArchivo(event.target.files?.[0], 'signature')
+          }
         />
       </div>
-
-      {loading && <p>Guardando imagen…</p>}
-      {message && <p role="status" className="text-sm">{message}</p>}
     </section>
   )
 }
