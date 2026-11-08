@@ -93,17 +93,25 @@ case "$marker" in
   *) die "environment marker is '$marker', not staging. Nothing was changed." ;;
 esac
 
-psqlx -c "create schema if not exists ba_meta;
+# The record table is created only when applying (DRY_RUN writes nothing).
+if [[ "${DRY_RUN:-0}" != "1" ]]; then
+  psqlx -c "create schema if not exists ba_meta;
           create table if not exists ba_meta.applied_migrations (
             name text primary key, sha256 text not null, applied_at timestamptz not null default now());
           revoke all on schema ba_meta from public, anon, authenticated;" >/dev/null
+
+fi
+has_record="$(psqlx -tA -c "select to_regclass('ba_meta.applied_migrations') is not null")"
 
 pending=()
 for name in "${ORDER[@]}"; do
   file="$MIG/$name.sql"
   [[ -f "$file" ]] || die "missing migration file $name.sql"
   sum="$(sha256sum "$file" | cut -d' ' -f1)"
-  recorded="$(psqlx -tA -c "select sha256 from ba_meta.applied_migrations where name = '$name'")"
+  recorded=""
+  if [[ "$has_record" == "t" ]]; then
+    recorded="$(psqlx -tA -c "select sha256 from ba_meta.applied_migrations where name = '$name'")"
+  fi
   if [[ -z "$recorded" ]]; then
     pending+=("$name")
   elif [[ "$recorded" != "$sum" ]]; then

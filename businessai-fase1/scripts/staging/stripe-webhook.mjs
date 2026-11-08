@@ -12,6 +12,8 @@
  *   and a new one created. Endpoints of other environments are never touched.
  * - The secret is written to $GITHUB_ENV (masked in the logs) or, locally,
  *   only its last 4 characters are printed.
+ * - --plan-only: lists the existing staging endpoint(s) and what would
+ *   happen. Writes nothing.
  */
 import Stripe from 'stripe'
 import { appendFileSync } from 'node:fs'
@@ -57,6 +59,14 @@ async function main() {
 
   const stripe = new Stripe(key)
   const existing = await stripe.webhookEndpoints.list({ limit: 100 })
+  if (process.argv.includes('--plan-only')) {
+    const staging = existing.data.filter((ep) => ep.metadata?.businessai_env === 'staging')
+    console.log('PLAN ONLY — nothing is written:')
+    console.log(`  test-mode endpoints in the account: ${existing.data.length} (only those tagged staging are touched)`)
+    for (const ep of staging) console.log(`  would replace staging endpoint ${ep.id} (${new URL(ep.url).origin})`)
+    console.log(`  would create: ${new URL(url).origin}/api/stripe/webhook with ${WEBHOOK_EVENTS.length} events`)
+    return
+  }
   for (const ep of existing.data) {
     if (ep.metadata?.businessai_env === 'staging') {
       await stripe.webhookEndpoints.del(ep.id)

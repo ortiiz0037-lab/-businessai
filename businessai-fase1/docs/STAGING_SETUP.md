@@ -72,11 +72,18 @@ Pestaña **Variables** → New repository variable:
 | `STAGING_PRICE_PRO_CENTS` | precio mensual Pro en centavos |
 | `STAGING_PRICE_PREMIUM_CENTS` | precio mensual Premium en centavos |
 
-## 5. GitHub: lanzar el workflow
-Abre el **PR #1** → panel **Labels** (engranaje) → escribe `staging:run` → crea y
-aplica la etiqueta. Eso arranca **Actions → Staging** con todos los pasos.
-(El botón "Run workflow" solo aparece cuando el archivo esté en `main`; la etiqueta
-funciona ya, sin fusionar nada ni desplegar producción.)
+## 5. GitHub: comprobar y, después, autorizar
+**5a. Comprobación (solo lectura).** PR #1 → **Labels** → crea y aplica `staging:check`.
+El workflow verifica que estén todos los valores (solo nombres), conecta con
+staging y aplica todas las protecciones contra producción, lista las migraciones
+pendientes sin aplicarlas y muestra el plan de Stripe y de Vercel. **No escribe
+nada en ningún servicio.** Revisa el resultado en Actions → Staging.
+
+**5b. Ejecución (tu autorización).** Quita `staging:check` y aplica `staging:run`.
+Eso aplica las migraciones en staging, prepara Stripe test, escribe las variables
+Preview de Vercel y ejecuta las pruebas.
+(El botón "Run workflow" solo aparece cuando el archivo esté en `main`; las
+etiquetas funcionan ya, sin fusionar nada ni desplegar producción.)
 
 Para volver a ejecutarlo: quita la etiqueta y vuelve a ponerla.
 

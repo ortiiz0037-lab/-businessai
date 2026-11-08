@@ -7,7 +7,10 @@
  *   STAGING_URL=… STAGING_SUPABASE_URL=… STAGING_SUPABASE_PUBLISHABLE_KEY=… \
  *   STAGING_SUPABASE_SERVICE_ROLE_KEY=… STRIPE_SECRET_KEY=sk_test_… \
  *   STRIPE_WEBHOOK_SECRET=whsec_… [VERCEL_DEPLOY_HOOK_URL=…] \
- *   node scripts/staging/vercel-env.mjs [--split-shared]
+ *   node scripts/staging/vercel-env.mjs [--split-shared] [--plan-only]
+ *
+ * --plan-only: reads the project's variable list (names and targets only)
+ * and prints what would change. Writes nothing.
  *
  * A variable that today is shared by Production AND Preview (one entry for
  * both) cannot get a Preview-only value without touching that entry. By
@@ -103,9 +106,14 @@ async function main() {
     return json
   }
 
+  const planOnly = process.argv.includes('--plan-only')
   let desired
   try {
-    desired = desiredVariables(process.env)
+    // In plan mode the webhook secret does not exist yet (created in run mode).
+    const source = planOnly && !process.env.STRIPE_WEBHOOK_SECRET
+      ? { ...process.env, STRIPE_WEBHOOK_SECRET: 'whsec_created_in_run_mode' }
+      : process.env
+    desired = desiredVariables(source)
   } catch (e) {
     fail(e.message)
   }
@@ -113,6 +121,20 @@ async function main() {
   const current = await api('GET', `/v10/projects/${projectId}/env`)
   const existing = (current.envs ?? []).map((e) => ({ id: e.id, key: e.key, target: e.target ?? [], gitBranch: e.gitBranch ?? null }))
   const { ops, shared, blocked } = planChanges(existing, desired, { splitShared: process.argv.includes('--split-shared') })
+
+  if (planOnly) {
+    console.log('PLAN ONLY — nothing is written (values are never printed):')
+    for (const o of ops) {
+      console.log(o.op === 'split'
+        ? `  split  ${o.key}: would remove "preview" (stays ${o.target.join(', ')})`
+        : `  ${o.op.padEnd(6)} ${o.key} → preview (${o.type})`)
+    }
+    if (shared.length) {
+      console.log('Shared Production+Preview today (need STAGING_SPLIT_SHARED=true to proceed):')
+      for (const v of shared) console.log(`  - ${v.key} (${v.target.join(', ')})`)
+    }
+    return
+  }
 
   if (blocked) {
     console.error('These variables are shared by Production and Preview today:')

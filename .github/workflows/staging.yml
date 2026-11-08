@@ -6,9 +6,11 @@ name: Staging
 # See businessai-fase1/docs/STAGING_SETUP.md.
 #
 # How to start it:
-#   * add the label `staging:run` to the pull request (works while this file
-#     only exists on the PR branch; prices come from repository variables
-#     STAGING_PRICE_BASIC_CENTS / _PRO_ / _PREMIUM_);
+#   * label `staging:check` on the pull request → READ-ONLY check: preflight,
+#     staging DB guards + pending migrations (dry run), and the Stripe and
+#     Vercel plans. Writes nothing anywhere.
+#   * label `staging:run` → applies everything (owner's authorization).
+#     Prices come from repository variables STAGING_PRICE_*_CENTS.
 #   * or Actions → Staging → Run workflow (only once the file is on main).
 
 on:
@@ -59,18 +61,20 @@ jobs:
     # Label runs: only the exact label, and never from forks (no secrets there).
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      (github.event.label.name == 'staging:run' &&
+      ((github.event.label.name == 'staging:run' || github.event.label.name == 'staging:check') &&
        github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: businessai-fase1
     env:
+      # check = read-only (label staging:check); run = apply (label staging:run / dispatch).
+      MODE: ${{ github.event.label.name == 'staging:check' && 'check' || 'run' }}
       # Label runs execute every step; dispatch runs follow the checkboxes.
       DO_MIGRATIONS: ${{ github.event_name != 'workflow_dispatch' || inputs.migrations }}
       DO_STRIPE: ${{ github.event_name != 'workflow_dispatch' || inputs.stripe }}
       DO_VERCEL: ${{ github.event_name != 'workflow_dispatch' || inputs.vercel }}
-      DO_TESTS: ${{ github.event_name != 'workflow_dispatch' || inputs.tests }}
+      DO_TESTS: ${{ github.event.label.name != 'staging:check' && (github.event_name != 'workflow_dispatch' || inputs.tests) }}
       SPLIT_SHARED: ${{ inputs.split_shared || vars.STAGING_SPLIT_SHARED == 'true' }}
       PRICE_BASIC: ${{ inputs.basic_cents || vars.STAGING_PRICE_BASIC_CENTS }}
       PRICE_PRO: ${{ inputs.pro_cents || vars.STAGING_PRICE_PRO_CENTS }}
@@ -103,7 +107,7 @@ jobs:
           [ -n "$PRODUCTION_PROJECT_REF" ] || missing+=("variable PRODUCTION_PROJECT_REF")
           if $DO_MIGRATIONS; then [ "$HAS_DB" = true ] || missing+=("secret STAGING_DB_URL"); fi
           if $DO_STRIPE || $DO_TESTS; then [ "$HAS_STRIPE" = true ] || missing+=("secret STRIPE_TEST_SECRET_KEY"); fi
-          if $DO_STRIPE; then
+          if $DO_STRIPE && [ "$MODE" = run ]; then
             [ -n "$PRICE_BASIC" ] && [ -n "$PRICE_PRO" ] && [ -n "$PRICE_PREMIUM" ] \
               || missing+=("prices: variables STAGING_PRICE_BASIC_CENTS, STAGING_PRICE_PRO_CENTS, STAGING_PRICE_PREMIUM_CENTS")
           fi
@@ -113,28 +117,38 @@ jobs:
             [ -n "$STAGING_SUPABASE_PUBLISHABLE_KEY" ] || missing+=("variable STAGING_SUPABASE_PUBLISHABLE_KEY")
           fi
           if $DO_VERCEL; then [ "$HAS_VERCEL" = true ] || missing+=("secret VERCEL_TOKEN"); fi
-          if $DO_VERCEL && ! $DO_STRIPE; then missing+=("run step 2 (Stripe) together with step 3 (Vercel): the webhook secret is created there"); fi
+          if [ "$MODE" = run ] && $DO_VERCEL && ! $DO_STRIPE; then missing+=("run step 2 (Stripe) together with step 3 (Vercel): the webhook secret is created there"); fi
           if [ ${#missing[@]} -gt 0 ]; then printf 'Missing:\n'; printf '  - %s\n' "${missing[@]}"; exit 1; fi
-          echo "Preflight OK"
+          echo "Preflight OK (mode: $MODE)"
 
       - name: 1. Migrations → Supabase staging
         if: env.DO_MIGRATIONS == 'true'
         env:
           STAGING_DB_URL: ${{ secrets.STAGING_DB_URL }}
-        run: bash scripts/staging/apply-migrations.sh
+        run: |
+          if [ "$MODE" = check ]; then DRY_RUN=1 bash scripts/staging/apply-migrations.sh
+          else bash scripts/staging/apply-migrations.sh; fi
 
       - name: 2a. Stripe TEST → products, prices, Customer Portal
         if: env.DO_STRIPE == 'true'
         env:
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
-        run: node scripts/stripe-setup-test.mjs --basic "$PRICE_BASIC" --pro "$PRICE_PRO" --premium "$PRICE_PREMIUM"
+        run: |
+          args=()
+          [ -n "$PRICE_BASIC" ] && args+=(--basic "$PRICE_BASIC")
+          [ -n "$PRICE_PRO" ] && args+=(--pro "$PRICE_PRO")
+          [ -n "$PRICE_PREMIUM" ] && args+=(--premium "$PRICE_PREMIUM")
+          if [ "$MODE" = check ]; then args+=(--plan-only); fi
+          node scripts/stripe-setup-test.mjs "${args[@]}"
 
       - name: 2b. Stripe TEST → staging webhook endpoint
         if: env.DO_STRIPE == 'true'
         env:
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
-        run: node scripts/staging/stripe-webhook.mjs
+        run: |
+          if [ "$MODE" = check ]; then node scripts/staging/stripe-webhook.mjs --plan-only
+          else node scripts/staging/stripe-webhook.mjs; fi
 
       - name: 3. Vercel → Preview variables (+ redeploy via deploy hook)
         if: env.DO_VERCEL == 'true'
@@ -144,8 +158,10 @@ jobs:
           STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
         run: |
-          if [ "$SPLIT_SHARED" = true ]; then node scripts/staging/vercel-env.mjs --split-shared
-          else node scripts/staging/vercel-env.mjs; fi
+          args=()
+          [ "$SPLIT_SHARED" = true ] && args+=(--split-shared)
+          [ "$MODE" = check ] && args+=(--plan-only)
+          node scripts/staging/vercel-env.mjs "${args[@]}"
 
       - name: 4a. Smoke test of the staging deployment (waits for the redeploy)
         if: env.DO_TESTS == 'true'
