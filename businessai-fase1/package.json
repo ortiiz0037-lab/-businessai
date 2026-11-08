@@ -10,7 +10,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:db": "bash supabase/tests/local/run.sh"
   },
   "dependencies": {
     "@stripe/stripe-js": "^10.2.0",
