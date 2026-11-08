@@ -1,9 +1,10 @@
 name: CI
 
+# Pull requests run once (pull_request); direct pushes to main/staging too.
 on:
   pull_request:
   push:
-    branches: [main, staging, 'claude/**']
+    branches: [main, staging]
 
 permissions:
   contents: read
