@@ -1,0 +1,151 @@
+name: Staging
+
+# Prepares and tests the STAGING environment. Manual only (Actions → Staging →
+# Run workflow). Never touches production: every script refuses live Stripe
+# keys and the production Supabase project, and Vercel is written for the
+# Preview target only. See businessai-fase1/docs/STAGING_SETUP.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      migrations:
+        description: '1. Aplicar migraciones a Supabase STAGING'
+        type: boolean
+        default: true
+      stripe:
+        description: '2. Stripe TEST: precios, portal y webhook'
+        type: boolean
+        default: true
+      basic_cents:
+        description: 'Precio Básico al mes, en centavos (p. ej. 1900 = $19.00)'
+        type: string
+        required: false
+      pro_cents:
+        description: 'Precio Pro al mes, en centavos'
+        type: string
+        required: false
+      premium_cents:
+        description: 'Precio Premium al mes, en centavos'
+        type: string
+        required: false
+      vercel:
+        description: '3. Variables de Vercel (solo Preview)'
+        type: boolean
+        default: true
+      split_shared:
+        description: 'Separar variables compartidas Production+Preview (Production no cambia)'
+        type: boolean
+        default: false
+      tests:
+        description: '4. Prueba de humo + prueba completa de facturación'
+        type: boolean
+        default: true
+
+concurrency: staging
+
+permissions:
+  contents: read
+
+jobs:
+  staging:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: businessai-fase1
+    env:
+      STAGING_PROJECT_REF: ${{ vars.STAGING_PROJECT_REF }}
+      PRODUCTION_PROJECT_REF: ${{ vars.PRODUCTION_PROJECT_REF }}
+      STAGING_URL: ${{ vars.STAGING_URL }}
+      STAGING_SUPABASE_URL: https://${{ vars.STAGING_PROJECT_REF }}.supabase.co
+      STAGING_SUPABASE_PUBLISHABLE_KEY: ${{ vars.STAGING_SUPABASE_PUBLISHABLE_KEY }}
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID || 'prj_hk9DvqsNN5M2OJA2jqm1IHw2lqAW' }}
+      VERCEL_TEAM_ID: ${{ vars.VERCEL_TEAM_ID || 'team_zY0NJlHyXWCFrO080or2mu5h' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: businessai-fase1/package-lock.json
+      - run: npm ci
+
+      - name: Preflight (names only, never values)
+        env:
+          HAS_DB: ${{ secrets.STAGING_DB_URL != '' }}
+          HAS_SERVICE: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY != '' }}
+          HAS_STRIPE: ${{ secrets.STRIPE_TEST_SECRET_KEY != '' }}
+          HAS_VERCEL: ${{ secrets.VERCEL_TOKEN != '' }}
+        run: |
+          missing=()
+          [ -n "$STAGING_PROJECT_REF" ] || missing+=("variable STAGING_PROJECT_REF")
+          [ -n "$PRODUCTION_PROJECT_REF" ] || missing+=("variable PRODUCTION_PROJECT_REF")
+          if ${{ inputs.migrations }}; then [ "$HAS_DB" = true ] || missing+=("secret STAGING_DB_URL"); fi
+          if ${{ inputs.stripe || inputs.tests }}; then [ "$HAS_STRIPE" = true ] || missing+=("secret STRIPE_TEST_SECRET_KEY"); fi
+          if ${{ inputs.stripe || inputs.vercel || inputs.tests }}; then [ -n "$STAGING_URL" ] || missing+=("variable STAGING_URL"); fi
+          if ${{ inputs.vercel || inputs.tests }}; then
+            [ "$HAS_SERVICE" = true ] || missing+=("secret STAGING_SUPABASE_SERVICE_ROLE_KEY")
+            [ -n "$STAGING_SUPABASE_PUBLISHABLE_KEY" ] || missing+=("variable STAGING_SUPABASE_PUBLISHABLE_KEY")
+          fi
+          if ${{ inputs.vercel }}; then [ "$HAS_VERCEL" = true ] || missing+=("secret VERCEL_TOKEN"); fi
+          if ${{ inputs.vercel && !inputs.stripe }}; then missing+=("run step 2 (Stripe) together with step 3 (Vercel): the webhook secret is created there"); fi
+          if [ ${#missing[@]} -gt 0 ]; then printf 'Missing:\n'; printf '  - %s\n' "${missing[@]}"; exit 1; fi
+          echo "Preflight OK"
+
+      - name: 1. Migrations → Supabase staging
+        if: inputs.migrations
+        env:
+          STAGING_DB_URL: ${{ secrets.STAGING_DB_URL }}
+        run: bash scripts/staging/apply-migrations.sh
+
+      - name: 2a. Stripe TEST → products, prices, Customer Portal
+        if: inputs.stripe
+        env:
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+        run: |
+          if [ -z "${{ inputs.basic_cents }}" ] || [ -z "${{ inputs.pro_cents }}" ] || [ -z "${{ inputs.premium_cents }}" ]; then
+            echo "Prices are set by the owner: fill basic_cents, pro_cents and premium_cents." >&2; exit 1
+          fi
+          node scripts/stripe-setup-test.mjs --basic "${{ inputs.basic_cents }}" --pro "${{ inputs.pro_cents }}" --premium "${{ inputs.premium_cents }}"
+
+      - name: 2b. Stripe TEST → staging webhook endpoint
+        if: inputs.stripe
+        env:
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: node scripts/staging/stripe-webhook.mjs
+
+      - name: 3. Vercel → Preview variables (+ redeploy via deploy hook)
+        if: inputs.vercel
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+          STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+        run: node scripts/staging/vercel-env.mjs ${{ inputs.split_shared && '--split-shared' || '' }}
+
+      - name: 4a. Smoke test of the staging deployment (waits for the redeploy)
+        if: inputs.tests
+        env:
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: |
+          for i in $(seq 1 20); do
+            if bash scripts/staging/smoke.sh; then exit 0; fi
+            echo "…deployment not ready with the staging configuration yet; retrying in 30 s ($i/20)"; sleep 30
+          done
+          exit 1
+
+      - name: 4b. Billing end-to-end (Stripe TEST clocks + staging webhook + staging DB)
+        if: inputs.tests
+        env:
+          STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+        run: node scripts/staging/e2e-billing.mjs
+
+      - name: 4c. RLS tests against staging
+        if: inputs.tests
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ env.STAGING_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ env.STAGING_SUPABASE_PUBLISHABLE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          RLS_TEST_PROJECT_REF: ${{ env.STAGING_PROJECT_REF }}
+        run: npx vitest run tests/rls.test.ts tests/rls-business.test.ts

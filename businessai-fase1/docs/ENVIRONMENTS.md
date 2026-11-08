@@ -39,6 +39,10 @@ En Vercel marca las secretas como **Sensitive** y asígnalas a un único entorno
 
 ## Crear el proyecto de staging (una vez)
 
+> **Automatizado:** sigue `docs/STAGING_SETUP.md` (6 pasos desde el iPad; el resto lo
+> hace el workflow **Staging** de GitHub Actions). Lo que sigue es el detalle manual
+> equivalente, por si prefieres hacerlo a mano.
+
 1. **Supabase → New project** `businessai-staging` (otra contraseña de BD; guárdala en tu gestor de contraseñas).
 2. **Authentication → URL Configuration**
    - Site URL: la URL fija de staging (ver paso 6).

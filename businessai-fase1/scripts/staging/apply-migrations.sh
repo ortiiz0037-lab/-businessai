@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# =====================================================================
+# Apply the repository migrations to the STAGING Supabase database.
+# =====================================================================
+# Required environment:
+#   STAGING_DB_URL       Postgres URI of the STAGING project (Supabase →
+#                        Connect → Session pooler). Secret.
+#   STAGING_PROJECT_REF  The staging project ref (subdomain of its API URL).
+# Optional:
+#   PRODUCTION_PROJECT_REF  Ref of the production project: refused if it
+#                           appears in STAGING_DB_URL.
+#   DRY_RUN=1               Run every guard and list pending migrations,
+#                           without changing anything.
+#
+# Guards (any failure → exit before changing anything):
+#   * STAGING_DB_URL must contain STAGING_PROJECT_REF and must not contain
+#     PRODUCTION_PROJECT_REF.
+#   * The database must NOT look like production: production has objects
+#     created outside the repository (can_edit_company_profile, the legacy
+#     payments_update_own_company policy) that staging never gets.
+# Applied migrations are recorded in ba_meta.applied_migrations; each file
+# runs in its own transaction (the files contain begin/commit).
+# =====================================================================
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$HERE/../.." && pwd)"
+MIG="$ROOT/supabase/migrations"
+VERIFY="$ROOT/supabase/inspect/verify_after_migrations.sql"
+
+# Order for a NEW environment (docs/ENVIRONMENTS.md).
+ORDER=(
+  0001_multitenant_core
+  0002_business_tables
+  0003_company_profile
+  0004_stripe_subscriptions
+  0005_security_baseline
+  0007_storage_company_assets
+  0009_private_signatures
+  0006_payments_document_fk
+  0008_definer_function_grants
+  0010_billing
+)
+EXPECTED_VERIFY="10,0,2,0,f,0,2,3,t,t,t,"
+
+die() { echo "ERROR: $*" >&2; exit 1; }
+
+: "${STAGING_DB_URL:?STAGING_DB_URL is required}"
+: "${STAGING_PROJECT_REF:?STAGING_PROJECT_REF is required}"
+[[ "$STAGING_PROJECT_REF" =~ ^[a-z0-9]{6,40}$ ]] || die "STAGING_PROJECT_REF has an unexpected format"
+[[ "$STAGING_DB_URL" == *"$STAGING_PROJECT_REF"* ]] || die "STAGING_DB_URL does not belong to STAGING_PROJECT_REF"
+if [[ -n "${PRODUCTION_PROJECT_REF:-}" ]]; then
+  [[ "$STAGING_PROJECT_REF" != "$PRODUCTION_PROJECT_REF" ]] || die "STAGING_PROJECT_REF equals PRODUCTION_PROJECT_REF"
+  [[ "$STAGING_DB_URL" != *"$PRODUCTION_PROJECT_REF"* ]] || die "STAGING_DB_URL points at the PRODUCTION project"
+fi
+
+psqlx() { PGCONNECT_TIMEOUT=15 psql "$STAGING_DB_URL" -X -q -v ON_ERROR_STOP=1 "$@"; }
+
+echo "Connecting to staging project ${STAGING_PROJECT_REF}…"
+fingerprint="$(psqlx -tA -c "
+  select (to_regprocedure('public.can_edit_company_profile(uuid)') is not null)::int
+       + (select count(*) from pg_policies where schemaname = 'public'
+            and policyname in ('payments_update_own_company', 'payments_delete_own_company'))::int")" \
+  || die "cannot connect to the staging database"
+[[ "$fingerprint" == "0" ]] || die "this database looks like PRODUCTION (objects created outside the repository found). Nothing was changed."
+
+psqlx -c "create schema if not exists ba_meta;
+          create table if not exists ba_meta.applied_migrations (
+            name text primary key, sha256 text not null, applied_at timestamptz not null default now());
+          revoke all on schema ba_meta from public, anon, authenticated;" >/dev/null
+
+pending=()
+for name in "${ORDER[@]}"; do
+  file="$MIG/$name.sql"
+  [[ -f "$file" ]] || die "missing migration file $name.sql"
+  sum="$(sha256sum "$file" | cut -d' ' -f1)"
+  recorded="$(psqlx -tA -c "select sha256 from ba_meta.applied_migrations where name = '$name'")"
+  if [[ -z "$recorded" ]]; then
+    pending+=("$name")
+  elif [[ "$recorded" != "$sum" ]]; then
+    echo "  ~ $name changed since it was applied; it is idempotent and will be re-applied"
+    pending+=("$name")
+  fi
+done
+
+if [[ ${#pending[@]} -eq 0 ]]; then
+  echo "No pending migrations."
+else
+  echo "Pending: ${pending[*]}"
+fi
+
+if [[ "${DRY_RUN:-0}" == "1" ]]; then
+  echo "DRY_RUN=1: nothing applied."
+  exit 0
+fi
+
+for name in "${pending[@]}"; do
+  file="$MIG/$name.sql"
+  echo "→ applying $name"
+  PGOPTIONS="-c client_min_messages=warning" psqlx -f "$file" >/dev/null
+  psqlx -c "insert into ba_meta.applied_migrations (name, sha256) values ('$name', '$(sha256sum "$file" | cut -d' ' -f1)')
+            on conflict (name) do update set sha256 = excluded.sha256, applied_at = now()" >/dev/null
+done
+
+result="$(psqlx -tA -F, -f "$VERIFY")"
+echo "verify_after_migrations: $result"
+[[ "$result" == "$EXPECTED_VERIFY" ]] || die "verification differs from the expected $EXPECTED_VERIFY"
+echo "Staging database is up to date and verified."

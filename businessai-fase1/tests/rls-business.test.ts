@@ -43,6 +43,16 @@ async function makeUser(tag: string): Promise<U> {
   if (e2) throw e2
   const { data: companyId, error: e3 } = await client.rpc('create_company', { company_name: `Biz ${tag} ${stamp}` })
   if (e3) throw e3
+  // With billing (0010) a company needs a subscription to create records:
+  // store what the Stripe webhook would store after Checkout.
+  const billing = await admin.from('billing_plans').select('plan').limit(1)
+  if (!billing.error) {
+    const { error: e4 } = await admin.from('company_subscriptions').insert({
+      company_id: companyId, stripe_customer_id: `cus_rls_${tag}_${stamp}`,
+      stripe_subscription_id: `sub_rls_${tag}_${stamp}`, plan: 'pro', status: 'active',
+    })
+    if (e4) throw e4
+  }
   return { id: data.user.id, client, companyId }
 }
 
@@ -83,6 +93,7 @@ afterAll(async () => {
     await admin.from('payments').delete().eq('company_id', u.companyId)
     await admin.from('documents').delete().eq('company_id', u.companyId)
     await admin.from('clients').delete().eq('company_id', u.companyId)
+    await admin.from('company_subscriptions').delete().eq('company_id', u.companyId)
     await admin.from('companies').delete().eq('id', u.companyId)
     await admin.auth.admin.deleteUser(u.id)
   }
