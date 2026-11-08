@@ -167,6 +167,31 @@ do $$ declare n int; begin perform c.as_user('member'); set local role authentic
   perform c.rec('PR code: member can sign the signature (documents)', case when n = 1 then 'ok' else 'zero_rows' end);
 exception when others then perform c.rec('PR code: member can sign the signature (documents)', sqlstate); end $$;
 
+-- A company that existed before 0010 (no company_subscriptions row).
+do $$ declare cid uuid; begin
+  insert into public.companies (name, created_by) values ('Empresa Antigua', c.id('newuser')) returning id into cid;
+  insert into public.memberships (company_id, user_id, role) values (cid, c.id('newuser'), 'owner');
+  if to_regclass('public.company_subscriptions') is not null then
+    delete from public.company_subscriptions where company_id = cid;
+  end if;
+  insert into c.ctx values ('oldco', cid);
+end $$;
+do $$ begin perform c.as_user('newuser'); set local role authenticated;
+  insert into public.clients (company_id, name) values (c.id('oldco'), 'Cliente');
+  perform c.rec('pre-existing company (no billing row): create client', 'ok');
+exception when others then perform c.rec('pre-existing company (no billing row): create client', sqlstate); end $$;
+do $$ declare n int; begin perform c.as_user('newuser'); set local role authenticated;
+  select count(*) into n from public.documents where company_id = c.id('oldco');
+  perform c.rec('pre-existing company (no billing row): read documents', 'ok');
+exception when others then perform c.rec('pre-existing company (no billing row): read documents', sqlstate); end $$;
+do $$ declare n int; begin perform c.as_user('owner'); set local role authenticated;
+  if to_regprocedure('public.company_billing_state(uuid)') is null then
+    perform c.rec('billing: read state (rpc company_billing_state)', 'n/a'); return;
+  end if;
+  select count(*) into n from public.company_billing_state(c.id('co'));
+  perform c.rec('billing: read state (rpc company_billing_state)', case when n = 1 then 'ok' else 'zero_rows' end);
+exception when others then perform c.rec('billing: read state (rpc company_billing_state)', sqlstate); end $$;
+
 do $$ begin perform c.as_user('owner'); set local role authenticated;
   perform 1 from storage.buckets;
   perform c.rec('branding: storage diagnostic (listBuckets)', 'ok');

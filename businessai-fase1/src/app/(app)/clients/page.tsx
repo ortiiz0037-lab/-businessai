@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
+import { BILLING_ERROR_MESSAGE, billingErrorCode } from '@/lib/billing/state'
 
 async function getCompanyId() {
   const supabase = await createClient()
@@ -56,7 +57,10 @@ async function createClientAction(formData: FormData) {
   })
 
   if (error) {
-    console.error('CLIENT_SAVE_ERROR:', error)
+    // Subscription inactive or plan limit (enforced in the database, 0010).
+    const billing = billingErrorCode(error)
+    if (billing) redirect(`/clients?error=${billing}`)
+    console.error('CLIENT_SAVE_ERROR:', { code: error.code, message: error.message })
     redirect('/clients?error=save')
   }
 
@@ -138,6 +142,13 @@ export default async function ClientsPage({
       {params.error === 'missing_name' && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800">
           El nombre del cliente es obligatorio.
+        </div>
+      )}
+
+      {(params.error === 'billing' || params.error === 'limit_clients') && (
+        <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
+          {BILLING_ERROR_MESSAGE[params.error]}{' '}
+          <a href="/billing" className="underline">Ver planes</a>
         </div>
       )}
 

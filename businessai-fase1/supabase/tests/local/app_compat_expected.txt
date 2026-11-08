@@ -1,21 +1,24 @@
-operation                                          base       0005       0007       0009       0006       0008      
-rpc create_company                                 ok         ok         ok         ok         ok         ok        
-session: memberships of user                       ok         ok         ok         ok         ok         ok        
-settings: upsert company profile (twice)           ok         ok         ok         ok         ok         ok        
-settings/documents: read company profile           ok         ok         ok         ok         ok         ok        
-dashboard: read company name                       ok         ok         ok         ok         ok         ok        
-clients: create                                    ok         ok         ok         ok         ok         ok        
-clients: list + search                             ok         ok         ok         ok         ok         ok        
-documents: create invoice + letter                 ok         ok         ok         ok         ok         ok        
-documents: open by id (RLS, no company filter)     ok         ok         ok         ok         ok         ok        
-documents: mark as sent                            ok         ok         ok         ok         ok         ok        
-documents: mark as paid (records payment)          ok         ok         ok         ok         ok         ok        
-payments page: list + linked documents             ok         ok         ok         ok         ok         ok        
-member: read company documents                     ok         ok         ok         ok         ok         ok        
-documents: delete one without payments             ok         ok         ok         ok         ok         ok        
-documents: delete one WITH payments                ok-erased  ok-erased  ok-erased  ok-erased  23503      23503     
-branding: upload logo + save logo_url              ok         ok         ok         ok         ok         ok        
-main code: upload signature to public bucket       ok         ok         ok         ok         ok         ok        
-PR code: upload signature to private bucket        42501      42501      42501      ok         ok         ok        
-PR code: member can sign the signature (documents) zero_rows  zero_rows  zero_rows  ok         ok         ok        
-branding: storage diagnostic (listBuckets)         ok         ok         ok         ok         ok         ok        
+operation                                             base       0005       0007       0009       0006       0008       0010      
+rpc create_company                                    ok         ok         ok         ok         ok         ok         ok        
+session: memberships of user                          ok         ok         ok         ok         ok         ok         ok        
+settings: upsert company profile (twice)              ok         ok         ok         ok         ok         ok         ok        
+settings/documents: read company profile              ok         ok         ok         ok         ok         ok         ok        
+dashboard: read company name                          ok         ok         ok         ok         ok         ok         ok        
+clients: create                                       ok         ok         ok         ok         ok         ok         ok        
+clients: list + search                                ok         ok         ok         ok         ok         ok         ok        
+documents: create invoice + letter                    ok         ok         ok         ok         ok         ok         ok        
+documents: open by id (RLS, no company filter)        ok         ok         ok         ok         ok         ok         ok        
+documents: mark as sent                               ok         ok         ok         ok         ok         ok         ok        
+documents: mark as paid (records payment)             ok         ok         ok         ok         ok         ok         ok        
+payments page: list + linked documents                ok         ok         ok         ok         ok         ok         ok        
+member: read company documents                        ok         ok         ok         ok         ok         ok         ok        
+documents: delete one without payments                ok         ok         ok         ok         ok         ok         ok        
+documents: delete one WITH payments                   ok-erased  ok-erased  ok-erased  ok-erased  23503      23503      23503     
+branding: upload logo + save logo_url                 ok         ok         ok         ok         ok         ok         ok        
+main code: upload signature to public bucket          ok         ok         ok         ok         ok         ok         ok        
+PR code: upload signature to private bucket           42501      42501      42501      ok         ok         ok         ok        
+PR code: member can sign the signature (documents)    zero_rows  zero_rows  zero_rows  ok         ok         ok         ok        
+pre-existing company (no billing row): create client  ok         ok         ok         ok         ok         ok         P0001     
+pre-existing company (no billing row): read documents ok         ok         ok         ok         ok         ok         ok        
+billing: read state (rpc company_billing_state)       n/a        n/a        n/a        n/a        n/a        n/a        ok        
+branding: storage diagnostic (listBuckets)            ok         ok         ok         ok         ok         ok         ok        

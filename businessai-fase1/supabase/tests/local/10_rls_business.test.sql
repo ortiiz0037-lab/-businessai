@@ -320,8 +320,10 @@ end $$;
 
 -- -------------------------------------------- functions (unchanged by 0005)
 do $$ begin
-  perform t.ok(has_function_privilege('anon', 'public.can_edit_company_profile(uuid)', 'EXECUTE'),
-               'can_edit_company_profile grants untouched by 0005 (pending source review)');
+  if to_regprocedure('public.can_edit_company_profile(uuid)') is not null then
+    perform t.ok(has_function_privilege('authenticated', 'public.can_edit_company_profile(uuid)', 'EXECUTE'),
+                 'authenticated keeps EXECUTE on can_edit_company_profile (0005 and 0008)');
+  end if;
   perform t.ok(not has_function_privilege('anon', 'public.is_company_member(uuid)', 'EXECUTE'),
                'anon still cannot execute is_company_member');
 end $$;

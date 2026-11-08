@@ -37,5 +37,6 @@ select
   (select confdeltype = 'a' from pg_constraint
     where conname = 'payments_document_id_fkey'
       and conrelid = 'public.payments'::regclass)                         as payments_fk_no_action,   -- 0006: true
-  has_function_privilege('anon', 'public.can_edit_company_profile(uuid)', 'EXECUTE')
+  -- NULL where the function does not exist (staging/local).
+  has_function_privilege('anon', to_regprocedure('public.can_edit_company_profile(uuid)'), 'EXECUTE')
                                                                           as anon_can_edit_fn;        -- 0008: false

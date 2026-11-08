@@ -10,12 +10,15 @@ seguridad encima de lo que existe.
 | Archivo | Qué es | ¿Aplicado? |
 |---|---|---|
 | `migrations/0001`, `0003`, `0004` | Núcleo multi-tenant, perfil, suscripciones | Sí (según la inspección) |
+| `migrations/0002_business_tables.sql` | Tablas de negocio tal como se inspeccionaron (para crear staging desde el repo) | En producción ya existen: el archivo no cambia nada allí |
 | `migrations/0005_security_baseline.sql` | RLS, privilegios y Storage sobre el esquema inspeccionado | **No — borrador, requiere aprobación** |
 | `migrations/0006_payments_document_fk.sql` | `payments.document_id`: CASCADE → NO ACTION | **No — borrador, aprobación aparte** |
 | `migrations/0007_storage_company_assets.sql` | Políticas de Storage para `Company-assets` | **No — borrador, aprobación aparte** |
 | `migrations/0008_definer_function_grants.sql` | Quitar EXECUTE a anon en `can_edit_company_profile` | **No — borrador, aprobación aparte** |
 | `migrations/0009_private_signatures.sql` | Bucket privado de firmas + tipos de imagen limitados | **No — borrador, aprobación aparte** |
-| `rollback/000x_rollback.sql` | Vuelta exacta al estado inspeccionado, por migración | Solo emergencias |
+| `migrations/0010_billing.sql` | Planes, prueba de 7 días, estado de facturación, límites | **No — borrador; primero en staging** |
+| `migrations/0010b_backfill_trials.sql` | (Opcional, cambia datos) prueba para empresas existentes sin fila | **No — decisión del propietario** |
+| `rollback/00xx_rollback.sql` | Vuelta exacta al estado inspeccionado, por migración | Solo emergencias |
 | `RUNBOOK.md` | Respaldo, orden de ejecución, verificación y recuperación | — |
 | `inspect/verify_after_migrations.sql` | Verificación de solo lectura tras cada paso | — |
 | `inspect/inspect_security_baseline.sql` | Inspección de solo lectura (ya ejecutada) | — |

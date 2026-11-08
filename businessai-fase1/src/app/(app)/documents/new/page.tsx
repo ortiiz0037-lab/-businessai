@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
+import { BILLING_ERROR_MESSAGE, billingErrorCode } from '@/lib/billing/state'
 
 export const dynamic = 'force-dynamic'
 
@@ -251,7 +252,10 @@ async function createDocument(formData: FormData) {
     .single()
 
   if (error || !document) {
-    console.error('DOCUMENT_CREATE_ERROR', error)
+    // Subscription inactive or plan limit (enforced in the database, 0010).
+    const billing = billingErrorCode(error)
+    if (billing) redirect(`/documents/new?type=${type}&error=${billing}`)
+    console.error('DOCUMENT_CREATE_ERROR', { code: error?.code, message: error?.message })
     redirect(`/documents/new?type=${type}&error=save`)
   }
 
@@ -309,6 +313,8 @@ export default async function NewDocumentPage({
     invoice: 'Selecciona una factura pendiente válida para el recordatorio.',
     save: 'No se pudo guardar. Revisa los registros del servidor.',
     type: 'Ese tipo de documento no está permitido.',
+    billing: `${BILLING_ERROR_MESSAGE.billing} Ve a "Plan" para activarlo.`,
+    limit_documents: `${BILLING_ERROR_MESSAGE.limit_documents} Ve a "Plan" para mejorarlo.`,
   }
 
   const fieldClass = 'w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-950 focus:ring-2 focus:ring-slate-200'

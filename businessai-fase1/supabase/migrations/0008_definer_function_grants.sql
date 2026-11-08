@@ -21,18 +21,23 @@ begin;
 
 set local lock_timeout = '5s';
 
+-- The function only exists where it was created outside the repository
+-- (production). Elsewhere (staging, local) there is nothing to do.
 do $$
 begin
   if to_regprocedure('public.can_edit_company_profile(uuid)') is null then
-    raise exception 'BA0008: public.can_edit_company_profile(uuid) not found';
+    raise notice 'BA0008: public.can_edit_company_profile(uuid) not present; nothing to do';
+    return;
   end if;
+  revoke execute on function public.can_edit_company_profile(uuid) from public, anon;
+  grant execute on function public.can_edit_company_profile(uuid) to authenticated, service_role;
 end $$;
-
-revoke execute on function public.can_edit_company_profile(uuid) from public, anon;
-grant execute on function public.can_edit_company_profile(uuid) to authenticated, service_role;
 
 do $$
 begin
+  if to_regprocedure('public.can_edit_company_profile(uuid)') is null then
+    return;
+  end if;
   if has_function_privilege('anon', 'public.can_edit_company_profile(uuid)', 'EXECUTE') then
     raise exception 'BA0008 self-check failed: anon can still execute can_edit_company_profile';
   end if;

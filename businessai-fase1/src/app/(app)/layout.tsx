@@ -1,5 +1,9 @@
 import Link from 'next/link'
 import { signOut } from '@/app/actions/auth'
+import { createClient } from '@/lib/supabase/server'
+import { getUserCompany } from '@/lib/billing/company'
+import { billingBanner, fetchBillingState } from '@/lib/billing/state'
+import { getAppEnv } from '@/lib/env'
 
 const navigation = [
   { href: '/dashboard', label: 'Inicio', icon: '⌂' },
@@ -7,15 +11,44 @@ const navigation = [
   { href: '/clients', label: 'Clientes', icon: '♧' },
   { href: '/documents', label: 'Documentos', icon: '▤' },
   { href: '/payments', label: 'Pagos', icon: '$' },
+  { href: '/billing', label: 'Plan', icon: '★' },
 ]
 
-export default function AppLayout({
+const BANNER_STYLE = {
+  info: 'border-blue-200 bg-blue-50 text-blue-900',
+  warning: 'border-amber-200 bg-amber-50 text-amber-900',
+  danger: 'border-red-200 bg-red-50 text-red-800',
+} as const
+
+/** Trial / payment banner and non-production environment badge. Never throws. */
+async function loadChrome() {
+  let env = 'development'
+  try { env = getAppEnv() } catch { /* invalid APP_ENV: shown as development */ }
+  try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return { env, banner: null }
+    const company = await getUserCompany(supabase, user)
+    if (!company) return { env, banner: null }
+    return { env, banner: billingBanner(await fetchBillingState(supabase, company.companyId)) }
+  } catch {
+    return { env, banner: null }
+  }
+}
+
+export default async function AppLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  const { env, banner } = await loadChrome()
   return (
     <div className="min-h-screen bg-[#f5f7fb] text-slate-900">
+      {env !== 'production' && (
+        <div className="bg-violet-700 px-4 py-1 text-center text-xs font-bold uppercase tracking-widest text-white">
+          Entorno: {env} — pagos en modo test
+        </div>
+      )}
       <header className="sticky top-0 z-50 border-b border-slate-200/80 bg-white/95 shadow-sm backdrop-blur-xl">
         <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-5 py-4 sm:px-8">
           <Link
@@ -66,6 +99,12 @@ export default function AppLayout({
       </header>
 
       <main className="mx-auto min-h-[calc(100vh-80px)] max-w-[1600px] px-4 py-7 sm:px-8 sm:py-10">
+        {banner && (
+          <div role="status" className={`mb-6 flex flex-col gap-2 rounded-xl border px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between ${BANNER_STYLE[banner.tone]}`}>
+            <span>{banner.text}</span>
+            <Link href="/billing" className="font-semibold underline">Ver plan</Link>
+          </div>
+        )}
         {children}
       </main>
 

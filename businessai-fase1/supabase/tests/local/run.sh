@@ -147,7 +147,7 @@ if psqlq -d s11 -f "$MIG/0009_private_signatures.sql" >"$WORK/s11.out" 2>&1; the
 check "$(count s11 "select count(*) from pg_policies where policyname like 'ba\_company\_signatures\_%'")" 0 "nothing changed (rolled back)"
 
 echo "== Scenario 12: application compatibility at every step of the safe order"
-STAGES=(base 0005_security_baseline 0007_storage_company_assets 0009_private_signatures 0006_payments_document_fk 0008_definer_function_grants)
+STAGES=(base 0005_security_baseline 0007_storage_company_assets 0009_private_signatures 0006_payments_document_fk 0008_definer_function_grants 0010_billing)
 : > "$WORK/compat.txt"
 for k in "${!STAGES[@]}"; do
   db="c$k"; base "$db"
@@ -178,9 +178,9 @@ snapshot() { # $1 db, $2 out — inspection output without the timestamp
 }
 
 echo "== Scenario 13: each rollback, in reverse order, restores exactly the state before its migration"
-ORDER=(0005 0007 0009 0006 0008)
+ORDER=(0005 0007 0009 0006 0008 0010)
 declare -A FILE=([0005]=0005_security_baseline [0007]=0007_storage_company_assets [0009]=0009_private_signatures \
-                 [0006]=0006_payments_document_fk [0008]=0008_definer_function_grants)
+                 [0006]=0006_payments_document_fk [0008]=0008_definer_function_grants [0010]=0010_billing)
 base r13
 snapshot r13 "$WORK/snap_0.json"
 verify() { PGOPTIONS="-c default_transaction_read_only=on" "${RUNAS[@]}" psql -X -q -tA -F, -h "$WORK" -p "$PORT" -U postgres -d "$1" -f "$HERE/../../inspect/verify_after_migrations.sql"; }
@@ -192,6 +192,7 @@ declare -A VEXP=(
   [0009]="10,0,2,0,f,0,2,3,t,t,f,t"
   [0006]="10,0,2,0,f,0,2,3,t,t,t,t"
   [0008]="10,0,2,0,f,0,2,3,t,t,t,f"
+  [0010]="10,0,2,0,f,0,2,3,t,t,t,f"
 )
 check "$(verify r13)" "${VEXP[base]}" "verify before any migration = ${VEXP[base]}"
 for i in "${!ORDER[@]}"; do
@@ -234,20 +235,49 @@ PY
 done
 
 echo "== Scenario 14: dependencies — each migration alone, and the reverse order"
-for m in 0005 0007 0009 0006 0008; do
+for m in 0005 0007 0009 0006 0008 0010; do
   base "d$m"
   psqlq -d "d$m" -f "$MIG/${FILE[$m]}.sql" >/dev/null && check ok ok "$m applies alone on the inspected state" || check failed ok "$m applies alone"
 done
 base drev
-ok_all=ok; for m in 0008 0006 0009 0007 0005; do psqlq -d drev -f "$MIG/${FILE[$m]}.sql" >/dev/null || ok_all="failed at $m"; done
-check "$ok_all" ok "reverse order 0008→0006→0009→0007→0005 also applies (no hard ordering between them)"
+ok_all=ok; for m in 0010 0008 0006 0009 0007 0005; do psqlq -d drev -f "$MIG/${FILE[$m]}.sql" >/dev/null || ok_all="failed at $m"; done
+check "$ok_all" ok "reverse order 0010→0008→0006→0009→0007→0005 also applies (no hard ordering between them)"
 snapshot drev "$WORK/rev.json"
-if diff -q "$WORK/snap_5.json" "$WORK/rev.json" >/dev/null; then check ok ok "same end state as the safe order"; else { diff "$WORK/snap_5.json" "$WORK/rev.json" || true; } | head -20; check different ok "same end state as the safe order"; fi
+if diff -q "$WORK/snap_6.json" "$WORK/rev.json" >/dev/null; then check ok ok "same end state as the safe order"; else { diff "$WORK/snap_6.json" "$WORK/rev.json" || true; } | head -20; check different ok "same end state as the safe order"; fi
 base doo
 for m in 0007 0009; do psqlq -d doo -f "$MIG/${FILE[$m]}.sql" >/dev/null; done
 if psqlq -d doo -f "$HERE/../../rollback/0007_rollback.sql" >"$WORK/doo.out" 2>&1; then
   check "$(count doo "select count(*) from pg_policies where policyname like 'ba\_company\_signatures\_%'")" 3 "out-of-order: rollback 0007 while 0009 is applied keeps signatures working"
 else grep -m1 ERROR "$WORK/doo.out"; check failed ok "out-of-order: rollback 0007 while 0009 is applied"; fi
+
+ALL_MIGS=(0005_security_baseline 0007_storage_company_assets 0009_private_signatures 0006_payments_document_fk 0008_definer_function_grants 0010_billing)
+
+echo "== Scenario 15: billing (0010) on the inspected state with all migrations"
+base b15
+for m in "${ALL_MIGS[@]}"; do psqlq -d b15 -f "$MIG/$m.sql" >/dev/null; done
+psqlq -d b15 -f "$MIG/0010_billing.sql" >/dev/null && check ok ok "0010 re-applies cleanly (idempotent)"
+run_suite b15 "$HERE/10_rls_business.test.sql" 'ALL RLS TESTS PASSED' "RLS suite with 0010"
+run_suite b15 "$HERE/50_billing.test.sql" 'ALL BILLING TESTS PASSED' "billing suite"
+psqlq -d b15 -f "$MIG/0010b_backfill_trials.sql" >/dev/null
+check "$(count b15 "select count(*) from public.companies c where not exists (select 1 from public.company_subscriptions s where s.company_id = c.id)")" 0 "0010b gives a trial row to every company without one"
+check "$(count b15 "select count(*) from public.company_subscriptions where stripe_subscription_id = 'sub_test_A1'")" 1 "0010b never touches an existing subscription row"
+
+echo "== Scenario 16: STAGING from scratch — repository migrations only (0001→0010)"
+psqlq -d postgres -c "create database stg" >/dev/null
+for f in "$HERE/00_supabase_shim.sql" "$MIG/0001_multitenant_core.sql" "$MIG/0002_business_tables.sql" \
+         "$MIG/0003_company_profile.sql" "$MIG/0004_stripe_subscriptions.sql"; do psqlq -d stg -f "$f" >/dev/null; done
+ok_all=ok; for m in "${ALL_MIGS[@]}"; do psqlq -d stg -f "$MIG/$m.sql" >/dev/null || ok_all="failed at $m"; done
+check "$ok_all" ok "staging: every migration applies on a database built only from the repository"
+check "$(PGOPTIONS="-c default_transaction_read_only=on" "${RUNAS[@]}" psql -X -q -tA -F, -h "$WORK" -p "$PORT" -U postgres -d stg -f "$HERE/../../inspect/verify_after_migrations.sql")" \
+  "10,0,2,0,f,0,2,3,t,t,t," "staging: verify = production end state (can_edit_company_profile does not exist in staging → empty)"
+run_suite stg "$HERE/10_rls_business.test.sql" 'ALL RLS TESTS PASSED' "staging: RLS suite"
+run_suite stg "$HERE/30_private_signatures.test.sql" 'ALL SIGNATURE TESTS PASSED' "staging: signature suite"
+run_suite stg "$HERE/50_billing.test.sql" 'ALL BILLING TESTS PASSED' "staging: billing suite"
+run_suite stg "$HERE/21_fk_after_0006.test.sql" 'ALL FK TESTS PASSED' "staging: FK suite"
+base p16; snapshot p16 "$WORK/p16a.json"
+psqlq -d p16 -f "$MIG/0002_business_tables.sql" >/dev/null
+snapshot p16 "$WORK/p16b.json"
+if diff -q "$WORK/p16a.json" "$WORK/p16b.json" >/dev/null; then check ok ok "0002 is a no-op on the production (inspected) database"; else { diff "$WORK/p16a.json" "$WORK/p16b.json" || true; } | head; check different ok "0002 is a no-op on production"; fi
 
 echo "== Scenario 9: a busy table makes 0005 fail fast (lock_timeout) with zero changes"
 base s9
