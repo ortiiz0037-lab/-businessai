@@ -1,119 +1,200 @@
 -- =====================================================================
--- BusinessAI · Read-only inspection of the security baseline
+-- BusinessAI · Read-only schema inspection (project: businessai-dev)
 -- =====================================================================
--- Run in: Supabase Dashboard → SQL Editor (DEVELOPMENT project).
--- It only reads the system catalogs: it changes nothing. The read-only
--- transaction makes Postgres itself reject any write.
--- It does NOT read business data (no rows from clients/documents/payments),
--- only structure: columns, constraints, indexes, triggers, RLS policies,
--- grants, functions and Storage buckets/policies.
+-- What it is: ONE single SELECT statement. Nothing else.
+--   * It only reads PostgreSQL system catalogs (pg_namespace, pg_class,
+--     pg_attribute, pg_constraint, pg_index, pg_policy, pg_proc, ...)
+--     and storage.buckets (bucket settings only).
+--   * It reads NO rows from clients, documents, payments, companies,
+--     memberships, company_profiles, subscriptions or any other business
+--     table, and NO file names or file contents from storage.objects.
+--   * It reads no secrets: no keys, passwords or auth.users data.
+--   * Every function it calls is a catalog/formatting function
+--     (format_type, pg_get_expr, pg_get_constraintdef, pg_get_indexdef,
+--     pg_get_triggerdef, pg_get_function_identity_arguments,
+--     has_table_privilege, has_function_privilege, jsonb_*).
 --
--- Output: a single row/column `inspection` (JSON). Copy it into
--- supabase/inspect/dev-schema.json, or paste it into the conversation.
+-- How to run: Supabase Dashboard → SQL Editor → paste → Run.
+-- Result: one row, one column `inspection` (JSON). Copy that value.
+--
+-- Sections returned:
+--   schemas, tables (RLS flags, columns, constraints, foreign keys,
+--   indexes, triggers, role privileges), rls_policies (public + storage),
+--   functions (public), storage_buckets (settings only).
 -- =====================================================================
-
-begin transaction read only;
 
 with
-tables as (
-  select c.oid, n.nspname as schema, c.relname as name,
-         c.relrowsecurity as rls_enabled, c.relforcerowsecurity as rls_forced
-  from pg_class c
-  join pg_namespace n on n.oid = c.relnamespace
+-- Tables in scope: every table in `public`, plus Storage's own tables.
+tbl as (
+  select c.oid,
+         n.nspname as schema_name,
+         c.relname as table_name,
+         c.relrowsecurity      as rls_enabled,
+         c.relforcerowsecurity as rls_forced
+  from pg_catalog.pg_class c
+  join pg_catalog.pg_namespace n on n.oid = c.relnamespace
   where c.relkind in ('r', 'p')
-    and (n.nspname = 'public' or (n.nspname = 'storage' and c.relname in ('objects', 'buckets')))
+    and (n.nspname = 'public'
+         or (n.nspname = 'storage' and c.relname in ('objects', 'buckets')))
 )
-select jsonb_pretty(jsonb_build_object(
-  'generated_at', now(),
+select pg_catalog.jsonb_pretty(pg_catalog.jsonb_build_object(
+
+  'inspected_at', now(),
   'postgres_version', current_setting('server_version'),
 
+  -- 1. Schemas (non-system) and how many tables each one has.
+  'schemas', (
+    select jsonb_agg(jsonb_build_object(
+             'schema', n.nspname,
+             'tables', (select count(*) from pg_catalog.pg_class c
+                        where c.relnamespace = n.oid and c.relkind in ('r', 'p'))
+           ) order by n.nspname)
+    from pg_catalog.pg_namespace n
+    where n.nspname not like 'pg\_%'
+      and n.nspname <> 'information_schema'
+  ),
+
+  -- 2. Tables: RLS flags, columns, constraints, FKs, indexes, triggers, privileges.
   'tables', (
     select jsonb_agg(jsonb_build_object(
-      'table', t.schema || '.' || t.name,
+      'table', t.schema_name || '.' || t.table_name,
       'rls_enabled', t.rls_enabled,
       'rls_forced', t.rls_forced,
+
       'columns', (
         select jsonb_agg(jsonb_build_object(
-          'name', a.attname,
-          'type', format_type(a.atttypid, a.atttypmod),
-          'not_null', a.attnotnull,
-          'default', pg_get_expr(d.adbin, d.adrelid)
-        ) order by a.attnum)
-        from pg_attribute a
-        left join pg_attrdef d on d.adrelid = a.attrelid and d.adnum = a.attnum
+                 'name', a.attname,
+                 'type', pg_catalog.format_type(a.atttypid, a.atttypmod),
+                 'not_null', a.attnotnull,
+                 'default', pg_catalog.pg_get_expr(d.adbin, d.adrelid)
+               ) order by a.attnum)
+        from pg_catalog.pg_attribute a
+        left join pg_catalog.pg_attrdef d
+               on d.adrelid = a.attrelid and d.adnum = a.attnum
         where a.attrelid = t.oid and a.attnum > 0 and not a.attisdropped
       ),
+
+      -- Primary keys, unique and check constraints (p / u / c / x).
       'constraints', (
         select jsonb_agg(jsonb_build_object(
-          'name', con.conname,
-          'type', con.contype,
-          'definition', pg_get_constraintdef(con.oid)
-        ) order by con.conname)
-        from pg_constraint con where con.conrelid = t.oid
+                 'name', con.conname,
+                 'kind', case con.contype
+                           when 'p' then 'primary_key'
+                           when 'u' then 'unique'
+                           when 'c' then 'check'
+                           when 'x' then 'exclusion'
+                           else con.contype::text end,
+                 'definition', pg_catalog.pg_get_constraintdef(con.oid)
+               ) order by con.conname)
+        from pg_catalog.pg_constraint con
+        where con.conrelid = t.oid and con.contype <> 'f'
       ),
+
+      'foreign_keys', (
+        select jsonb_agg(jsonb_build_object(
+                 'name', con.conname,
+                 'references', con.confrelid::regclass::text,
+                 'on_delete', case con.confdeltype
+                                when 'a' then 'no action' when 'r' then 'restrict'
+                                when 'c' then 'cascade'   when 'n' then 'set null'
+                                when 'd' then 'set default' end,
+                 'on_update', case con.confupdtype
+                                when 'a' then 'no action' when 'r' then 'restrict'
+                                when 'c' then 'cascade'   when 'n' then 'set null'
+                                when 'd' then 'set default' end,
+                 'definition', pg_catalog.pg_get_constraintdef(con.oid)
+               ) order by con.conname)
+        from pg_catalog.pg_constraint con
+        where con.conrelid = t.oid and con.contype = 'f'
+      ),
+
       'indexes', (
-        select jsonb_agg(pg_get_indexdef(i.indexrelid) order by i.indexrelid)
-        from pg_index i where i.indrelid = t.oid
+        select jsonb_agg(jsonb_build_object(
+                 'name', ic.relname,
+                 'unique', i.indisunique,
+                 'primary', i.indisprimary,
+                 'definition', pg_catalog.pg_get_indexdef(i.indexrelid)
+               ) order by ic.relname)
+        from pg_catalog.pg_index i
+        join pg_catalog.pg_class ic on ic.oid = i.indexrelid
+        where i.indrelid = t.oid
       ),
+
       'triggers', (
-        select jsonb_agg(jsonb_build_object('name', tg.tgname, 'definition', pg_get_triggerdef(tg.oid)))
-        from pg_trigger tg where tg.tgrelid = t.oid and not tg.tgisinternal
+        select jsonb_agg(jsonb_build_object(
+                 'name', tg.tgname,
+                 'enabled', tg.tgenabled <> 'D',
+                 'definition', pg_catalog.pg_get_triggerdef(tg.oid)
+               ) order by tg.tgname)
+        from pg_catalog.pg_trigger tg
+        where tg.tgrelid = t.oid and not tg.tgisinternal
       ),
-      'grants', (
-        select jsonb_agg(jsonb_build_object('grantee', g.grantee, 'privilege', g.privilege_type)
-                         order by g.grantee, g.privilege_type)
-        from information_schema.role_table_grants g
-        where g.table_schema = t.schema and g.table_name = t.name
-          and g.grantee in ('anon', 'authenticated', 'public', 'service_role')
+
+      -- Which privileges the API roles hold on this table (true/false).
+      'role_privileges', (
+        select jsonb_object_agg(r.role_name, jsonb_build_object(
+                 'select',   has_table_privilege(r.role_name, t.oid, 'SELECT'),
+                 'insert',   has_table_privilege(r.role_name, t.oid, 'INSERT'),
+                 'update',   has_table_privilege(r.role_name, t.oid, 'UPDATE'),
+                 'delete',   has_table_privilege(r.role_name, t.oid, 'DELETE'),
+                 'truncate', has_table_privilege(r.role_name, t.oid, 'TRUNCATE')
+               ))
+        from (values ('anon'), ('authenticated'), ('service_role')) as r(role_name)
+        where exists (select 1 from pg_catalog.pg_roles pr where pr.rolname = r.role_name)
       )
-    ) order by t.schema, t.name)
-    from tables t
+    ) order by t.schema_name, t.table_name)
+    from tbl t
   ),
 
-  'policies', (
+  -- 3. Row level security policies (public tables + Storage tables).
+  'rls_policies', (
     select jsonb_agg(jsonb_build_object(
-      'table', p.schemaname || '.' || p.tablename,
-      'name', p.policyname,
-      'permissive', p.permissive,
-      'roles', p.roles,
-      'command', p.cmd,
-      'using', p.qual,
-      'with_check', p.with_check
-    ) order by p.schemaname, p.tablename, p.policyname)
-    from pg_policies p
-    where p.schemaname = 'public' or (p.schemaname = 'storage' and p.tablename in ('objects', 'buckets'))
+             'table', n.nspname || '.' || c.relname,
+             'name', p.polname,
+             'permissive', p.polpermissive,
+             'command', case p.polcmd
+                          when 'r' then 'select' when 'a' then 'insert'
+                          when 'w' then 'update' when 'd' then 'delete'
+                          when '*' then 'all' end,
+             'roles', (select coalesce(jsonb_agg(case when rid = 0 then 'public'
+                                                      else pg_catalog.pg_get_userbyid(rid)::text end), '[]'::jsonb)
+                       from unnest(p.polroles) as rid),
+             'using', pg_catalog.pg_get_expr(p.polqual, p.polrelid),
+             'with_check', pg_catalog.pg_get_expr(p.polwithcheck, p.polrelid)
+           ) order by n.nspname, c.relname, p.polname)
+    from pg_catalog.pg_policy p
+    join pg_catalog.pg_class c on c.oid = p.polrelid
+    join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+       or (n.nspname = 'storage' and c.relname in ('objects', 'buckets'))
   ),
 
+  -- 4. Functions in `public` (policies call these; source not included).
   'functions', (
     select jsonb_agg(jsonb_build_object(
-      'name', p.proname,
-      'args', pg_get_function_identity_arguments(p.oid),
-      'security_definer', p.prosecdef,
-      'config', p.proconfig,
-      'execute_anon', has_function_privilege('anon', p.oid, 'EXECUTE'),
-      'execute_authenticated', has_function_privilege('authenticated', p.oid, 'EXECUTE')
-    ) order by p.proname)
-    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+             'name', p.proname,
+             'arguments', pg_catalog.pg_get_function_identity_arguments(p.oid),
+             'returns', pg_catalog.format_type(p.prorettype, null),
+             'security_definer', p.prosecdef,
+             'search_path_config', p.proconfig,
+             'execute_anon', has_function_privilege('anon', p.oid, 'EXECUTE'),
+             'execute_authenticated', has_function_privilege('authenticated', p.oid, 'EXECUTE')
+           ) order by p.proname)
+    from pg_catalog.pg_proc p
+    join pg_catalog.pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'public'
   ),
 
+  -- 5. Storage buckets: configuration only (no objects, no file names).
   'storage_buckets', (
-    select jsonb_agg(to_jsonb(b) - 'owner' - 'owner_id' order by b.id)
+    select jsonb_agg(jsonb_build_object(
+             'id', b.id,
+             'name', b.name,
+             'public', b.public,
+             'file_size_limit', b.file_size_limit,
+             'allowed_mime_types', b.allowed_mime_types
+           ) order by b.id)
     from storage.buckets b
-  ),
-
-  -- Structure only: how many objects per bucket and per top-level folder
-  -- shape (uuid folder or not). No file names are returned.
-  'storage_object_layout', (
-    select jsonb_agg(x)
-    from (
-      select o.bucket_id,
-             ((storage.foldername(o.name))[1] ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') as first_folder_is_uuid,
-             count(*) as objects
-      from storage.objects o
-      group by 1, 2
-    ) x
   )
-)) as inspection;
 
-rollback;
+)) as inspection;
