@@ -1,4 +1,3 @@
-
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
@@ -89,10 +88,15 @@ function documentType(value: string | null | undefined) {
   return types[value ?? ''] ?? value ?? 'Documento'
 }
 
-
 function parseQuoteNotes(notes: string | null | undefined) {
   const text = notes ?? ''
-  const items: { description: string; quantity: number; price: number; amount: number }[] = []
+  const items: {
+    description: string
+    quantity: number
+    price: number
+    amount: number
+  }[] = []
+
   let discount = 0
   let cleanNotes = text
 
@@ -100,8 +104,10 @@ function parseQuoteNotes(notes: string | null | undefined) {
     const match = line.match(
       /^\s*\d+\.\s*(.*?)\s*\|\s*Cantidad:\s*([\d.]+)\s*\|\s*Precio unitario:\s*\$([\d,.]+)\s*\|\s*Importe:\s*\$([\d,.]+)\s*$/i
     )
+
     if (match) {
       const number = (v: string) => Number(v.replace(/,/g, '')) || 0
+
       items.push({
         description: match[1],
         quantity: number(match[2]),
@@ -112,11 +118,19 @@ function parseQuoteNotes(notes: string | null | undefined) {
   }
 
   const discountMatch = text.match(/Descuento:\s*\$([\d,.]+)/i)
-  if (discountMatch) discount = Number(discountMatch[1].replace(/,/g, '')) || 0
+
+  if (discountMatch) {
+    discount = Number(discountMatch[1].replace(/,/g, '')) || 0
+  }
 
   cleanNotes = text
     .split(/\r?\n/)
-    .filter(line => !/^\s*(COTIZACIÓN\s*[—-]\s*PARTIDAS|\d+\.\s.*\|\s*Cantidad:|Subtotal:|Descuento:|Impuesto\s*\(|TOTAL:)/i.test(line))
+    .filter(
+      line =>
+        !/^\s*(COTIZACIÓN\s*[—-]\s*PARTIDAS|\d+\.\s.*\|\s*Cantidad:|Subtotal:|Descuento:|Impuesto\s*\(|TOTAL:)/i.test(
+          line
+        )
+    )
     .join('\n')
     .trim()
 
@@ -140,7 +154,10 @@ export default async function DocumentDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>
-  searchParams?: Promise<{ deleteError?: string }>
+  searchParams?: Promise<{
+    deleteError?: string
+    company_id?: string
+  }>
 }) {
   const { id } = await params
   const query = searchParams ? await searchParams : undefined
@@ -152,14 +169,23 @@ export default async function DocumentDetailPage({
 
   if (!user) redirect('/login')
 
-  const { data: membership } = await supabase
+  // Validar que el usuario pertenece a la empresa indicada.
+  const membershipQuery = supabase
     .from('memberships')
     .select('company_id')
     .eq('user_id', user.id)
-    .limit(1)
-    .maybeSingle()
 
-  if (!membership?.company_id) redirect('/dashboard')
+  const { data: membership, error: membershipError } = query?.company_id
+    ? await membershipQuery
+        .eq('company_id', query.company_id)
+        .maybeSingle()
+    : await membershipQuery
+        .limit(1)
+        .maybeSingle()
+
+  if (membershipError || !membership?.company_id) {
+    redirect('/dashboard')
+  }
 
   const companyId = membership.company_id
 
@@ -219,6 +245,7 @@ export default async function DocumentDetailPage({
     if (status !== 'sent' && status !== 'paid') return
 
     const supabase = await createClient()
+
     const {
       data: { user },
     } = await supabase.auth.getUser()
@@ -229,7 +256,7 @@ export default async function DocumentDetailPage({
       .from('memberships')
       .select('company_id')
       .eq('user_id', user.id)
-      .limit(1)
+      .eq('company_id', companyId)
       .maybeSingle()
 
     if (!member?.company_id) redirect('/documents')
@@ -238,20 +265,21 @@ export default async function DocumentDetailPage({
       .from('documents')
       .select('id, total, status')
       .eq('id', id)
-      .eq('company_id', member.company_id)
+      .eq('company_id', companyId)
       .maybeSingle()
 
     if (!currentDoc) redirect('/documents')
 
     if (status === 'paid') {
       const amount = Number(currentDoc.total ?? 0)
+
       if (amount <= 0) redirect(`/documents/${id}`)
 
       const { data: existingPayment, error: existingPaymentError } =
         await supabase
           .from('payments')
           .select('id')
-          .eq('company_id', member.company_id)
+          .eq('company_id', companyId)
           .eq('document_id', id)
           .limit(1)
           .maybeSingle()
@@ -265,7 +293,7 @@ export default async function DocumentDetailPage({
         const { error: paymentError } = await supabase
           .from('payments')
           .insert({
-            company_id: member.company_id,
+            company_id: companyId,
             document_id: id,
             amount,
             payment_method: 'manual',
@@ -283,7 +311,7 @@ export default async function DocumentDetailPage({
       .from('documents')
       .update({ status })
       .eq('id', id)
-      .eq('company_id', member.company_id)
+      .eq('company_id', companyId)
 
     if (updateError) {
       console.error('DOCUMENT_STATUS_ERROR', updateError)
@@ -301,6 +329,7 @@ export default async function DocumentDetailPage({
     }
 
     const supabase = await createClient()
+
     const {
       data: { user },
     } = await supabase.auth.getUser()
@@ -311,7 +340,7 @@ export default async function DocumentDetailPage({
       .from('memberships')
       .select('company_id')
       .eq('user_id', user.id)
-      .limit(1)
+      .eq('company_id', companyId)
       .maybeSingle()
 
     if (!member?.company_id) redirect('/documents')
@@ -320,7 +349,7 @@ export default async function DocumentDetailPage({
       .from('documents')
       .select('id')
       .eq('id', id)
-      .eq('company_id', member.company_id)
+      .eq('company_id', companyId)
       .maybeSingle()
 
     if (lookupError || !currentDoc) redirect('/documents')
@@ -329,7 +358,7 @@ export default async function DocumentDetailPage({
       .from('documents')
       .delete()
       .eq('id', id)
-      .eq('company_id', member.company_id)
+      .eq('company_id', companyId)
 
     if (deleteError) {
       console.error('DOCUMENT_DELETE_ERROR', deleteError)
@@ -341,23 +370,29 @@ export default async function DocumentDetailPage({
 
   const subtotal = Number(doc.subtotal ?? 0)
   const tax = Number(doc.tax ?? 0)
+
   const total =
     doc.total !== null && doc.total !== undefined
       ? Number(doc.total)
       : subtotal + tax
+
   const primaryColor = companyData?.primary_color || '#0f172a'
 
   const isLetter = doc.document_type === 'letter'
   const isWorkOrder = doc.document_type === 'work_order'
+
   const isReminder =
     doc.document_type === 'payment_reminder' ||
     doc.document_type === 'reminder'
+
   const isInvoice =
     doc.document_type === 'invoice' ||
     doc.document_type === 'factura'
+
   const isQuote =
     doc.document_type === 'quote' ||
     doc.document_type === 'quotation'
+
   const quoteDetails = parseQuoteNotes(doc.notes)
 
   return (
@@ -371,9 +406,11 @@ export default async function DocumentDetailPage({
             >
               ← Volver a Documentos
             </Link>
+
             <h1 className="mt-3 text-2xl font-bold tracking-tight text-slate-950">
               Vista del documento
             </h1>
+
             <p className="mt-1 text-sm text-slate-500">
               Revisa la información antes de enviarla al cliente.
             </p>
@@ -381,9 +418,11 @@ export default async function DocumentDetailPage({
 
           <div className="flex flex-wrap items-center gap-2">
             <PrintButton />
+
             <span className="rounded-full bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
               {statusLabel(doc.status)}
             </span>
+
             <form
               action={deleteDocument}
               className="flex flex-wrap items-center gap-2 rounded-xl border border-red-200 bg-white px-3 py-2"
@@ -398,6 +437,7 @@ export default async function DocumentDetailPage({
                 />
                 Confirmo eliminar
               </label>
+
               <button
                 type="submit"
                 className="rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700"
@@ -423,6 +463,7 @@ export default async function DocumentDetailPage({
             {doc.status === 'draft' && (
               <form action={updateStatus}>
                 <input type="hidden" name="status" value="sent" />
+
                 <button
                   type="submit"
                   className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white"
@@ -435,6 +476,7 @@ export default async function DocumentDetailPage({
             {(doc.status === 'sent' || doc.status === 'overdue') && (
               <form action={updateStatus}>
                 <input type="hidden" name="status" value="paid" />
+
                 <button
                   type="submit"
                   className="rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white"
@@ -486,6 +528,7 @@ export default async function DocumentDetailPage({
 
                 <div className="mt-4 space-y-1 text-sm text-white/75">
                   {companyData?.address && <p>{companyData.address}</p>}
+
                   {(companyData?.city ||
                     companyData?.state ||
                     companyData?.postal_code) && (
@@ -499,6 +542,7 @@ export default async function DocumentDetailPage({
                         .join(', ')}
                     </p>
                   )}
+
                   {companyData?.phone && <p>{companyData.phone}</p>}
                   {companyData?.email && <p>{companyData.email}</p>}
                 </div>
@@ -508,9 +552,11 @@ export default async function DocumentDetailPage({
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
                   {documentType(doc.document_type)}
                 </p>
+
                 <p className="mt-2 text-2xl font-bold">
                   {doc.document_number || 'Documento'}
                 </p>
+
                 <div className="mt-5 space-y-1 text-sm text-white/75">
                   <p>
                     Fecha:{' '}
@@ -518,6 +564,7 @@ export default async function DocumentDetailPage({
                       {formatDate(doc.issue_date)}
                     </span>
                   </p>
+
                   {doc.due_date && (
                     <p>
                       Vencimiento:{' '}
@@ -536,15 +583,18 @@ export default async function DocumentDetailPage({
               <h3 className="text-2xl font-bold text-slate-900">
                 {doc.title || 'Carta comercial'}
               </h3>
+
               <p className="mt-2 text-sm text-slate-500">
                 Fecha: {formatDate(doc.issue_date)}
               </p>
+
               <p className="mt-6 text-sm text-slate-700">
                 Para:{' '}
                 {clientData?.business_name ||
                   clientData?.name ||
                   'Destinatario'}
               </p>
+
               <div className="mt-8 whitespace-pre-wrap text-base leading-8 text-slate-700">
                 {doc.notes || 'Contenido de la carta no especificado.'}
               </div>
@@ -554,28 +604,35 @@ export default async function DocumentDetailPage({
               <h3 className="text-xl font-bold text-slate-900">
                 Detalles de la orden de trabajo
               </h3>
+
               <p className="mt-4 text-sm text-slate-500">Cliente</p>
+
               <p className="font-semibold text-slate-900">
                 {clientData?.business_name ||
                   clientData?.name ||
                   'Cliente no especificado'}
               </p>
+
               {clientData?.email && (
                 <p className="mt-1 text-sm text-slate-600">
                   {clientData.email}
                 </p>
               )}
+
               {clientData?.phone && (
                 <p className="mt-1 text-sm text-slate-600">
                   {clientData.phone}
                 </p>
               )}
+
               <p className="mt-5 text-sm text-slate-500">
                 Trabajo solicitado
               </p>
+
               <p className="mt-1 text-lg font-semibold text-slate-900">
                 {doc.title || 'Trabajo no especificado'}
               </p>
+
               {doc.due_date && (
                 <p className="mt-4 text-sm text-slate-600">
                   Fecha límite: {formatDate(doc.due_date)}
@@ -587,6 +644,7 @@ export default async function DocumentDetailPage({
               <h3 className="text-xl font-bold text-slate-900">
                 Recordatorio de pago
               </h3>
+
               <p className="mt-4 text-slate-700">
                 Estimado/a{' '}
                 {clientData?.name ||
@@ -594,16 +652,20 @@ export default async function DocumentDetailPage({
                   'cliente'}
                 ,
               </p>
+
               <p className="mt-3 leading-7 text-slate-600">
                 Le recordamos que tiene un balance pendiente de pago. Le
                 agradecemos realizar el pago correspondiente o comunicarse con
                 nosotros si ya realizó el pago.
               </p>
+
               <div className="mt-6 rounded-2xl bg-amber-50 p-5">
                 <p className="text-sm text-amber-800">Balance pendiente</p>
+
                 <p className="mt-1 text-3xl font-bold text-amber-950">
                   {money(total)}
                 </p>
+
                 {doc.due_date && (
                   <p className="mt-2 text-sm text-amber-800">
                     Fecha de vencimiento: {formatDate(doc.due_date)}
@@ -618,20 +680,24 @@ export default async function DocumentDetailPage({
                   <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
                     {isQuote ? 'Preparado para' : 'Facturado a'}
                   </p>
+
                   <h3 className="mt-2 text-lg font-bold text-slate-900">
                     {clientData?.business_name ||
                       clientData?.name ||
                       'Cliente no especificado'}
                   </h3>
+
                   {clientData?.business_name && clientData?.name && (
                     <p className="mt-1 text-sm text-slate-600">
                       {clientData.name}
                     </p>
                   )}
+
                   <div className="mt-3 space-y-1 text-sm text-slate-500">
                     {clientData?.email && <p>{clientData.email}</p>}
                     {clientData?.phone && <p>{clientData.phone}</p>}
                     {clientData?.address && <p>{clientData.address}</p>}
+
                     {(clientData?.city ||
                       clientData?.state ||
                       clientData?.postal_code) && (
@@ -652,9 +718,11 @@ export default async function DocumentDetailPage({
                   <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
                     Resumen
                   </p>
+
                   <p className="mt-2 text-3xl font-bold text-slate-950">
                     {money(total)}
                   </p>
+
                   <p className="mt-1 text-sm text-slate-500">
                     Total del documento
                   </p>
@@ -670,42 +738,61 @@ export default async function DocumentDetailPage({
                       <span className="text-right">Precio unit.</span>
                       <span className="text-right">Importe</span>
                     </div>
-                    {quoteDetails.items.length > 0 ? quoteDetails.items.map((item, index) => (
-                      <div key={`${item.description}-${index}`} className="grid grid-cols-[minmax(100px,1fr)_42px_72px_78px] gap-1 border-t border-slate-100 px-2 py-4 text-xs text-slate-700 sm:grid-cols-[minmax(0,1fr)_90px_130px_130px] sm:gap-3 sm:px-5 sm:text-sm">
-                        <span className="break-words font-medium text-slate-900">{item.description}</span>
-                        <span className="text-right">{item.quantity}</span>
-                        <span className="text-right">{money(item.price)}</span>
-                        <span className="text-right font-semibold">{money(item.amount)}</span>
-                      </div>
-                    )) : (
+
+                    {quoteDetails.items.length > 0 ? (
+                      quoteDetails.items.map((item, index) => (
+                        <div
+                          key={`${item.description}-${index}`}
+                          className="grid grid-cols-[minmax(100px,1fr)_42px_72px_78px] gap-1 border-t border-slate-100 px-2 py-4 text-xs text-slate-700 sm:grid-cols-[minmax(0,1fr)_90px_130px_130px] sm:gap-3 sm:px-5 sm:text-sm"
+                        >
+                          <span className="break-words font-medium text-slate-900">
+                            {item.description}
+                          </span>
+                          <span className="text-right">{item.quantity}</span>
+                          <span className="text-right">
+                            {money(item.price)}
+                          </span>
+                          <span className="text-right font-semibold">
+                            {money(item.amount)}
+                          </span>
+                        </div>
+                      ))
+                    ) : (
                       <div className="border-t border-slate-100 px-5 py-6">
-                        <p className="font-semibold text-slate-900">{doc.title || 'Cotización'}</p>
-                        <p className="mt-1 text-sm text-slate-500">No hay partidas detalladas guardadas en esta cotización.</p>
+                        <p className="font-semibold text-slate-900">
+                          {doc.title || 'Cotización'}
+                        </p>
+                        <p className="mt-1 text-sm text-slate-500">
+                          No hay partidas detalladas guardadas en esta
+                          cotización.
+                        </p>
                       </div>
                     )}
                   </div>
                 ) : (
-                <div className="rounded-2xl border border-slate-200">
-                  <div className="grid grid-cols-1 bg-slate-50 px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 sm:grid-cols-[1fr_140px]">
-                    <span>Descripción</span>
-                    <span className="sm:text-right">Importe</span>
-                  </div>
-                  <div className="grid grid-cols-1 gap-3 px-5 py-6 sm:grid-cols-[1fr_140px]">
-                    <div>
-                      <p className="font-semibold text-slate-900">
-                        {doc.title || 'Servicio profesional'}
-                      </p>
-                      <p className="mt-1 text-sm text-slate-500">
-                        {documentType(doc.document_type)}
+                  <div className="rounded-2xl border border-slate-200">
+                    <div className="grid grid-cols-1 bg-slate-50 px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 sm:grid-cols-[1fr_140px]">
+                      <span>Descripción</span>
+                      <span className="sm:text-right">Importe</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-3 px-5 py-6 sm:grid-cols-[1fr_140px]">
+                      <div>
+                        <p className="font-semibold text-slate-900">
+                          {doc.title || 'Servicio profesional'}
+                        </p>
+                        <p className="mt-1 text-sm text-slate-500">
+                          {documentType(doc.document_type)}
+                        </p>
+                      </div>
+
+                      <p className="text-lg font-bold text-slate-900 sm:text-right">
+                        {money(subtotal)}
                       </p>
                     </div>
-                    <p className="text-lg font-bold text-slate-900 sm:text-right">
-                      {money(subtotal)}
-                    </p>
                   </div>
-                </div>
+                )}
 
-) }
                 <div className="mt-6 flex justify-end">
                   <div className="w-full max-w-sm space-y-3">
                     <div className="flex justify-between text-sm text-slate-500">
@@ -714,23 +801,29 @@ export default async function DocumentDetailPage({
                         {money(subtotal)}
                       </span>
                     </div>
+
                     {isQuote && quoteDetails.discount > 0 && (
                       <div className="flex justify-between text-sm text-slate-500">
                         <span>Descuento</span>
-                        <span className="font-medium text-slate-800">−{money(quoteDetails.discount)}</span>
+                        <span className="font-medium text-slate-800">
+                          −{money(quoteDetails.discount)}
+                        </span>
                       </div>
                     )}
+
                     <div className="flex justify-between text-sm text-slate-500">
                       <span>Impuesto</span>
                       <span className="font-medium text-slate-800">
                         {money(tax)}
                       </span>
                     </div>
+
                     <div className="border-t border-slate-200 pt-4">
                       <div className="flex items-end justify-between">
                         <span className="text-base font-bold text-slate-900">
                           Total
                         </span>
+
                         <span
                           className="text-3xl font-bold"
                           style={{ color: primaryColor }}
@@ -748,8 +841,11 @@ export default async function DocumentDetailPage({
           {(isQuote ? quoteDetails.cleanNotes : doc.notes) && !isLetter && (
             <section className="border-t border-slate-200 px-6 py-7 sm:px-10">
               <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">
-                {isWorkOrder ? 'Descripción del trabajo y notas' : 'Notas y condiciones'}
+                {isWorkOrder
+                  ? 'Descripción del trabajo y notas'
+                  : 'Notas y condiciones'}
               </h3>
+
               <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-600">
                 {isQuote ? quoteDetails.cleanNotes : doc.notes}
               </p>
@@ -761,6 +857,7 @@ export default async function DocumentDetailPage({
               <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">
                 Información de pago
               </h3>
+
               <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-600">
                 {companyData.payment_info}
               </p>
@@ -771,6 +868,7 @@ export default async function DocumentDetailPage({
             <p className="text-xs text-slate-400">
               Documento generado con BusinessAI
             </p>
+
             <p className="mt-1 text-xs text-slate-400">
               {companyData?.display_name ||
                 companyData?.legal_name ||
