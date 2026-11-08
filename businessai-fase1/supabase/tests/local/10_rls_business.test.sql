@@ -1,5 +1,5 @@
 -- RLS test suite on the INSPECTED schema (01_business_fixture.sql) after
--- migration 0005. Every DO block is one transaction: `set local role` +
+-- migrations 0005 (tables) and 0007 (storage). Every DO block is one transaction: `set local role` +
 -- JWT claims emulate a PostgREST request from that user.
 \set ON_ERROR_STOP 1
 set client_min_messages = notice;

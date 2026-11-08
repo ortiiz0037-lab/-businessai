@@ -12,6 +12,11 @@ seguridad encima de lo que existe.
 | `migrations/0001`, `0003`, `0004` | Núcleo multi-tenant, perfil, suscripciones | Sí (según la inspección) |
 | `migrations/0005_security_baseline.sql` | RLS, privilegios y Storage sobre el esquema inspeccionado | **No — borrador, requiere aprobación** |
 | `migrations/0006_payments_document_fk.sql` | `payments.document_id`: CASCADE → NO ACTION | **No — borrador, aprobación aparte** |
+| `migrations/0007_storage_company_assets.sql` | Políticas de Storage para `Company-assets` | **No — borrador, aprobación aparte** |
+| `migrations/0008_definer_function_grants.sql` | Quitar EXECUTE a anon en `can_edit_company_profile` | **No — borrador, aprobación aparte** |
+| `rollback/000x_rollback.sql` | Vuelta exacta al estado inspeccionado, por migración | Solo emergencias |
+| `RUNBOOK.md` | Respaldo, orden de ejecución, verificación y recuperación | — |
+| `inspect/verify_after_migrations.sql` | Verificación de solo lectura tras cada paso | — |
 | `inspect/inspect_security_baseline.sql` | Inspección de solo lectura (ya ejecutada) | — |
 | `inspect/SCHEMA_REVIEW.md` | Hallazgos y decisiones sobre el esquema real | — |
 | `inspect/inspect_definer_functions.sql` | Código de las funciones SECURITY DEFINER (solo lectura) | Pendiente |

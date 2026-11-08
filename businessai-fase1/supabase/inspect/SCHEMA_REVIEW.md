@@ -51,10 +51,18 @@ tablas de `public` y en las futuras creadas por `postgres`.
 | `is_company_member(uuid)` | DEFINER | `""` | no | sí | — |
 | `delete_document_with_audit(uuid, text)` | INVOKER | `public` | no | — | ninguno |
 
-`can_edit_company_profile` es ejecutable por `anon` y no la usa nada. **Su código
-no ha sido revisado** (la inspección no incluye el código fuente), así que 0005
-**no** cambia sus permisos. Revocar EXECUTE a `anon` queda pendiente de leer su
-código con `inspect_definer_functions.sql`.
+`can_edit_company_profile` es ejecutable por `anon`. **Su código no ha sido
+revisado**: la inspección no incluye código fuente y
+`inspect_definer_functions.sql` no se ha ejecutado.
+
+- **Revocar EXECUTE a `anon` es seguro sea cual sea su código:** ninguna política
+  la usa (inspección), la app no la llama (solo `rpc('create_company')`) y
+  `authenticated` conserva el permiso → borrador **0008**.
+- **Lo que no se puede afirmar sin el código:** si el permiso ya expuso algo.
+  Con `search_path=""` y `auth.uid()` nulo para `anon`, una implementación
+  típica devuelve `false`. Sería un problema si el cuerpo (a) no depende de
+  `auth.uid()` (revelaría qué empresas existen), (b) escribe en tablas, o
+  (c) llama a otras funciones con efectos.
 
 `delete_document_with_audit` es INVOKER con `search_path=public` (mutable).
 No es de alto riesgo por ser INVOKER, pero conviene fijarlo cuando se revise.
@@ -73,9 +81,43 @@ Los `bucket_id` distinguen mayúsculas. De las 11 políticas sobre `storage.obje
   (probablemente caracteres invisibles). 0005 identifica estas políticas por su
   contenido, no por su nombre.
 
-0005 elimina las 11 y crea `ba_company_assets_select` / `ba_company_assets_insert`
-con **la misma regla que hoy** (owner/admin, solo select + insert). No se añaden
-políticas de update/delete ni se cambia que el bucket sea público.
+**0007** (antes dentro de 0005) elimina las 11 y crea `ba_company_assets_select` /
+`ba_company_assets_insert` con **la misma regla que hoy** (owner/admin, solo
+select + insert). No se añaden políticas de update/delete ni se cambia que el
+bucket sea público.
+
+### ¿Protegen los permisos actuales los archivos?
+
+**Solo en parte.** Las políticas controlan *listar* y *subir* mediante la API;
+la **lectura** de un bucket público no pasa por RLS: cualquiera con la URL
+`/storage/v1/object/public/Company-assets/<ruta>` descarga el archivo sin sesión.
+
+| Acción | ¿Quién puede? |
+|---|---|
+| Subir a `<empresa>/…` | Solo owner/admin de esa empresa ✔ |
+| Listar los archivos de una empresa | Solo owner/admin de esa empresa ✔ (anon no tiene política) |
+| Sobrescribir / borrar por la API | Nadie (no hay políticas update/delete) ✔ |
+| **Descargar un archivo conociendo su URL** | **Cualquiera** ✘ |
+
+Consecuencias:
+- **Logo:** está bien que sea público; aparece en los documentos que se envían.
+- **Firma:** es sensible y **también es pública**. La ruta es
+  `<company_id>/signature-<milisegundos>.<ext>`. El `company_id` aparece en la URL
+  del logo de cualquier documento compartido, y la marca de tiempo de la firma
+  suele estar a minutos de la del logo, así que la URL de la firma se puede
+  adivinar probando marcas de tiempo cercanas (del orden de 10⁵ intentos).
+- `allowed_mime_types` es nulo: un owner/admin puede subir cualquier tipo de
+  archivo (p. ej. HTML o SVG) y servirlo públicamente desde el dominio de Storage.
+
+Correcciones recomendadas (cambian configuración o código; no incluidas en las
+migraciones, requieren aprobación aparte):
+1. Firmas en un **bucket privado** y servirlas con URLs firmadas de corta
+   duración al generar el documento (cambio en `CompanyBranding.tsx` y en la vista
+   del documento).
+2. Nombres de archivo con un componente aleatorio (`crypto.randomUUID()`) en vez
+   de solo la marca de tiempo.
+3. `allowed_mime_types` = `image/png, image/jpeg, image/webp` en `Company-assets`
+   (Dashboard → Storage → bucket → Edit). No incluir `image/svg+xml`.
 
 ## 6. Relaciones
 

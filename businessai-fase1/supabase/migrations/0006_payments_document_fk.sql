@@ -18,9 +18,22 @@
 --
 -- No rows are changed. The constraint is re-created with the same columns;
 -- existing rows already satisfy it.
+--
+-- Side effects to accept before applying:
+--   * an invoice with payments can no longer be deleted (also through
+--     delete_document_with_audit, which then fails and stores no audit
+--     row). Mistaken invoices must be cancelled (status 'cancelled').
+--   * the app's delete action shows "tiene pagos registrados".
+--
+-- Rollback: supabase/rollback/0006_rollback.sql
 -- =====================================================================
 
 begin;
+
+-- Re-creating the FK validates it: it locks payments (and briefly
+-- documents). Fail fast rather than queue application traffic.
+set local lock_timeout = '5s';
+set local statement_timeout = '60s';
 
 do $$
 declare

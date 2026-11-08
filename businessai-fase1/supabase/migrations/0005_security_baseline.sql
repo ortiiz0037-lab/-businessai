@@ -24,23 +24,27 @@
 --   4. document_deletion_audit: removes the two exact duplicate policies;
 --   5. TRUNCATE (not subject to RLS) revoked from PUBLIC/anon/authenticated
 --      on every public table, and from future tables owned by postgres;
---   6. Storage: removes the 9 policies that target 'company-assets' /
---      'COMPANY-ASSETS' (bucket ids are case-sensitive; the real bucket is
---      'Company-assets', so they never matched) and replaces the 2 working
---      ones with canonical equivalents (same rule: owner/admin of the
---      company folder; select + insert only, exactly as today);
---   7. self-check; aborts if the end state is not the intended one.
+--   6. self-check; aborts if the end state is not the intended one.
 --
 -- NOT in this migration (separate drafts, separate approval):
 --   * 0006 — payments.document_id ON DELETE CASCADE (deleting a document
 --     silently erases its payments, bypassing RLS and privileges).
---   * EXECUTE on SECURITY DEFINER functions (can_edit_company_profile):
---     pending review of the function source.
+--   * 0007 — Storage policies for the Company-assets bucket (storage.objects
+--     is a Supabase-managed table; kept apart so a refusal there cannot
+--     block or roll back this migration).
+--   * 0008 — EXECUTE on can_edit_company_profile for anon.
+-- Rollback: supabase/rollback/0005_rollback.sql (restores the inspected state).
 --
 -- One transaction: any failure leaves the database untouched. Re-runnable.
 -- =====================================================================
 
 begin;
+
+-- Fail fast instead of queueing application traffic behind our locks:
+-- if a table is busy, the migration aborts (nothing changed) and can be
+-- retried in a quieter moment.
+set local lock_timeout = '5s';
+set local statement_timeout = '60s';
 
 -- ---------------------------------------------------------------------
 -- 0. Reviewed policies (exact names from the inspection).
@@ -112,8 +116,6 @@ end $$;
 
 -- ---------------------------------------------------------------------
 -- 2. Guard: a policy that was not in the inspection aborts everything.
---    Storage policies for this bucket are handled by content in step 6;
---    a storage policy that does not restrict bucket_id at all aborts.
 -- ---------------------------------------------------------------------
 do $$
 declare
@@ -125,14 +127,10 @@ begin
     into unknown
   from pg_policies p
   where p.policyname not like 'ba\_%'
-    and (
-      (p.schemaname = 'public'
-       and p.tablename in ('clients', 'documents', 'payments', 'document_deletion_audit')
-       and not exists (select 1 from _ba_reviewed_policies r
-                       where r.tbl = 'public.' || p.tablename and r.name = p.policyname))
-      or (p.schemaname = 'storage' and p.tablename = 'objects'
-          and coalesce(p.qual, '') || coalesce(p.with_check, '') not ilike '%bucket_id%')
-    );
+    and p.schemaname = 'public'
+    and p.tablename in ('clients', 'documents', 'payments', 'document_deletion_audit')
+    and not exists (select 1 from _ba_reviewed_policies r
+                    where r.tbl = 'public.' || p.tablename and r.name = p.policyname);
 
   if unknown is not null then
     raise exception E'BA0005: policies not covered by the inspection; nothing was changed:\n%', unknown
@@ -172,6 +170,18 @@ grant select, insert, update, delete on public.documents to authenticated;
 -- Payments are a ledger: app users record and read, never edit or erase.
 grant select, insert on public.payments to authenticated;
 revoke update, delete on public.payments from authenticated;
+-- A table-level REVOKE does not remove column-level grants: remove those too.
+do $$
+declare
+  col record;
+begin
+  for col in
+    select a.attname from pg_attribute a
+    where a.attrelid = 'public.payments'::regclass and a.attnum > 0 and not a.attisdropped
+  loop
+    execute format('revoke update (%I) on public.payments from authenticated', col.attname);
+  end loop;
+end $$;
 revoke references, trigger on public.clients, public.documents, public.payments from authenticated;
 
 grant all on public.clients, public.documents, public.payments to service_role;
@@ -261,64 +271,7 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------
--- 6. Storage — bucket id is exactly 'Company-assets' (case-sensitive).
---    Path used by the app: <company_id>/<logo|signature>-<ts>.<ext>
--- ---------------------------------------------------------------------
-create or replace function public.storage_company_id(object_name text)
-returns uuid
-language sql immutable set search_path = '' as $$
-  select case
-    when (string_to_array(object_name, '/'))[1]
-         ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-     and array_length(string_to_array(object_name, '/'), 1) > 1
-    then ((string_to_array(object_name, '/'))[1])::uuid
-  end
-$$;
-
-revoke all on function public.storage_company_id(text) from public, anon;
-grant execute on function public.storage_company_id(text) to authenticated, service_role;
-
-do $$
-declare
-  r record;
-begin
-  if not exists (select 1 from storage.buckets where id = 'Company-assets') then
-    raise exception 'BA0005: bucket Company-assets not found';
-  end if;
-
-  -- Every non-canonical policy that names this bucket in any letter case:
-  -- the 9 dead ones ('company-assets' / 'COMPANY-ASSETS') and the 2 live
-  -- ones, which are recreated below with the same rule. Matching by
-  -- content (not name) also covers names with invisible characters.
-  for r in
-    select p.policyname
-    from pg_policies p
-    where p.schemaname = 'storage' and p.tablename = 'objects'
-      and p.policyname not like 'ba\_%'
-      and coalesce(p.qual, '') || coalesce(p.with_check, '') ilike '%company-assets%'
-  loop
-    execute format('drop policy %I on storage.objects', r.policyname);
-    raise notice 'BA0005: dropped storage policy %', r.policyname;
-  end loop;
-
-  execute 'drop policy if exists ba_company_assets_select on storage.objects';
-  execute 'drop policy if exists ba_company_assets_insert on storage.objects';
-
-  -- Same rule as today's company_assets_read / company_assets_upload.
-  execute $p$
-    create policy ba_company_assets_select on storage.objects for select to authenticated
-      using (bucket_id = 'Company-assets'
-             and public.has_company_role(public.storage_company_id(name), array['owner', 'admin']))
-  $p$;
-  execute $p$
-    create policy ba_company_assets_insert on storage.objects for insert to authenticated
-      with check (bucket_id = 'Company-assets'
-                  and public.has_company_role(public.storage_company_id(name), array['owner', 'admin']))
-  $p$;
-end $$;
-
--- ---------------------------------------------------------------------
--- 7. Self-check.
+-- 6. Self-check.
 -- ---------------------------------------------------------------------
 do $$
 declare
@@ -339,8 +292,9 @@ begin
   end loop;
 
   if has_table_privilege('authenticated', 'public.payments', 'UPDATE')
-     or has_table_privilege('authenticated', 'public.payments', 'DELETE') then
-    problems := problems || 'payments: authenticated can update/delete'::text;
+     or has_table_privilege('authenticated', 'public.payments', 'DELETE')
+     or has_any_column_privilege('authenticated', 'public.payments', 'UPDATE') then
+    problems := problems || 'payments: authenticated can update/delete (table or column level)'::text;
   end if;
   if exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'payments'
              and cmd in ('UPDATE', 'DELETE', 'ALL')) then
@@ -350,13 +304,6 @@ begin
   if (select count(*) from pg_policies
       where schemaname = 'public' and tablename = 'document_deletion_audit') <> 2 then
     problems := problems || 'document_deletion_audit: expected exactly 2 policies'::text;
-  end if;
-
-  if exists (select 1 from pg_policies p
-             where p.schemaname = 'storage' and p.tablename = 'objects'
-               and p.policyname not like 'ba\_%'
-               and coalesce(p.qual, '') || coalesce(p.with_check, '') ilike '%company-assets%') then
-    problems := problems || 'storage: non-canonical Company-assets policy remains'::text;
   end if;
 
   select problems || coalesce(array_agg('truncate allowed on public.' || c.relname || ' for ' || r.rolname), '{}')
