@@ -10,6 +10,9 @@
 // deletes them afterwards; it never reads or changes other data.
 //
 // Before migration 0005 is applied, failures here show the current gaps.
+// Schema: as inspected on businessai-dev (documents.document_number and
+// payments.document_id are NOT NULL; Company-assets has select + insert
+// policies for owner/admin only, no update/delete).
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
@@ -49,6 +52,7 @@ async function seed(u: U): Promise<Rows> {
   if (c.error) throw c.error
   const d = await u.client.from('documents').insert({
     company_id: u.companyId, client_id: c.data.id, document_type: 'invoice',
+    document_number: `RLS-${stamp}-${u.id.slice(0, 8)}`,
     title: 'RLS test', total: 100, subtotal: 100, tax: 0, status: 'sent',
   }).select('id').single()
   if (d.error) throw d.error
@@ -103,19 +107,19 @@ describe.skipIf(!enabled)('business tables: tenant isolation', () => {
 
   it('A cannot insert rows into B', async () => {
     expect((await A.client.from('clients').insert({ company_id: B.companyId, name: 'x' })).error).not.toBeNull()
-    expect((await A.client.from('documents').insert({ company_id: B.companyId, document_type: 'invoice' })).error).not.toBeNull()
-    expect((await A.client.from('payments').insert({ company_id: B.companyId, amount: 1, created_by: A.id })).error).not.toBeNull()
+    expect((await A.client.from('documents').insert({ company_id: B.companyId, document_type: 'invoice', document_number: `X-${stamp}` })).error).not.toBeNull()
+    expect((await A.client.from('payments').insert({ company_id: B.companyId, document_id: rowsB.documentId, amount: 1, created_by: A.id })).error).not.toBeNull()
   })
 
   it('A cannot reference B rows from its own company', async () => {
-    const doc = await A.client.from('documents').insert({ company_id: A.companyId, client_id: rowsB.clientId, document_type: 'invoice' })
+    const doc = await A.client.from('documents').insert({ company_id: A.companyId, client_id: rowsB.clientId, document_type: 'invoice', document_number: `X2-${stamp}` })
     expect(doc.error).not.toBeNull()
     const pay = await A.client.from('payments').insert({ company_id: A.companyId, document_id: rowsB.documentId, amount: 1, created_by: A.id })
     expect(pay.error).not.toBeNull()
   })
 
   it('A cannot record a payment as another user', async () => {
-    const r = await A.client.from('payments').insert({ company_id: A.companyId, amount: 1, created_by: B.id })
+    const r = await A.client.from('payments').insert({ company_id: A.companyId, document_id: rowsA.documentId, amount: 1, created_by: B.id })
     expect(r.error).not.toBeNull()
   })
 
@@ -151,9 +155,8 @@ describe.skipIf(!enabled)('business tables: tenant isolation', () => {
 })
 
 describe.skipIf(!enabled)('Company-assets storage: company folders', () => {
-  it('owner uploads into its own company folder (with upsert)', async () => {
+  it('owner uploads into its own company folder (new path each time, as the app does)', async () => {
     const path = `${A.companyId}/logo-test-${stamp}.png`
-    expect((await A.client.storage.from(BUCKET).upload(path, png, { upsert: true })).error).toBeNull()
     expect((await A.client.storage.from(BUCKET).upload(path, png, { upsert: true })).error).toBeNull()
   })
 

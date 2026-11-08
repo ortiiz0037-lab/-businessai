@@ -1,0 +1,86 @@
+{
+  "_source": "businessai-dev inspection 2026-11-08T03:24:24Z (PostgreSQL 17.11). Values copied from the owner's inspection output; used to check that 01_business_fixture.sql reproduces it.",
+  "tables": {
+    "public.clients": {
+      "rls_enabled": true,
+      "columns": [["id","uuid",true],["company_id","uuid",true],["name","text",true],["business_name","text",false],["email","text",false],["phone","text",false],["address","text",false],["city","text",false],["state","text",false],["postal_code","text",false],["notes","text",false],["status","text",true],["created_at","timestamp with time zone",true],["updated_at","timestamp with time zone",true]],
+      "foreign_keys": [["companies","cascade"]],
+      "indexes": ["clients_company_id_idx","clients_company_name_idx","clients_pkey"],
+      "privileges": {"anon":"T","authenticated":"SIUDT","service_role":"SIUDT"},
+      "policies": ["clients_delete_own_company","clients_insert_own_company","clients_select_own_company","clients_update_own_company"]
+    },
+    "public.companies": {
+      "rls_enabled": true,
+      "columns": [["id","uuid",true],["name","text",true],["created_by","uuid",true],["created_at","timestamp with time zone",true]],
+      "foreign_keys": [["auth.users","restrict"]],
+      "indexes": ["companies_pkey"],
+      "privileges": {"anon":"","authenticated":"SUT","service_role":"SIUDT"},
+      "policies": ["companies_select","companies_update"]
+    },
+    "public.company_profiles": {
+      "rls_enabled": true,
+      "columns": [["company_id","uuid",true],["legal_name","text",false],["display_name","text",false],["phone","text",false],["email","text",false],["address","text",false],["city","text",false],["state","text",false],["postal_code","text",false],["primary_color","text",true],["secondary_color","text",true],["logo_url","text",false],["signature_url","text",false],["payment_info","text",false],["created_at","timestamp with time zone",true],["updated_at","timestamp with time zone",true]],
+      "foreign_keys": [["companies","cascade"]],
+      "indexes": ["company_profiles_display_name_idx","company_profiles_pkey"],
+      "privileges": {"anon":"","authenticated":"SIUT","service_role":"SIUDT"},
+      "policies": ["company_profiles_insert","company_profiles_select","company_profiles_update"]
+    },
+    "public.company_subscriptions": {
+      "rls_enabled": true,
+      "columns": [["id","uuid",true],["company_id","uuid",true],["stripe_customer_id","text",false],["stripe_subscription_id","text",false],["stripe_price_id","text",false],["plan","text",true],["status","text",true],["current_period_start","timestamp with time zone",false],["current_period_end","timestamp with time zone",false],["cancel_at_period_end","boolean",true],["created_at","timestamp with time zone",true],["updated_at","timestamp with time zone",true]],
+      "foreign_keys": [["companies","cascade"]],
+      "indexes": ["company_subscriptions_company_id_key","company_subscriptions_company_idx","company_subscriptions_pkey","company_subscriptions_status_idx","company_subscriptions_stripe_customer_id_key","company_subscriptions_stripe_subscription_id_key"],
+      "privileges": {"anon":"","authenticated":"ST","service_role":"SIUDT"},
+      "policies": ["company_subscriptions_select"]
+    },
+    "public.document_deletion_audit": {
+      "rls_enabled": true,
+      "columns": [["id","uuid",true],["company_id","uuid",true],["document_id","uuid",true],["document_number","text",false],["document_type","text",false],["title","text",false],["previous_status","text",false],["total","numeric",false],["reason","text",true],["deleted_by","uuid",false],["deleted_at","timestamp with time zone",true],["status","text",false]],
+      "foreign_keys": [["auth.users","set null"],["companies","restrict"]],
+      "indexes": ["document_deletion_audit_pkey","idx_document_deletion_audit_company_date"],
+      "privileges": {"anon":"T","authenticated":"SIT","service_role":"T"},
+      "policies": ["Members can insert deletion audit","Members can view deletion audit","audit_insert_company","audit_select_company"]
+    },
+    "public.documents": {
+      "rls_enabled": true,
+      "columns": [["id","uuid",true],["company_id","uuid",true],["client_id","uuid",false],["created_by","uuid",false],["document_type","text",true],["document_number","text",true],["status","text",true],["title","text",false],["issue_date","date",true],["due_date","date",false],["subtotal","numeric(12,2)",true],["tax","numeric(12,2)",true],["total","numeric(12,2)",true],["notes","text",false],["payment_info","text",false],["items","jsonb",true],["metadata","jsonb",true],["created_at","timestamp with time zone",true],["updated_at","timestamp with time zone",true]],
+      "foreign_keys": [["auth.users","set null"],["clients","set null"],["companies","cascade"]],
+      "indexes": ["documents_client_id_idx","documents_company_id_document_number_key","documents_company_id_idx","documents_created_at_idx","documents_pkey","documents_status_idx"],
+      "privileges": {"anon":"T","authenticated":"SIUDT","service_role":"SIUDT"},
+      "policies": ["documents_delete_own_company","documents_insert_own_company","documents_select_own_company","documents_update_own_company"]
+    },
+    "public.memberships": {
+      "rls_enabled": true,
+      "columns": [["id","uuid",true],["company_id","uuid",true],["user_id","uuid",true],["role","text",true],["created_at","timestamp with time zone",true]],
+      "foreign_keys": [["auth.users","cascade"],["companies","cascade"]],
+      "indexes": ["memberships_company_id_user_id_key","memberships_pkey","memberships_user_id_idx"],
+      "privileges": {"anon":"","authenticated":"ST","service_role":"SIUDT"},
+      "policies": ["memberships_select"]
+    },
+    "public.payments": {
+      "rls_enabled": true,
+      "columns": [["id","uuid",true],["company_id","uuid",true],["document_id","uuid",true],["amount","numeric(12,2)",true],["payment_method","text",false],["reference","text",false],["paid_at","timestamp with time zone",true],["created_by","uuid",false],["created_at","timestamp with time zone",true]],
+      "foreign_keys": [["auth.users","no action"],["companies","cascade"],["documents","cascade"]],
+      "indexes": ["payments_company_id_idx","payments_document_id_idx","payments_pkey"],
+      "privileges": {"anon":"T","authenticated":"SIUDT","service_role":"SIUDT"},
+      "policies": ["payments_delete_own_company","payments_insert_own_company","payments_select_own_company","payments_update_own_company"]
+    },
+    "public.stripe_events": {
+      "rls_enabled": true,
+      "columns": [["id","text",true],["event_type","text",true],["status","text",true],["attempts","integer",true],["last_error","text",false],["created_at","timestamp with time zone",true],["updated_at","timestamp with time zone",true],["processed_at","timestamp with time zone",false]],
+      "foreign_keys": [],
+      "indexes": ["stripe_events_created_at_idx","stripe_events_pkey","stripe_events_status_idx"],
+      "privileges": {"anon":"","authenticated":"","service_role":"SIUDT"},
+      "policies": []
+    }
+  },
+  "storage_objects_policy_count": 11,
+  "functions": {
+    "can_edit_company_profile": {"security_definer": true, "execute_anon": true, "execute_authenticated": true},
+    "create_company": {"security_definer": true, "execute_anon": false, "execute_authenticated": true},
+    "delete_document_with_audit": {"security_definer": false, "execute_anon": false, "execute_authenticated": true},
+    "has_company_role": {"security_definer": true, "execute_anon": false, "execute_authenticated": true},
+    "is_company_member": {"security_definer": true, "execute_anon": false, "execute_authenticated": true}
+  },
+  "bucket": {"id": "Company-assets", "public": true, "file_size_limit": 5242880}
+}

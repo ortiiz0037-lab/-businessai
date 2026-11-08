@@ -406,15 +406,29 @@ export default async function DocumentDetailPage({
 
     if (lookupError || !currentDoc) redirect('/documents')
 
-    const { error: deleteError } = await supabase
+    // `.select('id')` returns the deleted rows: RLS can silently match
+    // zero rows (e.g. a member without owner/admin role).
+    const { data: deletedRows, error: deleteError } = await supabase
       .from('documents')
       .delete()
       .eq('id', id)
       .eq('company_id', companyId)
+      .select('id')
 
     if (deleteError) {
-      console.error('DOCUMENT_DELETE_ERROR', deleteError)
-      redirect(`/documents/${id}?deleteError=1`)
+      console.error('DOCUMENT_DELETE_ERROR', {
+        code: deleteError.code,
+        message: deleteError.message,
+      })
+      // 23503: the document still has payments (payments are kept as a ledger).
+      redirect(
+        `/documents/${id}?deleteError=${deleteError.code === '23503' ? 'payments' : '1'}`
+      )
+    }
+
+    if (!deletedRows || deletedRows.length === 0) {
+      console.warn('DOCUMENT_DELETE_NOT_ALLOWED', { id })
+      redirect(`/documents/${id}?deleteError=forbidden`)
     }
 
     redirect('/documents')
@@ -500,13 +514,16 @@ export default async function DocumentDetailPage({
           </div>
         </div>
 
-        {query?.deleteError === '1' && (
+        {query?.deleteError && (
           <div
             role="alert"
             className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"
           >
-            No se pudo eliminar el documento. Comprueba las políticas de
-            seguridad de Supabase (RLS) y los permisos de tu cuenta.
+            {query.deleteError === 'payments'
+              ? 'Este documento tiene pagos registrados y no se puede eliminar. Los pagos se conservan como historial.'
+              : query.deleteError === 'forbidden'
+                ? 'Solo el propietario o un administrador de la empresa puede eliminar documentos.'
+                : 'No se pudo eliminar el documento. Inténtalo nuevamente.'}
           </div>
         )}
 

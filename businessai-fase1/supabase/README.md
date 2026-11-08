@@ -9,10 +9,14 @@ seguridad encima de lo que existe.
 
 | Archivo | Qué es | ¿Aplicado? |
 |---|---|---|
-| `migrations/0001`, `0003`, `0004` | Núcleo multi-tenant, perfil, suscripciones | Sí (según el historial) |
-| `migrations/0005_security_baseline.sql` | RLS, permisos, Storage e índices para tablas de negocio | **No — borrador, requiere aprobación** |
-| `inspect/inspect_security_baseline.sql` | Inspección de solo lectura (catálogos, sin datos) | Se ejecuta a mano |
-| `tests/local/` | Postgres local desechable + suite RLS en SQL | `npm run test:db` |
+| `migrations/0001`, `0003`, `0004` | Núcleo multi-tenant, perfil, suscripciones | Sí (según la inspección) |
+| `migrations/0005_security_baseline.sql` | RLS, privilegios y Storage sobre el esquema inspeccionado | **No — borrador, requiere aprobación** |
+| `migrations/0006_payments_document_fk.sql` | `payments.document_id`: CASCADE → NO ACTION | **No — borrador, aprobación aparte** |
+| `inspect/inspect_security_baseline.sql` | Inspección de solo lectura (ya ejecutada) | — |
+| `inspect/SCHEMA_REVIEW.md` | Hallazgos y decisiones sobre el esquema real | — |
+| `inspect/inspect_definer_functions.sql` | Código de las funciones SECURITY DEFINER (solo lectura) | Pendiente |
+| `inspect/inspect_relationship_integrity.sql` | Recuentos de relaciones entre empresas (solo lectura, opcional) | Opcional |
+| `tests/local/` | Réplica local del esquema inspeccionado + suites SQL | `npm run test:db` |
 
 ## Flujo para aplicar 0005 (no ejecutar en producción sin revisión)
 
@@ -43,4 +47,7 @@ seguridad encima de lo que existe.
 *fixture* de las tablas de negocio con solo las columnas que usa la app, y
 ejecuta: aplicación limpia + idempotencia + suite RLS, guardas de abortado,
 y un control negativo que demuestra que la suite falla en una BD insegura.
-El fixture **no** es el esquema real; se sustituirá por el inspeccionado.
+El fixture reproduce el esquema inspeccionado (columnas, restricciones, FKs,
+índices, políticas y privilegios); el escenario 0 lo comprueba contra
+`tests/local/inspected_expectations.json`. El servidor local es PostgreSQL 16;
+producción es 17.11 (no se usa nada específico de una versión).
