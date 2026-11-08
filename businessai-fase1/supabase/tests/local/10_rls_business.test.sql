@@ -45,6 +45,18 @@ end $$;
 insert into public.memberships (company_id, user_id, role)
   values (t.id('coA'), t.id('userC'), 'member');
 
+-- With billing (0010) a company needs a subscription to create records:
+-- simulate what the Stripe webhook (service role) stores after Checkout.
+do $$ begin
+  if to_regprocedure('public.company_billing_state(uuid)') is not null then
+    insert into public.company_subscriptions (company_id, stripe_customer_id, stripe_subscription_id, plan, status)
+    values (t.id('coA'), 'cus_seed_A', 'sub_seed_A', 'pro', 'active'),
+           (t.id('coB'), 'cus_seed_B', 'sub_seed_B', 'pro', 'active')
+    on conflict (company_id) do update set stripe_subscription_id = excluded.stripe_subscription_id,
+      stripe_customer_id = excluded.stripe_customer_id, status = 'active', plan = 'pro';
+  end if;
+end $$;
+
 -- Each owner creates data through RLS with the same columns the app sends.
 do $$ declare cl uuid; doc uuid; doc2 uuid; pay uuid; begin
   perform t.as_user('userA'); set local role authenticated;

@@ -258,9 +258,6 @@ for m in "${ALL_MIGS[@]}"; do psqlq -d b15 -f "$MIG/$m.sql" >/dev/null; done
 psqlq -d b15 -f "$MIG/0010_billing.sql" >/dev/null && check ok ok "0010 re-applies cleanly (idempotent)"
 run_suite b15 "$HERE/10_rls_business.test.sql" 'ALL RLS TESTS PASSED' "RLS suite with 0010"
 run_suite b15 "$HERE/50_billing.test.sql" 'ALL BILLING TESTS PASSED' "billing suite"
-psqlq -d b15 -f "$MIG/0010b_backfill_trials.sql" >/dev/null
-check "$(count b15 "select count(*) from public.companies c where not exists (select 1 from public.company_subscriptions s where s.company_id = c.id)")" 0 "0010b gives a trial row to every company without one"
-check "$(count b15 "select count(*) from public.company_subscriptions where stripe_subscription_id = 'sub_test_A1'")" 1 "0010b never touches an existing subscription row"
 
 echo "== Scenario 16: STAGING from scratch — repository migrations only (0001→0010)"
 psqlq -d postgres -c "create database stg" >/dev/null

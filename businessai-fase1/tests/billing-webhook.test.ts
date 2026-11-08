@@ -155,3 +155,95 @@ describe('Stripe webhook', () => {
     expect(retrieve).not.toHaveBeenCalled()
   })
 })
+
+describe('Stripe webhook: 7-day trial with a card', () => {
+  const TRIAL_START = 1_800_000_000
+  const TRIAL_END = TRIAL_START + 7 * 86400
+  const trialing = (over: Record<string, unknown> = {}) => fakeSubscription(
+    { status: 'trialing', trial_start: TRIAL_START, trial_end: TRIAL_END, ...over },
+    { current_period_start: TRIAL_START, current_period_end: TRIAL_END })
+  const invoice = (over: Record<string, unknown> = {}) =>
+    ({ id: 'in_t', parent: { subscription_details: { subscription: 'sub_1' } }, ...over })
+
+  it('checkout completed → trialing with trial dates (nothing charged)', async () => {
+    const store = memoryStore()
+    current = trialing()
+    const r = await deliver(store, ev('evt_t1', 'checkout.session.completed', { id: 'cs', mode: 'subscription', subscription: 'sub_1' }))
+    expect(r.status).toBe(200)
+    expect(store.subs.get(CO)).toMatchObject({
+      status: 'trialing', plan: 'pro',
+      trial_start: new Date(TRIAL_START * 1000).toISOString(),
+      trial_end: new Date(TRIAL_END * 1000).toISOString(),
+      cancel_at_period_end: false,
+    })
+    expect(store.subs.get(CO)?.last_payment_error).toBeUndefined()
+  })
+
+  it('trial ends, card charged → active', async () => {
+    const store = memoryStore()
+    current = trialing()
+    await deliver(store, ev('evt_t2a', 'customer.subscription.created', { id: 'sub_1' }))
+    current = fakeSubscription({ status: 'active', trial_start: TRIAL_START, trial_end: TRIAL_END },
+      { current_period_start: TRIAL_END, current_period_end: TRIAL_END + 30 * 86400 })
+    await deliver(store, ev('evt_t2b', 'invoice.paid', invoice()))
+    expect(store.subs.get(CO)).toMatchObject({
+      status: 'active', last_payment_error: null,
+      current_period_start: new Date(TRIAL_END * 1000).toISOString(),
+    })
+  })
+
+  it('trial ends, card declined (e.g. 4000 0000 0000 0341) → past_due + failure recorded', async () => {
+    const store = memoryStore()
+    current = trialing()
+    await deliver(store, ev('evt_t3a', 'customer.subscription.created', { id: 'sub_1' }))
+    current = fakeSubscription({ status: 'past_due', trial_start: TRIAL_START, trial_end: TRIAL_END })
+    await deliver(store, ev('evt_t3b', 'invoice.payment_failed',
+      invoice({ last_finalization_error: { message: 'Your card was declined.' } })))
+    expect(store.subs.get(CO)).toMatchObject({ status: 'past_due', last_payment_error: 'Your card was declined.' })
+    expect(store.subs.get(CO)?.last_payment_failed_at).toBe('2026-11-08T12:00:00.000Z')
+  })
+
+  it('trial ends, bank asks for authentication → failure "authentication_required"', async () => {
+    const store = memoryStore()
+    current = fakeSubscription({ status: 'past_due', trial_start: TRIAL_START, trial_end: TRIAL_END })
+    await deliver(store, ev('evt_t4', 'invoice.payment_action_required', invoice()))
+    expect(store.subs.get(CO)).toMatchObject({ status: 'past_due', last_payment_error: 'authentication_required' })
+  })
+
+  it('cancel during the trial → no charge: trialing with cancellation, then canceled at trial end', async () => {
+    const store = memoryStore()
+    current = trialing()
+    await deliver(store, ev('evt_c1', 'customer.subscription.created', { id: 'sub_1' }))
+    current = trialing({ cancel_at_period_end: true, cancel_at: TRIAL_END, canceled_at: TRIAL_START + 3600 })
+    await deliver(store, ev('evt_c2', 'customer.subscription.updated', { id: 'sub_1' }))
+    expect(store.subs.get(CO)).toMatchObject({ status: 'trialing', cancel_at_period_end: true,
+      cancel_at: new Date(TRIAL_END * 1000).toISOString() })
+    current = trialing({ status: 'canceled', cancel_at_period_end: true, ended_at: TRIAL_END })
+    await deliver(store, ev('evt_c3', 'customer.subscription.deleted', { id: 'sub_1' }))
+    expect(store.subs.get(CO)).toMatchObject({ status: 'canceled', ended_at: new Date(TRIAL_END * 1000).toISOString() })
+    // No invoice event was involved: nothing was charged or recorded as a payment.
+    expect(store.subs.get(CO)?.last_payment_failed_at).toBeUndefined()
+  })
+
+  it('card declined at Checkout → no subscription is created; the expired session is ignored', async () => {
+    const store = memoryStore()
+    const r = await deliver(store, ev('evt_e', 'checkout.session.expired', { id: 'cs_x', mode: 'subscription', subscription: null }))
+    expect(r.status).toBe(200)
+    expect(retrieve).not.toHaveBeenCalled()
+    expect(store.subs.size).toBe(0)
+    // A completed session without a subscription (should not happen) is also a no-op.
+    await deliver(store, ev('evt_e2', 'checkout.session.completed', { id: 'cs_y', mode: 'subscription', subscription: null }))
+    expect(store.subs.size).toBe(0)
+  })
+
+  it('duplicated trial events (Stripe resends) are processed once', async () => {
+    const store = memoryStore()
+    current = trialing()
+    const created = ev('evt_dup', 'customer.subscription.created', { id: 'sub_1' })
+    expect((await deliver(store, created)).status).toBe(200)
+    expect((await deliver(store, created)).body).toEqual({ received: true, duplicate: true })
+    expect((await deliver(store, created)).body).toEqual({ received: true, duplicate: true })
+    expect(retrieve).toHaveBeenCalledTimes(1)
+    expect(store.events.get('evt_dup')).toMatchObject({ status: 'processed' })
+  })
+})

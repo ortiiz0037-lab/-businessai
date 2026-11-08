@@ -47,7 +47,7 @@ En Vercel marca las secretas como **Sensitive** y asígnalas a un único entorno
    - Email templates → Confirm signup: `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email`.
 3. **SQL Editor**: ejecuta, en este orden, los archivos de `supabase/migrations/`:
    `0001` → `0002` → `0003` → `0004` → `0005` → `0007` → `0009` → `0006` → `0008` → `0010`.
-   (`0008` no hace nada en staging; **no** ejecutes `0010b`: staging empieza sin empresas.)
+   (`0008` no hace nada en staging.)
    Comprobado en local: con solo estos archivos se obtiene una base equivalente a
    producción tras las migraciones (escenario 16 de `npm run test:db`).
 4. **Verificación**: `supabase/inspect/verify_after_migrations.sql` debe devolver

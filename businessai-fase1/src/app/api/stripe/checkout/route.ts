@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getStripe } from '@/lib/billing/stripe'
 import { getUserCompany } from '@/lib/billing/company'
-import { buildCheckoutSessionParams } from '@/lib/billing/checkout'
+import { buildCheckoutSessionParams, chargeTerms, toPriceInfo } from '@/lib/billing/checkout'
 import { hasLiveStripeSubscription } from '@/lib/billing/sync'
 import { ConfigError } from '@/lib/env'
 
@@ -13,7 +13,12 @@ function back(request: NextRequest, query: string) {
   return NextResponse.redirect(new URL(`/billing?${query}`, request.url), 303)
 }
 
-/** Form POST from /billing with field `plan` → 303 to Stripe Checkout (or the portal). */
+/**
+ * Form POST from /billing with `plan` and `accept_terms=yes` → 303 to Stripe
+ * Checkout (or to the portal when a subscription already exists).
+ * Checkout always collects a card; the first subscription of a company gets
+ * the free trial (billing_config.trial_days), later ones are charged at once.
+ */
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -25,6 +30,9 @@ export async function POST(request: NextRequest) {
 
   const form = await request.formData().catch(() => null)
   const planKey = String(form?.get('plan') ?? '')
+  // The price, first charge date and conditions are shown on /billing; the
+  // customer must confirm them before going to Stripe.
+  if (form?.get('accept_terms') !== 'yes') return back(request, 'error=terms')
 
   try {
     const { stripe, appUrl } = getStripe()
@@ -32,14 +40,14 @@ export async function POST(request: NextRequest) {
 
     const { data: plan } = await admin
       .from('billing_plans')
-      .select('plan, stripe_lookup_key, active')
+      .select('plan, name, stripe_lookup_key, active')
       .eq('plan', planKey)
       .maybeSingle()
     if (!plan || !plan.active) return back(request, 'error=plan')
 
     const { data: current, error: currentError } = await admin
       .from('company_subscriptions')
-      .select('stripe_customer_id, stripe_subscription_id, status, app_trial_ends_at')
+      .select('stripe_customer_id, stripe_subscription_id, status, trial_consumed_at')
       .eq('company_id', company.companyId)
       .maybeSingle()
     if (currentError) throw currentError
@@ -56,7 +64,8 @@ export async function POST(request: NextRequest) {
 
     const prices = await stripe.prices.list({ lookup_keys: [plan.stripe_lookup_key], active: true, limit: 1 })
     const price = prices.data[0]
-    if (!price || price.type !== 'recurring') {
+    const priceInfo = price ? toPriceInfo(price) : null
+    if (!price || price.type !== 'recurring' || !priceInfo) {
       console.error('CHECKOUT_PRICE_NOT_FOUND', { lookup_key: plan.stripe_lookup_key })
       return back(request, 'error=price')
     }
@@ -82,14 +91,19 @@ export async function POST(request: NextRequest) {
       if (saveError) throw saveError
     }
 
+    const { data: config } = await admin.from('billing_config').select('trial_days').maybeSingle()
+    // One trial per company: none if it was already consumed.
+    const trialDays = current?.trial_consumed_at ? null : (config?.trial_days ?? 7)
+    const { terms } = chargeTerms({ planName: plan.name, price: priceInfo, trialDays, now: new Date() })
+
     const session = await stripe.checkout.sessions.create(
       buildCheckoutSessionParams({
         companyId: company.companyId,
         customerId,
         priceId: price.id,
         appUrl,
-        appTrialEndsAt: current?.app_trial_ends_at ?? null,
-        now: new Date(),
+        trialDays,
+        terms,
       })
     )
     if (!session.url) throw new Error('Checkout session without URL')

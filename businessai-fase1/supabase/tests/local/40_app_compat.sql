@@ -40,6 +40,13 @@ do $$ declare cid uuid; begin
   perform c.rec('rpc create_company', 'ok');
 exception when others then reset role; perform c.rec('rpc create_company', sqlstate); end $$;
 insert into public.memberships (company_id, user_id, role) values (c.id('co'), c.id('member'), 'member');
+-- With 0010, the company completed Stripe Checkout (as the webhook stores it).
+do $$ begin
+  if to_regprocedure('public.company_billing_state(uuid)') is not null then
+    insert into public.company_subscriptions (company_id, stripe_customer_id, stripe_subscription_id, plan, status)
+    values (c.id('co'), 'cus_compat', 'sub_compat', 'pro', 'trialing');
+  end if;
+end $$;
 
 -- Each operation: one transaction, outcome recorded.
 do $$ begin perform c.as_user('owner'); set local role authenticated;
@@ -178,12 +185,12 @@ do $$ declare cid uuid; begin
 end $$;
 do $$ begin perform c.as_user('newuser'); set local role authenticated;
   insert into public.clients (company_id, name) values (c.id('oldco'), 'Cliente');
-  perform c.rec('pre-existing company (no billing row): create client', 'ok');
-exception when others then perform c.rec('pre-existing company (no billing row): create client', sqlstate); end $$;
+  perform c.rec('company without completed Checkout: create client', 'ok');
+exception when others then perform c.rec('company without completed Checkout: create client', sqlstate); end $$;
 do $$ declare n int; begin perform c.as_user('newuser'); set local role authenticated;
   select count(*) into n from public.documents where company_id = c.id('oldco');
-  perform c.rec('pre-existing company (no billing row): read documents', 'ok');
-exception when others then perform c.rec('pre-existing company (no billing row): read documents', sqlstate); end $$;
+  perform c.rec('company without completed Checkout: read documents', 'ok');
+exception when others then perform c.rec('company without completed Checkout: read documents', sqlstate); end $$;
 do $$ declare n int; begin perform c.as_user('owner'); set local role authenticated;
   if to_regprocedure('public.company_billing_state(uuid)') is null then
     perform c.rec('billing: read state (rpc company_billing_state)', 'n/a'); return;

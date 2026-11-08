@@ -1,22 +1,88 @@
 import type Stripe from 'stripe'
 
 /**
- * Stripe Checkout requires a trial_end at least 48 hours in the future.
- * A small margin covers the time between building and opening the session.
+ * Trial model: 7-day free trial WITH a card collected by Stripe Checkout.
+ * Nothing is charged during the trial; Stripe charges the plan price
+ * automatically when it ends; cancelling before that means no charge.
+ * One trial per company (company_subscriptions.trial_consumed_at).
  */
-export const MIN_CHECKOUT_TRIAL_MS = 48 * 60 * 60 * 1000 + 10 * 60 * 1000
+
+export type PriceInfo = {
+  unitAmount: number // smallest currency unit (cents)
+  currency: string // ISO code, e.g. 'usd'
+  interval: 'day' | 'week' | 'month' | 'year'
+}
+
+const INTERVAL: Record<PriceInfo['interval'], string> = {
+  day: 'día', week: 'semana', month: 'mes', year: 'año',
+}
+
+/** Stripe price → PriceInfo, or null for anything we cannot describe exactly. */
+export function toPriceInfo(price: {
+  unit_amount: number | null
+  currency: string
+  recurring: { interval: string } | null
+}): PriceInfo | null {
+  const interval = price.recurring?.interval
+  if (price.unit_amount === null || !interval || !(interval in INTERVAL)) return null
+  return { unitAmount: price.unit_amount, currency: price.currency, interval: interval as PriceInfo['interval'] }
+}
+
+export function formatAmount(price: PriceInfo): string {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: price.currency.toUpperCase() })
+    .format(price.unitAmount / 100)
+}
+
+export function formatPrice(price: PriceInfo): string {
+  return `${formatAmount(price)} / ${INTERVAL[price.interval]}`
+}
+
+/** "$39.00 y, después, $39.00 cada mes" */
+function recurringText(price: PriceInfo): string {
+  const amount = formatAmount(price)
+  return `${amount} y, después, ${amount} cada ${INTERVAL[price.interval]}`
+}
+
+export function formatDate(date: Date): string {
+  return new Intl.DateTimeFormat('es-PR', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'America/Puerto_Rico' })
+    .format(date)
+}
+
+/** When the first charge happens: after the trial, or now without trial. */
+export function firstChargeAt(trialDays: number | null, now: Date): Date {
+  return trialDays ? new Date(now.getTime() + trialDays * 86_400_000) : now
+}
 
 /**
- * The 7-day trial is granted by the app at sign-up (no card). Subscribing
- * during the trial keeps the remaining days: Stripe starts charging at the
- * original trial end. Too little time left (< 48 h) or no trial → charged
- * immediately. A company never gets a second trial from Stripe.
+ * The exact conditions shown before confirming — the same text on the
+ * BusinessAI plan page and inside Stripe Checkout.
  */
-export function checkoutTrialEnd(appTrialEndsAt: string | null, now: Date): number | null {
-  if (!appTrialEndsAt) return null
-  const end = new Date(appTrialEndsAt).getTime()
-  if (!Number.isFinite(end) || end - now.getTime() < MIN_CHECKOUT_TRIAL_MS) return null
-  return Math.floor(end / 1000)
+export function chargeTerms(input: {
+  planName: string
+  price: PriceInfo
+  trialDays: number | null
+  now: Date
+}): { headline: string; terms: string; firstCharge: Date } {
+  const price = formatPrice(input.price)
+  const first = firstChargeAt(input.trialDays, input.now)
+  if (input.trialDays) {
+    return {
+      headline: `${input.trialDays} días gratis, luego ${price}`,
+      terms:
+        `Hoy no se cobra nada. Tu tarjeta se guarda para la suscripción al plan ${input.planName}. ` +
+        `Si no cancelas antes, el ${formatDate(first)} se cobrarán ${recurringText(input.price)} ` +
+        `automáticamente. Si cancelas durante la prueba no se realizará ningún cobro. ` +
+        `Puedes cancelar en cualquier momento desde "Administrar suscripción".`,
+      firstCharge: first,
+    }
+  }
+  return {
+    headline: `${price}`,
+    terms:
+      `Tu empresa ya usó su prueba gratuita. Hoy se cobrarán ${recurringText(input.price)} ` +
+      `por el plan ${input.planName}. Puedes cancelar en cualquier momento; mantendrás el acceso hasta el final del periodo pagado.`,
+    firstCharge: first,
+  }
 }
 
 export function buildCheckoutSessionParams(input: {
@@ -24,23 +90,33 @@ export function buildCheckoutSessionParams(input: {
   customerId: string
   priceId: string
   appUrl: string
-  appTrialEndsAt: string | null
-  now: Date
+  /** Trial length if the company has not used its trial yet, else null. */
+  trialDays: number | null
+  /** Conditions text shown above the confirm button (chargeTerms().terms). */
+  terms: string
 }): Stripe.Checkout.SessionCreateParams {
-  const trialEnd = checkoutTrialEnd(input.appTrialEndsAt, input.now)
   const metadata = { company_id: input.companyId }
   return {
     mode: 'subscription',
+    locale: 'es',
     customer: input.customerId,
     client_reference_id: input.companyId,
     line_items: [{ price: input.priceId, quantity: 1 }],
     metadata,
     subscription_data: {
       metadata,
-      ...(trialEnd ? { trial_end: trialEnd } : {}),
+      ...(input.trialDays
+        ? {
+            trial_period_days: input.trialDays,
+            // Safety net: if a trial ever ended without a card, cancel instead
+            // of creating an unpaid invoice.
+            trial_settings: { end_behavior: { missing_payment_method: 'cancel' } },
+          }
+        : {}),
     },
-    // Collect a card even while the remaining trial runs.
+    // A card is ALWAYS collected and saved, also when nothing is charged today.
     payment_method_collection: 'always',
+    custom_text: { submit: { message: input.terms.slice(0, 1200) } },
     customer_update: { name: 'auto', address: 'auto' },
     billing_address_collection: 'auto',
     success_url: `${input.appUrl}/billing?checkout=success`,

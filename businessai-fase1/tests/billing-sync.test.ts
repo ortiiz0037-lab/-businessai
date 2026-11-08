@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { BillingSyncError, decideApply, hasLiveStripeSubscription, subscriptionToRow } from '@/lib/billing/sync'
-import { buildCheckoutSessionParams, checkoutTrialEnd } from '@/lib/billing/checkout'
+import { buildCheckoutSessionParams, chargeTerms, firstChargeAt, toPriceInfo } from '@/lib/billing/checkout'
 import { billingBanner, billingErrorCode, daysLeft, type BillingState } from '@/lib/billing/state'
 import { CO, PLANS, T0, fakeSubscription } from './fixtures/billing'
 
@@ -64,37 +64,69 @@ describe('decideApply (out-of-order and duplicate subscriptions)', () => {
   })
 })
 
-describe('checkout', () => {
-  const now = new Date('2026-11-08T12:00:00Z')
-  it('keeps the remaining app trial when at least 48 h are left', () => {
-    const end = '2026-11-14T12:00:00Z'
-    expect(checkoutTrialEnd(end, now)).toBe(Date.parse(end) / 1000)
+describe('checkout: 7-day trial with a card required', () => {
+  const now = new Date('2026-11-08T16:00:00Z')
+  const price = { unitAmount: 3900, currency: 'usd', interval: 'month' as const }
+
+  it('shows price, first charge date and conditions before confirming', () => {
+    const t = chargeTerms({ planName: 'Pro', price, trialDays: 7, now })
+    expect(t.headline).toBe('7 días gratis, luego $39.00 / mes')
+    expect(t.firstCharge.toISOString()).toBe('2026-11-15T16:00:00.000Z')
+    expect(t.terms).toContain('Hoy no se cobra nada')
+    expect(t.terms).toContain('el 15 de noviembre de 2026 se cobrarán $39.00 y, después, $39.00 cada mes')
+    expect(t.terms).toContain('Si cancelas durante la prueba no se realizará ningún cobro')
+    expect(t.terms).toContain('plan Pro')
   })
-  it('charges immediately with less than 48 h, an expired trial or no trial', () => {
-    expect(checkoutTrialEnd('2026-11-10T11:00:00Z', now)).toBeNull()
-    expect(checkoutTrialEnd('2026-11-01T00:00:00Z', now)).toBeNull()
-    expect(checkoutTrialEnd(null, now)).toBeNull()
+
+  it('without trial (already used) says it is charged today', () => {
+    const t = chargeTerms({ planName: 'Básico', price: { ...price, unitAmount: 1900 }, trialDays: null, now })
+    expect(t.headline).toBe('$19.00 / mes')
+    expect(t.terms).toContain('ya usó su prueba gratuita')
+    expect(t.terms).toContain('Hoy se cobrarán $19.00')
+    expect(t.firstCharge).toEqual(now)
+    expect(firstChargeAt(null, now)).toEqual(now)
   })
-  it('builds a subscription session tied to the company and its customer', () => {
+
+  it('always collects a card and starts the subscription with a Stripe trial', () => {
+    const terms = chargeTerms({ planName: 'Pro', price, trialDays: 7, now }).terms
     const p = buildCheckoutSessionParams({ companyId: CO, customerId: 'cus_1', priceId: 'price_pro',
-      appUrl: 'https://staging.example.com', appTrialEndsAt: '2026-11-14T12:00:00Z', now })
+      appUrl: 'https://staging.example.com', trialDays: 7, terms })
     expect(p).toMatchObject({
-      mode: 'subscription', customer: 'cus_1', client_reference_id: CO,
+      mode: 'subscription', locale: 'es', customer: 'cus_1', client_reference_id: CO,
       line_items: [{ price: 'price_pro', quantity: 1 }],
       metadata: { company_id: CO },
-      subscription_data: { metadata: { company_id: CO }, trial_end: Date.parse('2026-11-14T12:00:00Z') / 1000 },
       payment_method_collection: 'always',
+      subscription_data: {
+        metadata: { company_id: CO },
+        trial_period_days: 7,
+        trial_settings: { end_behavior: { missing_payment_method: 'cancel' } },
+      },
+      custom_text: { submit: { message: terms } },
       success_url: 'https://staging.example.com/billing?checkout=success',
       cancel_url: 'https://staging.example.com/billing?checkout=cancelled',
     })
-    const noTrial = buildCheckoutSessionParams({ companyId: CO, customerId: 'cus_1', priceId: 'p',
-      appUrl: 'https://s.example.com', appTrialEndsAt: null, now })
-    expect(noTrial.subscription_data).not.toHaveProperty('trial_end')
+    expect(p.subscription_data).not.toHaveProperty('trial_end')
+  })
+
+  it('a company that already had its trial is charged immediately (card still required)', () => {
+    const p = buildCheckoutSessionParams({ companyId: CO, customerId: 'cus_1', priceId: 'p',
+      appUrl: 'https://s.example.com', trialDays: null, terms: 'x' })
+    expect(p.subscription_data).not.toHaveProperty('trial_period_days')
+    expect(p.subscription_data).not.toHaveProperty('trial_settings')
+    expect(p.payment_method_collection).toBe('always')
+  })
+
+  it('only describes prices it understands', () => {
+    expect(toPriceInfo({ unit_amount: 100, currency: 'usd', recurring: { interval: 'month' } })).toEqual({ unitAmount: 100, currency: 'usd', interval: 'month' })
+    expect(toPriceInfo({ unit_amount: null, currency: 'usd', recurring: { interval: 'month' } })).toBeNull()
+    expect(toPriceInfo({ unit_amount: 100, currency: 'usd', recurring: null })).toBeNull()
+    expect(toPriceInfo({ unit_amount: 100, currency: 'usd', recurring: { interval: 'fortnight' } })).toBeNull()
   })
 })
 
 describe('billing state helpers', () => {
-  const base = { plan: 'pro', plan_name: 'Pro', can_write: true, trial_ends_at: null, current_period_start: null,
+  const base = { plan: 'pro', plan_name: 'Pro', can_write: true, trial_eligible: false, trial_days: 7,
+    trial_ends_at: null, current_period_start: null,
     current_period_end: null, cancel_at_period_end: false, cancel_at: null, last_payment_failed_at: null,
     max_clients: 1, max_documents_per_month: 1, max_members: 1, clients_used: 0, documents_this_month: 0 }
   const now = new Date('2026-11-08T12:00:00Z')
@@ -109,11 +141,16 @@ describe('billing state helpers', () => {
     expect(daysLeft('2026-11-10T11:00:00Z', now)).toBe(2)
     expect(daysLeft('2026-11-01T00:00:00Z', now)).toBe(0)
     const trial = billingBanner({ ...base, state: 'trialing', trial_ends_at: '2026-11-15T12:00:00Z' } as BillingState, now)
-    expect(trial).toEqual({ tone: 'info', text: 'Prueba gratuita: quedan 7 días.' })
+    expect(trial).toEqual({ tone: 'info', text: 'Prueba gratuita: quedan 7 días. El primer cobro será al terminar la prueba.' })
+    expect(billingBanner({ ...base, state: 'trialing', trial_ends_at: '2026-11-15T12:00:00Z', cancel_at_period_end: true } as BillingState, now)?.text)
+      .toMatch(/no se realizará ningún cobro/)
+    expect(billingBanner({ ...base, state: 'none', can_write: false, trial_eligible: true } as BillingState, now)?.text)
+      .toMatch(/prueba gratuita de 7 días. Se pide tarjeta, pero no se cobra nada/)
+    expect(billingBanner({ ...base, state: 'none', can_write: false, trial_eligible: false } as BillingState, now)?.tone).toBe('danger')
     expect(billingBanner({ ...base, state: 'trialing', trial_ends_at: '2026-11-09T12:00:00Z' } as BillingState, now)?.tone).toBe('warning')
     expect(billingBanner({ ...base, state: 'past_due' } as BillingState, now)?.tone).toBe('warning')
     expect(billingBanner({ ...base, state: 'canceled', can_write: false } as BillingState, now)?.tone).toBe('danger')
-    expect(billingBanner({ ...base, state: 'trial_expired', can_write: false } as BillingState, now)?.text).toMatch(/solo lectura/)
+    expect(billingBanner({ ...base, state: 'unpaid', can_write: false } as BillingState, now)?.text).toMatch(/solo lectura/)
     expect(billingBanner({ ...base, state: 'active' } as BillingState, now)).toBeNull()
     expect(billingBanner({ ...base, state: 'active', cancel_at_period_end: true } as BillingState, now)?.text).toMatch(/cancelará/)
     expect(billingBanner(null)).toBeNull()

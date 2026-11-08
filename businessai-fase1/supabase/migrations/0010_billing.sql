@@ -1,23 +1,27 @@
 -- =====================================================================
--- BusinessAI · Migration 0010 · Billing: plans, 7-day trial, access, limits
+-- BusinessAI · Migration 0010 · Billing: plans, card-required trial, access
 -- =====================================================================
 -- STATUS: DRAFT — NOT APPLIED ANYWHERE. Separate approval.
 -- Apply on STAGING first (docs/ENVIRONMENTS.md). Requires 0001/0004.
 --
+-- Trial model (owner decision): 7-day free trial WITH a card collected by
+-- Stripe Checkout at sign-up. The trial is a Stripe trial: nothing is
+-- charged during it, Stripe charges the chosen plan automatically when it
+-- ends, and cancelling before the end means no charge. Without a completed
+-- Checkout a company has no access to create records.
+--
 -- 1. public.billing_plans — plan catalog and limits (editable with SQL).
---    Prices live in Stripe: each plan points to a Stripe *lookup key*, so
---    test mode and live mode keep their own prices and amounts.
--- 2. public.billing_config — trial length and trial plan (single row).
--- 3. company_subscriptions — new columns: app trial dates, Stripe trial
---    dates, cancellation/end dates, last payment failure. No row changes.
--- 4. Every NEW company gets a 7-day trial (no card) via a trigger.
---    Existing companies get nothing automatically: see 0010b (optional).
--- 5. public.company_billing_state(company) — the single source of truth for
+--    Prices live in Stripe, found by lookup key (test and live separate).
+-- 2. public.billing_config — trial length used by Checkout (single row).
+-- 3. company_subscriptions — Stripe trial/cancellation/end dates, last
+--    payment failure, and trial_consumed_at: ONE trial per company, set by
+--    the database the first time a subscription with a trial is stored and
+--    never cleared (a later subscription without trial cannot reset it).
+-- 4. public.company_billing_state(company) — single source of truth for
 --    access (used by the app and by the triggers below).
--- 6. Triggers on clients/documents: creating rows requires an active
---    subscription (trialing / active / past_due) and respects plan limits.
---    Reading, printing, editing, status changes and recording payments are
---    never blocked, so a customer can always collect existing invoices.
+-- 5. Triggers on clients/documents: creating rows requires trialing /
+--    active / past_due and respects plan limits. Reading, printing,
+--    editing, status changes and recording payments are never blocked.
 --
 -- Rollback: supabase/rollback/0010_rollback.sql
 -- =====================================================================
@@ -73,8 +77,7 @@ create policy ba_billing_plans_select on public.billing_plans for select to anon
 -- --------------------------------------------------------------- 2. config
 create table if not exists public.billing_config (
   id boolean primary key default true check (id),
-  trial_days integer not null default 7 check (trial_days between 1 and 60),
-  trial_plan text not null default 'pro' references public.billing_plans(plan),
+  trial_days integer not null default 7 check (trial_days between 1 and 30),
   updated_at timestamptz not null default now()
 );
 insert into public.billing_config (id) values (true) on conflict (id) do nothing;
@@ -84,10 +87,9 @@ grant all on public.billing_config to service_role;
 
 -- -------------------------------------------------- 3. subscription columns
 alter table public.company_subscriptions
-  add column if not exists app_trial_started_at timestamptz,
-  add column if not exists app_trial_ends_at timestamptz,
   add column if not exists trial_start timestamptz,
   add column if not exists trial_end timestamptz,
+  add column if not exists trial_consumed_at timestamptz,
   add column if not exists cancel_at timestamptz,
   add column if not exists canceled_at timestamptz,
   add column if not exists ended_at timestamptz,
@@ -106,41 +108,41 @@ begin
   end if;
 end $$;
 
+-- One trial per company: once consumed it stays consumed, whatever later
+-- subscriptions (without trial) write into trial_start.
+create or replace function public.keep_trial_consumed()
+returns trigger
+language plpgsql set search_path = '' as $$
+begin
+  if tg_op = 'UPDATE' then
+    new.trial_consumed_at := coalesce(old.trial_consumed_at, new.trial_consumed_at, new.trial_start);
+  else
+    new.trial_consumed_at := coalesce(new.trial_consumed_at, new.trial_start);
+  end if;
+  return new;
+end $$;
+revoke all on function public.keep_trial_consumed() from public, anon, authenticated;
+
+drop trigger if exists ba_keep_trial_consumed on public.company_subscriptions;
+create trigger ba_keep_trial_consumed before insert or update on public.company_subscriptions
+  for each row execute function public.keep_trial_consumed();
+
 -- Members can read their company's subscription (existing policy); nobody
 -- but service_role (webhook, checkout route) writes it.
 revoke insert, update, delete, truncate on public.company_subscriptions from public, anon, authenticated;
 
--- -------------------------------------------------- 4. trial on new company
-create or replace function public.start_company_trial()
-returns trigger
-language plpgsql security definer set search_path = '' as $$
-declare
-  cfg record;
-begin
-  select trial_days, trial_plan into cfg from public.billing_config where id;
-  insert into public.company_subscriptions
-    (company_id, plan, status, app_trial_started_at, app_trial_ends_at)
-  values
-    (new.id, coalesce(cfg.trial_plan, 'pro'), 'trialing', now(),
-     now() + make_interval(days => coalesce(cfg.trial_days, 7)))
-  on conflict (company_id) do nothing;
-  return new;
-end $$;
-revoke all on function public.start_company_trial() from public, anon, authenticated;
-
-drop trigger if exists ba_start_company_trial on public.companies;
-create trigger ba_start_company_trial after insert on public.companies
-  for each row execute function public.start_company_trial();
-
--- ------------------------------------------------------ 5. effective state
--- state: none | trialing | trial_expired | active | past_due | canceled |
---        unpaid | incomplete | incomplete_expired | paused
+-- ------------------------------------------------------ 4. effective state
+-- state: none | trialing | active | past_due | canceled | unpaid |
+--        incomplete | incomplete_expired | paused
+-- none = no Stripe subscription yet (Checkout not completed).
 create or replace function public.company_billing_state(target uuid)
 returns table (
   state text,
   plan text,
   plan_name text,
   can_write boolean,
+  trial_eligible boolean,
+  trial_days integer,
   trial_ends_at timestamptz,
   current_period_start timestamptz,
   current_period_end timestamptz,
@@ -160,23 +162,18 @@ language sql stable security definer set search_path = '' as $$
   ),
   sub as (
     select s.*,
-      case
-        when s.stripe_subscription_id is null then
-          case when s.app_trial_ends_at > now() then 'trialing' else 'trial_expired' end
-        when s.status in ('active', 'trialing', 'past_due') then s.status
-        when s.status = 'incomplete' and s.app_trial_ends_at > now() then 'trialing'
-        else s.status
-      end as effective
+      case when s.stripe_subscription_id is null then 'none' else s.status end as effective
     from public.company_subscriptions s
     where s.company_id = target
   )
   select
     coalesce(sub.effective, 'none'),
-    sub.plan,
-    p.name,
+    case when sub.stripe_subscription_id is null then null else sub.plan end,
+    case when sub.stripe_subscription_id is null then null else p.name end,
     coalesce(sub.effective in ('trialing', 'active', 'past_due'), false),
-    case when sub.stripe_subscription_id is null or sub.effective = 'trialing'
-         then coalesce(sub.trial_end, sub.app_trial_ends_at) end,
+    sub.trial_consumed_at is null,
+    (select c.trial_days from public.billing_config c where c.id),
+    case when sub.effective = 'trialing' then sub.trial_end end,
     sub.current_period_start,
     sub.current_period_end,
     coalesce(sub.cancel_at_period_end, false),
@@ -192,13 +189,13 @@ language sql stable security definer set search_path = '' as $$
                             at time zone 'America/Puerto_Rico')
   from allowed
   left join sub on true
-  left join public.billing_plans p on p.plan = sub.plan
+  left join public.billing_plans p on p.plan = sub.plan and sub.stripe_subscription_id is not null
   where allowed.ok
 $$;
 revoke all on function public.company_billing_state(uuid) from public, anon;
 grant execute on function public.company_billing_state(uuid) to authenticated, service_role;
 
--- --------------------------------------------------- 6. enforcement trigger
+-- --------------------------------------------------- 5. enforcement trigger
 create or replace function public.enforce_billing_limits()
 returns trigger
 language plpgsql security definer set search_path = '' as $$
@@ -222,7 +219,7 @@ begin
   if not found or not st.can_write then
     raise exception 'BILLING_INACTIVE'
       using errcode = 'P0001', hint = coalesce(st.state, 'none'),
-            detail = 'An active subscription or trial is required to create records.';
+            detail = 'A trial or an active subscription is required to create records.';
   end if;
 
   if tg_table_name = 'clients' and st.max_clients is not null

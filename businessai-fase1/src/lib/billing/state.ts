@@ -2,8 +2,9 @@
  * Billing state as returned by public.company_billing_state() (migration
  * 0010) — the database is the single source of truth for access.
  */
+/** none = no Stripe subscription yet (plan not chosen / card not entered). */
 export type BillingStateName =
-  | 'none' | 'trialing' | 'trial_expired' | 'active' | 'past_due'
+  | 'none' | 'trialing' | 'active' | 'past_due'
   | 'canceled' | 'unpaid' | 'incomplete' | 'incomplete_expired' | 'paused'
 
 export type BillingState = {
@@ -11,6 +12,9 @@ export type BillingState = {
   plan: string | null
   plan_name: string | null
   can_write: boolean
+  /** The company has not used its free trial yet. */
+  trial_eligible: boolean
+  trial_days: number | null
   trial_ends_at: string | null
   current_period_start: string | null
   current_period_end: string | null
@@ -56,9 +60,8 @@ export async function fetchBillingState(supabase: RpcClient, companyId: string):
 }
 
 export const STATE_LABEL: Record<BillingStateName, string> = {
-  none: 'Sin suscripción',
+  none: 'Sin plan',
   trialing: 'Prueba gratuita',
-  trial_expired: 'Prueba finalizada',
   active: 'Activa',
   past_due: 'Pago pendiente',
   canceled: 'Cancelada',
@@ -86,7 +89,7 @@ export function billingErrorCode(error: { message?: string } | null | undefined)
 }
 
 export const BILLING_ERROR_MESSAGE: Record<'billing' | 'limit_clients' | 'limit_documents', string> = {
-  billing: 'Tu prueba gratuita o tu suscripción no está activa. Puedes consultar e imprimir tus documentos, pero para crear nuevos activa un plan.',
+  billing: 'Para crear clientes y documentos necesitas una prueba gratuita o una suscripción activa. Puedes consultar e imprimir lo que ya tienes.',
   limit_clients: 'Has alcanzado el máximo de clientes de tu plan. Mejora tu plan para añadir más.',
   limit_documents: 'Has alcanzado el máximo de documentos de este mes en tu plan. Mejora tu plan para crear más.',
 }
@@ -96,10 +99,17 @@ export function billingBanner(state: BillingState | null, now: Date = new Date()
   { tone: 'info' | 'warning' | 'danger'; text: string } | null {
   if (!state) return null
   switch (state.state) {
+    case 'none':
+      return state.trial_eligible
+        ? { tone: 'info', text: `Elige un plan para empezar tu prueba gratuita de ${state.trial_days ?? 7} días. Se pide tarjeta, pero no se cobra nada durante la prueba.` }
+        : { tone: 'danger', text: 'Modo solo lectura: elige un plan para crear clientes y documentos.' }
     case 'trialing': {
       const days = daysLeft(state.trial_ends_at, now)
+      if (state.cancel_at_period_end) {
+        return { tone: 'info', text: 'Cancelaste durante la prueba: no se realizará ningún cobro y el acceso termina al final de la prueba.' }
+      }
       return { tone: days !== null && days <= 2 ? 'warning' : 'info',
-               text: `Prueba gratuita: ${days === 1 ? 'queda 1 día' : `quedan ${days ?? 0} días`}.` }
+               text: `Prueba gratuita: ${days === 1 ? 'queda 1 día' : `quedan ${days ?? 0} días`}. El primer cobro será al terminar la prueba.` }
     }
     case 'past_due':
       return { tone: 'warning', text: 'No pudimos cobrar tu suscripción. Actualiza tu método de pago para no perder el acceso.' }

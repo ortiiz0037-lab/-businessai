@@ -14,5 +14,6 @@ export async function createCompany(_: FormState, formData: FormData): Promise<F
   if (existing?.length) redirect('/dashboard')
   const { error } = await supabase.rpc('create_company', { company_name: parsed.data.name })
   if (error) return { error: 'No se pudo crear la empresa. Inténtalo de nuevo.' }
-  redirect('/dashboard')
+  // Next step of sign-up: choose a plan and enter a card to start the trial.
+  redirect('/billing?welcome=1')
 }
