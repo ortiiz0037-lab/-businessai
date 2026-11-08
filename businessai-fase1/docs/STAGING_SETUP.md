@@ -68,16 +68,22 @@ Pestaña **Variables** → New repository variable:
 | `PRODUCTION_PROJECT_REF` | ref de producción (para rechazarlo) |
 | `STAGING_SUPABASE_PUBLISHABLE_KEY` | publishable key de staging |
 | `STAGING_URL` | la URL de staging |
+| `STAGING_PRICE_BASIC_CENTS` | precio mensual Básico en centavos (p. ej. `1900` = $19.00) — tu decisión |
+| `STAGING_PRICE_PRO_CENTS` | precio mensual Pro en centavos |
+| `STAGING_PRICE_PREMIUM_CENTS` | precio mensual Premium en centavos |
 
-## 5. GitHub: ejecutar el workflow
-**Actions → Staging → Run workflow** (rama `claude/businessai-platform-audit-vjjcoc`)
-- Deja marcados los pasos 1 a 4.
-- Escribe los precios mensuales **en centavos** (`basic_cents`, `pro_cents`,
-  `premium_cents`; p. ej. `1900` = $19.00). Son tu decisión.
-- `split_shared`: déjalo **sin marcar** la primera vez. Si el paso 3 se detiene
-  diciendo que hay variables compartidas *Production + Preview* (lo normal si hoy
-  las previews usan la base de producción), vuelve a ejecutar marcándolo: Preview
-  pasa a tener sus propios valores y **Production queda exactamente igual**.
+## 5. GitHub: lanzar el workflow
+Abre el **PR #1** → panel **Labels** (engranaje) → escribe `staging:run` → crea y
+aplica la etiqueta. Eso arranca **Actions → Staging** con todos los pasos.
+(El botón "Run workflow" solo aparece cuando el archivo esté en `main`; la etiqueta
+funciona ya, sin fusionar nada ni desplegar producción.)
+
+Para volver a ejecutarlo: quita la etiqueta y vuelve a ponerla.
+
+Si el paso 3 se detiene diciendo que hay variables compartidas *Production + Preview*
+(lo normal si hoy las previews usan la base de producción): añade la variable
+`STAGING_SPLIT_SHARED` = `true` y vuelve a poner la etiqueta. Preview pasará a tener
+sus propios valores y **Production queda exactamente igual**.
 
 Resultado esperado (≈10 min):
 - `Staging database is up to date and verified.`

@@ -18,6 +18,10 @@
 #   * The database must NOT look like production: production has objects
 #     created outside the repository (can_edit_company_profile, the legacy
 #     payments_update_own_company policy) that staging never gets.
+#   * Environment marker: the first run marks an EMPTY database as staging
+#     (ba_meta.environment). Later runs require that marker. A database that
+#     already has companies and no staging marker (production) is refused,
+#     whatever else changes in it over time.
 # Applied migrations are recorded in ba_meta.applied_migrations; each file
 # runs in its own transaction (the files contain begin/commit).
 # =====================================================================
@@ -63,6 +67,31 @@ fingerprint="$(psqlx -tA -c "
             and policyname in ('payments_update_own_company', 'payments_delete_own_company'))::int")" \
   || die "cannot connect to the staging database"
 [[ "$fingerprint" == "0" ]] || die "this database looks like PRODUCTION (objects created outside the repository found). Nothing was changed."
+
+# (two queries: a table that does not exist cannot be referenced in one)
+has_marker="$(psqlx -tA -c "select to_regclass('ba_meta.environment') is not null")" || die "cannot read the environment marker"
+if [[ "$has_marker" == "t" ]]; then
+  marker="$(psqlx -tA -c "select coalesce(string_agg(name, ','), '') from ba_meta.environment")" || die "cannot read the environment marker"
+else
+  marker="$(psqlx -tA -c "select case when to_regclass('public.companies') is null then 'unmarked-empty' else '' end")"
+  if [[ -z "$marker" ]]; then
+    marker="$(psqlx -tA -c "select case when exists (select 1 from public.companies) then 'unmarked-with-data' else 'unmarked-empty' end")" \
+      || die "cannot read the environment marker"
+  fi
+fi
+case "$marker" in
+  staging) echo "Environment marker: staging" ;;
+  unmarked-empty)
+    if [[ "${DRY_RUN:-0}" != "1" ]]; then
+      psqlx -c "create schema if not exists ba_meta;
+                create table ba_meta.environment (name text primary key check (name = 'staging'),
+                                                  marked_at timestamptz not null default now());
+                insert into ba_meta.environment (name) values ('staging');" >/dev/null
+      echo "Empty database marked as staging."
+    fi ;;
+  unmarked-with-data) die "this database already has companies and no staging marker (production?). Nothing was changed." ;;
+  *) die "environment marker is '$marker', not staging. Nothing was changed." ;;
+esac
 
 psqlx -c "create schema if not exists ba_meta;
           create table if not exists ba_meta.applied_migrations (
