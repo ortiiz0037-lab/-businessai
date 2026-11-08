@@ -112,13 +112,13 @@ check "$(count s7 "select has_function_privilege('anon','public.can_edit_company
 
 echo "== Scenario 8: full safe order, then full rollback → back to the inspected state"
 base s8
-for m in 0005_security_baseline 0007_storage_company_assets 0006_payments_document_fk 0008_definer_function_grants; do
+for m in 0005_security_baseline 0007_storage_company_assets 0009_private_signatures 0006_payments_document_fk 0008_definer_function_grants; do
   psqlq -d s8 -f "$MIG/$m.sql" >/dev/null || { check failed ok "apply $m"; }
 done
-check "$(count s8 "select count(*) from pg_policies where policyname like 'ba\_%'")" 12 "all four applied"
+check "$(count s8 "select count(*) from pg_policies where policyname like 'ba\_%'")" 15 "all five applied (10 table + 2 logo + 3 signature policies)"
 check "$(PGOPTIONS="-c default_transaction_read_only=on" "${RUNAS[@]}" psql -X -q -tA -F, -h "$WORK" -p "$PORT" -U postgres -d s8 -f "$HERE/../../inspect/verify_after_migrations.sql")" \
-  "10,0,2,0,f,0,2,t,f" "verify_after_migrations.sql shows the expected end state"
-for r in 0008 0006 0007 0005; do
+  "10,0,2,0,f,0,2,3,t,t,t,f" "verify_after_migrations.sql shows the expected end state"
+for r in 0008 0006 0009 0007 0005; do
   psqlq -d s8 -f "$HERE/../../rollback/${r}_rollback.sql" >/dev/null && check ok ok "rollback $r"
 done
 PGOPTIONS="-c default_transaction_read_only=on" "${RUNAS[@]}" psql -X -q -tA -v ON_ERROR_STOP=1 -h "$WORK" -p "$PORT" -U postgres -d s8 -f "$INSPECT" > "$WORK/s8.json"
@@ -128,6 +128,23 @@ chmod a+r "$WORK/expect_rollback.json" "$WORK/s8.json"
 if out="$(python3 -I "$HERE/compare_fixture.py" "$WORK/s8.json" "$WORK/expect_rollback.json")"; then
   echo "$out" | sed 's/^/    /'; check ok ok "after rollback the database matches the inspection (storage: the 2 live policies)"
 else echo "$out"; check mismatch ok "after rollback the database matches the inspection"; fi
+
+echo "== Scenario 10: 0009 — private signatures bucket, then signature RLS suite"
+base s10
+for m in 0005_security_baseline 0007_storage_company_assets; do psqlq -d s10 -f "$MIG/$m.sql" >/dev/null; done
+psqlq -d s10 -f "$MIG/0009_private_signatures.sql" >/dev/null && check ok ok "0009 applies"
+psqlq -d s10 -f "$MIG/0009_private_signatures.sql" >/dev/null && check ok ok "0009 re-applies cleanly (idempotent)"
+psqlq -d s10 -f "$MIG/0007_storage_company_assets.sql" >/dev/null && check ok ok "0007 re-applied after 0009 leaves signature policies alone"
+check "$(count s10 "select count(*) from pg_policies where policyname like 'ba\_company\_signatures\_%'")" 3 "3 signature policies survive 0007"
+run_suite s10 "$HERE/10_rls_business.test.sql" 'ALL RLS TESTS PASSED' "RLS suite with 0009"
+run_suite s10 "$HERE/30_private_signatures.test.sql" 'ALL SIGNATURE TESTS PASSED' "signature suite"
+
+echo "== Scenario 11: 0009 refuses to adopt an existing PUBLIC Company-signatures bucket"
+base s11
+psqlq -d s11 -c "insert into storage.buckets (id, name, public) values ('Company-signatures', 'Company-signatures', true)" >/dev/null
+if psqlq -d s11 -f "$MIG/0009_private_signatures.sql" >"$WORK/s11.out" 2>&1; then check applied aborted "public bucket guard"; else
+  grep -q "exists but is PUBLIC" "$WORK/s11.out" && check aborted aborted "0009 aborts: bucket exists but is public"; fi
+check "$(count s11 "select count(*) from pg_policies where policyname like 'ba\_company\_signatures\_%'")" 0 "nothing changed (rolled back)"
 
 echo "== Scenario 9: a busy table makes 0005 fail fast (lock_timeout) with zero changes"
 base s9

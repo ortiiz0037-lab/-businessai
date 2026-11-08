@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import PrintButton from '@/components/PrintButton'
+import { getSignatureDisplayUrl } from '@/lib/branding-assets'
 
 type DocumentRow = {
   id: string
@@ -45,6 +46,7 @@ type CompanyRow = {
   primary_color?: string | null
   secondary_color?: string | null
   logo_url?: string | null
+  signature_url?: string | null
   payment_info?: string | null
 }
 
@@ -289,6 +291,14 @@ export default async function DocumentDetailPage({
 
   const clientData = client as ClientRow | null
   const companyData = company as CompanyRow | null
+
+  // Private signature: a signed URL valid for a few minutes, created with the
+  // viewer's session (storage policies require membership in this company).
+  const signature = await getSignatureDisplayUrl(
+    supabase,
+    companyData?.signature_url,
+    companyId
+  )
 
   async function updateStatus(formData: FormData) {
     'use server'
@@ -930,6 +940,26 @@ export default async function DocumentDetailPage({
               <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-600">
                 {companyData.payment_info}
               </p>
+            </section>
+          )}
+
+          {signature && (
+            <section className="border-t border-slate-200 px-6 py-7 sm:px-10">
+              <div className="flex justify-end">
+                <div className="w-full max-w-xs text-center">
+                  <img
+                    src={signature.url}
+                    alt="Firma autorizada"
+                    className="mx-auto h-20 max-w-[240px] object-contain"
+                  />
+                  <div className="mt-2 border-t border-slate-300 pt-2 text-xs text-slate-500">
+                    Firma autorizada
+                    {companyData?.display_name || companyData?.legal_name
+                      ? ` · ${companyData.display_name || companyData.legal_name}`
+                      : ''}
+                  </div>
+                </div>
+              </div>
             </section>
           )}
 

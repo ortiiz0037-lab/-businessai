@@ -109,8 +109,7 @@ Consecuencias:
 - `allowed_mime_types` es nulo: un owner/admin puede subir cualquier tipo de
   archivo (p. ej. HTML o SVG) y servirlo públicamente desde el dominio de Storage.
 
-Correcciones recomendadas (cambian configuración o código; no incluidas en las
-migraciones, requieren aprobación aparte):
+Correcciones (implementadas en PR #1: código + borrador **0009**, sin aplicar):
 1. Firmas en un **bucket privado** y servirlas con URLs firmadas de corta
    duración al generar el documento (cambio en `CompanyBranding.tsx` y en la vista
    del documento).

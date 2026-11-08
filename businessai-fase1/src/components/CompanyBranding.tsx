@@ -1,26 +1,41 @@
-
 'use client'
 
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import {
+  ALLOWED_IMAGE_TYPES,
+  LOGO_BUCKET,
+  SIGNATURE_BUCKET,
+  SIGNATURE_URL_TTL_SECONDS,
+  buildObjectPath,
+  toSignatureRef,
+  validateBrandingFile,
+  type AllowedImageType,
+  type BrandingKind,
+} from '@/lib/branding-assets'
 
 type CompanyBrandingProps = {
   companyId: string
   logoUrl: string | null
-  signatureUrl: string | null
+  /** Short-lived signed URL (or legacy public URL) created on the server. */
+  signaturePreviewUrl: string | null
+  /** The current signature still lives in the public bucket. */
+  signatureIsLegacyPublic: boolean
 }
 
-const BUCKET = 'Company-assets'
+const ACCEPT = Object.keys(ALLOWED_IMAGE_TYPES).join(',')
 
 export default function CompanyBranding({
   companyId,
   logoUrl,
-  signatureUrl,
+  signaturePreviewUrl,
+  signatureIsLegacyPublic,
 }: CompanyBrandingProps) {
   const supabase = createClient()
 
   const [logo, setLogo] = useState(logoUrl)
-  const [signature, setSignature] = useState(signatureUrl)
+  const [signature, setSignature] = useState(signaturePreviewUrl)
+  const [legacySignature, setLegacySignature] = useState(signatureIsLegacyPublic)
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -42,19 +57,12 @@ export default function CompanyBranding({
     setLoading(false)
   }
 
-  async function subirArchivo(
-    file: File | undefined,
-    tipo: 'logo' | 'signature'
-  ) {
+  async function subirArchivo(file: File | undefined, tipo: BrandingKind) {
     if (!file) return
 
-    if (!file.type.startsWith('image/')) {
-      setMessage('Selecciona un archivo de imagen.')
-      return
-    }
-
-    if (file.size > 5 * 1024 * 1024) {
-      setMessage('La imagen debe pesar menos de 5 MB.')
+    const invalid = validateBrandingFile(file, tipo)
+    if (invalid) {
+      setMessage(invalid)
       return
     }
 
@@ -62,53 +70,61 @@ export default function CompanyBranding({
     setMessage('Subiendo imagen...')
 
     try {
-      const extension = file.name.split('.').pop()?.toLowerCase() || 'png'
-      const path = `${companyId}/${tipo}-${Date.now()}.${extension}`
+      const type = file.type as AllowedImageType
+      const path = buildObjectPath(companyId, tipo, type, crypto.randomUUID())
+      const bucket = tipo === 'logo' ? LOGO_BUCKET : SIGNATURE_BUCKET
 
+      // Unique path per upload: no overwrite (no update permission needed).
       const { error: uploadError } = await supabase.storage
-        .from(BUCKET)
-        .upload(path, file, {
-          upsert: true,
-          contentType: file.type,
-        })
+        .from(bucket)
+        .upload(path, file, { upsert: false, contentType: type })
 
       if (uploadError) {
+        if (tipo === 'signature' && /bucket not found/i.test(uploadError.message)) {
+          throw new Error(
+            'El almacenamiento privado de firmas aún no está configurado. Contacta al administrador.'
+          )
+        }
         throw new Error(uploadError.message)
       }
 
-      const { data } = supabase.storage
-        .from(BUCKET)
-        .getPublicUrl(path)
-
-      const publicUrl = data.publicUrl
-
+      const logoPublicUrl =
+        tipo === 'logo'
+          ? supabase.storage.from(LOGO_BUCKET).getPublicUrl(path).data.publicUrl
+          : null
       const updateData =
         tipo === 'logo'
-          ? { logo_url: publicUrl }
-          : { signature_url: publicUrl }
+          ? { logo_url: logoPublicUrl }
+          : { signature_url: toSignatureRef(path) }
 
-      const { error: updateError } = await supabase
+      const { data: updated, error: updateError } = await supabase
         .from('company_profiles')
         .update(updateData)
         .eq('company_id', companyId)
+        .select('company_id')
 
       if (updateError) {
         throw new Error(
           `La imagen se subió, pero no se pudo guardar en el perfil: ${updateError.message}`
         )
       }
-
-      if (tipo === 'logo') {
-        setLogo(publicUrl)
-      } else {
-        setSignature(publicUrl)
+      if (!updated || updated.length === 0) {
+        throw new Error(
+          'Guarda primero los datos de la empresa (botón "Guardar") y vuelve a subir la imagen.'
+        )
       }
 
-      setMessage(
-        tipo === 'logo'
-          ? 'Logo guardado correctamente.'
-          : 'Firma guardada correctamente.'
-      )
+      if (tipo === 'logo') {
+        setLogo(logoPublicUrl)
+        setMessage('Logo guardado correctamente.')
+      } else {
+        const { data: signed } = await supabase.storage
+          .from(SIGNATURE_BUCKET)
+          .createSignedUrl(path, SIGNATURE_URL_TTL_SECONDS)
+        setSignature(signed?.signedUrl ?? null)
+        setLegacySignature(false)
+        setMessage('Firma guardada de forma privada.')
+      }
     } catch (error) {
       setMessage(
         error instanceof Error
@@ -125,7 +141,7 @@ export default function CompanyBranding({
       <div>
         <h2 className="text-lg font-semibold">Imagen de la empresa</h2>
         <p className="text-sm text-gray-500">
-          Sube el logo y la firma que aparecerán en tus documentos.
+          Sube el logo y la firma que aparecerán en tus documentos (PNG, JPG o WEBP).
         </p>
       </div>
 
@@ -146,6 +162,9 @@ export default function CompanyBranding({
 
       <div className="space-y-3">
         <h3 className="font-medium">Logo de la empresa</h3>
+        <p className="text-xs text-gray-500">
+          El logo es público: lo verá cualquier persona que reciba tus documentos. Máximo 5 MB.
+        </p>
 
         {logo && (
           <img
@@ -157,7 +176,7 @@ export default function CompanyBranding({
 
         <input
           type="file"
-          accept="image/*"
+          accept={ACCEPT}
           disabled={loading}
           onChange={(event) =>
             subirArchivo(event.target.files?.[0], 'logo')
@@ -167,6 +186,17 @@ export default function CompanyBranding({
 
       <div className="space-y-3">
         <h3 className="font-medium">Firma para documentos</h3>
+        <p className="text-xs text-gray-500">
+          La firma se guarda de forma privada y solo se muestra a miembros de tu
+          empresa mediante enlaces temporales. Máximo 2 MB.
+        </p>
+
+        {legacySignature && (
+          <p role="alert" className="rounded border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+            Tu firma actual se subió antes de este cambio y está en almacenamiento
+            público. Vuelve a subirla para protegerla.
+          </p>
+        )}
 
         {signature && (
           <img
@@ -178,7 +208,7 @@ export default function CompanyBranding({
 
         <input
           type="file"
-          accept="image/*"
+          accept={ACCEPT}
           disabled={loading}
           onChange={(event) =>
             subirArchivo(event.target.files?.[0], 'signature')

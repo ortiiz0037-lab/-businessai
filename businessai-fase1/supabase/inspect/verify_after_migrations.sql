@@ -24,7 +24,16 @@ select
     where n.nspname = 'public' and c.relkind in ('r', 'p')
       and has_table_privilege(r.role_name, c.oid, 'TRUNCATE'))            as truncate_grants,         -- 0005: 0
   (select count(*) from pg_policies
-    where schemaname = 'storage' and tablename = 'objects')               as storage_policies,        -- 0007: 2
+    where schemaname = 'storage' and tablename = 'objects'
+      and (coalesce(qual, '') || coalesce(with_check, '')) ilike '%company-assets%')
+                                                                          as logo_bucket_policies,    -- 0007: 2
+  (select count(*) from pg_policies
+    where schemaname = 'storage' and tablename = 'objects'
+      and policyname like 'ba\_company\_signatures\_%')                 as signature_policies,      -- 0009: 3
+  (select public = false from storage.buckets where id = 'Company-signatures')
+                                                                          as signatures_bucket_private, -- 0009: true
+  (select allowed_mime_types from storage.buckets where id = 'Company-assets')
+    = array['image/png', 'image/jpeg', 'image/webp']                       as logo_types_limited,      -- 0009: true
   (select confdeltype = 'a' from pg_constraint
     where conname = 'payments_document_id_fkey'
       and conrelid = 'public.payments'::regclass)                         as payments_fk_no_action,   -- 0006: true

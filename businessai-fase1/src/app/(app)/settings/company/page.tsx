@@ -1,4 +1,5 @@
 import CompanyBranding from '@/components/CompanyBranding'
+import { getSignatureDisplayUrl } from '@/lib/branding-assets'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 
@@ -115,6 +116,13 @@ export default async function CompanySettingsPage({
     .select('*')
     .eq('company_id', membership.company_id)
     .maybeSingle()
+
+  // Private signature → short-lived signed URL for this member's preview.
+  const signatureDisplay = await getSignatureDisplayUrl(
+    supabase,
+    profile?.signature_url,
+    membership.company_id
+  )
 
   return (
     <div className="py-1">
@@ -370,7 +378,8 @@ export default async function CompanySettingsPage({
         <CompanyBranding
           companyId={membership.company_id}
           logoUrl={profile?.logo_url ?? null}
-          signatureUrl={profile?.signature_url ?? null}
+          signaturePreviewUrl={signatureDisplay?.url ?? null}
+          signatureIsLegacyPublic={signatureDisplay?.legacyPublic ?? false}
         />
 
 <div className="flex justify-end">
