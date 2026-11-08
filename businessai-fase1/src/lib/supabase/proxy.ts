@@ -3,7 +3,16 @@ import { NextResponse, type NextRequest } from 'next/server'
 
 const PUBLIC = ['/login', '/signup', '/auth']
 
+// Rutas llamadas por servicios externos sin sesión de usuario. Cada una se
+// autentica por su cuenta (Stripe: verificación de la firma `stripe-signature`).
+const MACHINE_ROUTES = ['/api/stripe/webhook']
+
 export async function updateSession(request: NextRequest) {
+  // Sin cookies, sin redirección: el webhook valida la firma de Stripe.
+  if (MACHINE_ROUTES.includes(request.nextUrl.pathname)) {
+    return NextResponse.next({ request })
+  }
+
   let response = NextResponse.next({ request })
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

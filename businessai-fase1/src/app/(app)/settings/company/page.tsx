@@ -2,6 +2,19 @@ import CompanyBranding from '@/components/CompanyBranding'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 
+/** Texto opcional: vacío → null (la BD exige null o 2–160 caracteres en legal_name). */
+function optionalText(formData: FormData, key: string): string | null {
+  const value = String(formData.get(key) ?? '').trim()
+  return value.length > 0 ? value : null
+}
+
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/
+
+function colorValue(formData: FormData, key: string, fallback: string): string {
+  const value = String(formData.get(key) ?? '').trim()
+  return HEX_COLOR.test(value) ? value : fallback
+}
+
 export async function saveCompanyProfile(formData: FormData) {
   'use server'
 
@@ -17,7 +30,7 @@ export async function saveCompanyProfile(formData: FormData) {
 
   const companyName = String(formData.get('company_name') ?? '').trim()
 
-  if (!companyName) {
+  if (companyName.length < 2 || companyName.length > 160) {
     redirect('/settings/company?error=missing_name')
   }
 
@@ -40,19 +53,17 @@ export async function saveCompanyProfile(formData: FormData) {
     .upsert(
       {
         company_id: companyId,
-        legal_name: String(formData.get('legal_name') ?? '').trim(),
+        legal_name: optionalText(formData, 'legal_name'),
         display_name: companyName,
-        phone: String(formData.get('phone') ?? '').trim(),
-        email: String(formData.get('email') ?? '').trim(),
-        address: String(formData.get('address') ?? '').trim(),
-        city: String(formData.get('city') ?? '').trim(),
-        state: String(formData.get('state') ?? 'Puerto Rico').trim(),
-        postal_code: String(formData.get('postal_code') ?? '').trim(),
-        primary_color:
-          String(formData.get('primary_color') ?? '#2563EB').trim(),
-        secondary_color:
-          String(formData.get('secondary_color') ?? '#0F172A').trim(),
-        payment_info: String(formData.get('payment_info') ?? '').trim(),
+        phone: optionalText(formData, 'phone'),
+        email: optionalText(formData, 'email'),
+        address: optionalText(formData, 'address'),
+        city: optionalText(formData, 'city'),
+        state: optionalText(formData, 'state') ?? 'Puerto Rico',
+        postal_code: optionalText(formData, 'postal_code'),
+        primary_color: colorValue(formData, 'primary_color', '#2563EB'),
+        secondary_color: colorValue(formData, 'secondary_color', '#0F172A'),
+        payment_info: optionalText(formData, 'payment_info'),
         updated_at: new Date().toISOString(),
       },
       {
@@ -61,7 +72,10 @@ export async function saveCompanyProfile(formData: FormData) {
     )
 
   if (error) {
-    console.error('Error guardando empresa:', error)
+    console.error('COMPANY_PROFILE_SAVE_ERROR', {
+      code: error.code,
+      message: error.message,
+    })
     redirect('/settings/company?error=save_failed')
   }
 
@@ -103,7 +117,7 @@ export default async function CompanySettingsPage({
     .maybeSingle()
 
   return (
-    <main className="min-h-screen bg-slate-50 px-4 py-8">
+    <div className="py-1">
       <div className="mx-auto max-w-5xl">
         <div className="mb-8">
           <p className="text-sm font-semibold text-blue-600">
@@ -136,7 +150,7 @@ export default async function CompanySettingsPage({
 
         {params.error === 'missing_name' && (
           <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
-            El nombre de la empresa es requerido.
+            El nombre de la empresa es requerido (entre 2 y 160 caracteres).
           </div>
         )}
 
@@ -369,6 +383,6 @@ export default async function CompanySettingsPage({
           </div>
         </form>
       </div>
-    </main>
+    </div>
   )
 }

@@ -103,12 +103,20 @@ export default async function DashboardPage() {
 
   const companyId = membership.company_id
 
-  const [companyResult, clientsResult, documentsResult] =
+  const [companyResult, profileResult, clientsResult, documentsResult] =
     await Promise.all([
+      // `companies` solo tiene `name`; los nombres comerciales/legales
+      // viven en `company_profiles`.
       supabase
         .from('companies')
-        .select('legal_name, display_name')
+        .select('name')
         .eq('id', companyId)
+        .maybeSingle(),
+
+      supabase
+        .from('company_profiles')
+        .select('display_name, legal_name')
+        .eq('company_id', companyId)
         .maybeSingle(),
 
       supabase
@@ -124,7 +132,15 @@ export default async function DashboardPage() {
         .limit(50),
     ])
 
+  if (companyResult.error) {
+    console.error('DASHBOARD_COMPANY_ERROR', { code: companyResult.error.code })
+  }
+  if (profileResult.error) {
+    console.error('DASHBOARD_PROFILE_ERROR', { code: profileResult.error.code })
+  }
+
   const company = companyResult.data
+  const profile = profileResult.data
   const clientCount = clientsResult.count || 0
   const documents = (documentsResult.data || []) as Doc[]
 
@@ -146,7 +162,10 @@ export default async function DashboardPage() {
   const recent = documents.slice(0, 5)
 
   const businessName =
-    company?.display_name || company?.legal_name || 'Tu negocio'
+    profile?.display_name ||
+    profile?.legal_name ||
+    company?.name ||
+    'Tu negocio'
 
   const firstName =
     user.user_metadata?.full_name?.split(' ')[0] ||

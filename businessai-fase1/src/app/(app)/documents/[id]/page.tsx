@@ -149,6 +149,41 @@ function statusLabel(value: string | null | undefined) {
   return statuses[value ?? ''] ?? value ?? 'Borrador'
 }
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+function DocumentUnavailable({
+  title,
+  message,
+}: {
+  title: string
+  message: string
+}) {
+  return (
+    <main className="mx-auto max-w-4xl px-4 py-12">
+      <div className="rounded-3xl border border-red-200 bg-red-50 p-8 text-center">
+        <div className="text-4xl">⚠️</div>
+        <h1 className="mt-4 text-2xl font-bold text-slate-900">{title}</h1>
+        <p className="mt-2 text-sm text-slate-600">{message}</p>
+        <div className="mt-6 flex flex-wrap justify-center gap-3">
+          <Link
+            href="/documents"
+            className="inline-flex rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white"
+          >
+            ← Volver a Documentos
+          </Link>
+          <Link
+            href="/payments"
+            className="inline-flex rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700"
+          >
+            Ir a Pagos
+          </Link>
+        </div>
+      </div>
+    </main>
+  )
+}
+
 export default async function DocumentDetailPage({
   params,
   searchParams,
@@ -156,11 +191,23 @@ export default async function DocumentDetailPage({
   params: Promise<{ id: string }>
   searchParams?: Promise<{
     deleteError?: string
-    company_id?: string
   }>
 }) {
   const { id } = await params
   const query = searchParams ? await searchParams : undefined
+
+  // Enlaces rotos (p. ej. /documents/null desde un pago sin documento):
+  // se detectan antes de consultar para no confundirlos con un error de BD.
+  if (!UUID_RE.test(id)) {
+    console.warn('DOCUMENT_LOOKUP_INVALID_ID', { id })
+    return (
+      <DocumentUnavailable
+        title="Documento no encontrado"
+        message="El enlace no corresponde a un documento válido. Es posible que el pago no esté vinculado a ningún documento."
+      />
+    )
+  }
+
   const supabase = await createClient()
 
   const {
@@ -169,54 +216,59 @@ export default async function DocumentDetailPage({
 
   if (!user) redirect('/login')
 
-  // Validar que el usuario pertenece a la empresa indicada.
-  const membershipQuery = supabase
-    .from('memberships')
-    .select('company_id')
-    .eq('user_id', user.id)
-
-  const { data: membership, error: membershipError } = query?.company_id
-    ? await membershipQuery
-        .eq('company_id', query.company_id)
-        .maybeSingle()
-    : await membershipQuery
-        .limit(1)
-        .maybeSingle()
-
-  if (membershipError || !membership?.company_id) {
-    redirect('/dashboard')
-  }
-
-  const companyId = membership.company_id
-
+  // El documento determina la empresa. RLS limita las filas visibles a las
+  // empresas del usuario; además se exige membership explícita abajo.
   const { data: document, error } = await supabase
     .from('documents')
     .select('*')
     .eq('id', id)
-    .eq('company_id', companyId)
     .maybeSingle()
 
-  if (error || !document) {
+  if (error) {
+    console.error('DOCUMENT_LOOKUP_ERROR', {
+      id,
+      code: error.code,
+      message: error.message,
+    })
     return (
-      <main className="mx-auto max-w-4xl px-4 py-12">
-        <div className="rounded-3xl border border-red-200 bg-red-50 p-8 text-center">
-          <div className="text-4xl">⚠️</div>
-          <h1 className="mt-4 text-2xl font-bold text-slate-900">
-            Documento no encontrado
-          </h1>
-          <p className="mt-2 text-sm text-slate-600">
-            No pudimos encontrar este documento o no tienes acceso a él.
-          </p>
-          <Link
-            href="/documents"
-            className="mt-6 inline-flex rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white"
-          >
-            ← Volver a Documentos
-          </Link>
-        </div>
-      </main>
+      <DocumentUnavailable
+        title="No se pudo cargar el documento"
+        message="Ocurrió un error al consultar el documento. Inténtalo nuevamente en unos minutos."
+      />
     )
   }
+
+  if (!document) {
+    console.warn('DOCUMENT_LOOKUP_NOT_FOUND', { id })
+    return (
+      <DocumentUnavailable
+        title="Documento no encontrado"
+        message="No pudimos encontrar este documento o no tienes acceso a él. Puede que haya sido eliminado."
+      />
+    )
+  }
+
+  const { data: membership, error: membershipError } = await supabase
+    .from('memberships')
+    .select('company_id')
+    .eq('user_id', user.id)
+    .eq('company_id', document.company_id)
+    .maybeSingle()
+
+  if (membershipError || !membership?.company_id) {
+    console.warn('DOCUMENT_LOOKUP_NO_MEMBERSHIP', {
+      id,
+      code: membershipError?.code,
+    })
+    return (
+      <DocumentUnavailable
+        title="Documento no encontrado"
+        message="No pudimos encontrar este documento o no tienes acceso a él."
+      />
+    )
+  }
+
+  const companyId: string = membership.company_id
 
   const doc = document as DocumentRow
 

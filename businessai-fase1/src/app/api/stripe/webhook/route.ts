@@ -245,6 +245,7 @@ export async function POST(request: Request) {
       .insert({
         id: event.id,
         event_type: event.type,
+        status: "processed",
         processed_at: new Date().toISOString(),
       });
 
