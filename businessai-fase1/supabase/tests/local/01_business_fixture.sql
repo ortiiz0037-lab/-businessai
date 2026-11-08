@@ -33,3 +33,12 @@ create table public.payments (
   created_at timestamptz not null default now()
 );
 insert into storage.buckets (id, name, public) values ('Company-assets', 'Company-assets', true);
+
+-- STAND-IN for the real public.can_edit_company_profile(). Its real body
+-- has not been inspected; only its reported properties are reproduced:
+-- SECURITY DEFINER and executable by anon. Tests check privileges only.
+create function public.can_edit_company_profile(target uuid) returns boolean
+language sql stable security definer set search_path = '' as $$
+  select public.has_company_role(target, array['owner', 'admin'])
+$$;
+grant execute on function public.can_edit_company_profile(uuid) to anon, authenticated;

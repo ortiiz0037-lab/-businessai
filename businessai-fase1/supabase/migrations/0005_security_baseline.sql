@@ -18,7 +18,11 @@
 --   6. adds company-scoped Storage policies for the Company-assets bucket
 --      (folder = company id; writes for owner/admin only);
 --   7. adds missing tenant indexes only when no equivalent exists;
---   8. self-checks the result and aborts if anything is off.
+--   8. removes TRUNCATE from anon/authenticated on every public table
+--      (RLS does not apply to TRUNCATE) and from future tables;
+--   9. removes EXECUTE from anon/PUBLIC on every SECURITY DEFINER function
+--      in public (e.g. can_edit_company_profile) — bodies are not changed;
+--  10. self-checks the result and aborts if anything is off.
 --
 -- Everything runs in one transaction: any failure leaves the DB untouched.
 -- Safe to run more than once.
@@ -292,6 +296,54 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------
+-- 6b. TRUNCATE: row level security does not apply to TRUNCATE, so any
+--     role holding it can empty a table regardless of policies. The app
+--     never truncates. Remove it from the API roles on every public table,
+--     and from tables created later by `postgres`.
+-- ---------------------------------------------------------------------
+do $$
+declare
+  r record;
+begin
+  for r in
+    select c.relname
+    from pg_class c join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public' and c.relkind in ('r', 'p')
+  loop
+    execute format('revoke truncate on table public.%I from public, anon, authenticated', r.relname);
+  end loop;
+
+  if exists (select 1 from pg_roles where rolname = 'postgres') then
+    alter default privileges for role postgres in schema public
+      revoke truncate on tables from public, anon, authenticated;
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 6c. SECURITY DEFINER functions run with the owner's rights. Nothing in
+--     the app calls them anonymously, so anon/PUBLIC must not execute them
+--     (this covers can_edit_company_profile). Function bodies are NOT
+--     changed here: they are reviewed separately from their source.
+--     Functions that belong to an extension are left alone.
+-- ---------------------------------------------------------------------
+do $$
+declare
+  f record;
+begin
+  for f in
+    select p.oid::regprocedure as sig
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.prosecdef
+      and not exists (select 1 from pg_depend d
+                      where d.classid = 'pg_proc'::regclass and d.objid = p.oid and d.deptype = 'e')
+  loop
+    execute format('revoke execute on function %s from public, anon', f.sig);
+    execute format('grant execute on function %s to authenticated, service_role', f.sig);
+  end loop;
+end $$;
+
+-- ---------------------------------------------------------------------
 -- 7. Self-check: abort if the end state is not the intended one.
 -- ---------------------------------------------------------------------
 do $$
@@ -319,9 +371,44 @@ begin
     problems := problems || 'payments: authenticated can update/delete'::text;
   end if;
 
+  if exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'payments' and cmd in ('UPDATE', 'DELETE', 'ALL')
+  ) then
+    problems := problems || 'payments: an update/delete/all policy exists'::text;
+  end if;
+
+  select problems || coalesce(array_agg('truncate allowed on public.' || c.relname || ' for ' || r.rolname), '{}')
+    into problems
+  from pg_class c
+  join pg_namespace n on n.oid = c.relnamespace
+  cross join (values ('anon'), ('authenticated')) as r(rolname)
+  where n.nspname = 'public' and c.relkind in ('r', 'p')
+    and has_table_privilege(r.rolname, c.oid, 'TRUNCATE');
+
+  select problems || coalesce(array_agg('anon can execute security definer ' || p.oid::regprocedure::text), '{}')
+    into problems
+  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public' and p.prosecdef
+    and not exists (select 1 from pg_depend d
+                    where d.classid = 'pg_proc'::regclass and d.objid = p.oid and d.deptype = 'e')
+    and has_function_privilege('anon', p.oid, 'EXECUTE');
+
   if array_length(problems, 1) > 0 then
     raise exception 'BA0005 self-check failed: %', array_to_string(problems, '; ');
   end if;
+
+  -- Not fatal, but reported: a definer function without a fixed
+  -- search_path can be hijacked through objects in other schemas.
+  perform 1;
+  for t in
+    select p.oid::regprocedure::text
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.prosecdef
+      and not exists (select 1 from unnest(coalesce(p.proconfig, '{}')) cfg where cfg like 'search\_path=%')
+  loop
+    raise warning 'BA0005: security definer function % has no fixed search_path (review its source)', t;
+  end loop;
 end $$;
 
 commit;

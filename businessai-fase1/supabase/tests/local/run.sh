@@ -77,6 +77,7 @@ echo "== Scenario 6: control — the suite FAILS on an insecure database (no 000
 base s6
 psqlq -d s6 -c "create policy legacy_all on public.clients for all to authenticated using (true) with check (true)" >/dev/null
 for t in documents payments; do psqlq -d s6 -c "alter table public.$t disable row level security" >/dev/null; done
+check "$(psqlq -d s6 -tAc "select has_table_privilege('anon','public.payments','TRUNCATE') and has_function_privilege('anon','public.can_edit_company_profile(uuid)','EXECUTE')")" t "control: before 0005, anon can TRUNCATE payments and execute can_edit_company_profile"
 if psqlq -d s6 -f "$HERE/10_rls_business.test.sql" >"$WORK/s6.out" 2>&1; then check passed failed "suite detects missing isolation"; else
   check failed failed "suite detects missing isolation ($(grep -o 'FAIL: .*' "$WORK/s6.out" | head -1))"; fi
 

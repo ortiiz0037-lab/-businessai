@@ -242,4 +242,57 @@ do $$ declare n int; begin
   exception when insufficient_privilege then perform t.ok(true, 'A cannot create B''s company profile'); end;
 end $$;
 
+
+-- ------------------------------------------------ TRUNCATE (bypasses RLS)
+do $$ declare tb text; begin
+  perform t.as_user('userA'); set local role authenticated;
+  foreach tb in array array['clients','documents','payments','companies','memberships',
+                            'company_profiles','company_subscriptions','stripe_events'] loop
+    begin
+      execute format('truncate table public.%I cascade', tb);
+      perform t.ok(false, 'authenticated cannot truncate ' || tb);
+    exception when insufficient_privilege then perform t.ok(true, 'authenticated cannot truncate ' || tb); end;
+  end loop;
+end $$;
+do $$ declare tb text; begin
+  set local role anon;
+  foreach tb in array array['clients','documents','payments','companies','memberships',
+                            'company_profiles','company_subscriptions','stripe_events'] loop
+    begin
+      execute format('truncate table public.%I cascade', tb);
+      perform t.ok(false, 'anon cannot truncate ' || tb);
+    exception when insufficient_privilege then perform t.ok(true, 'anon cannot truncate ' || tb); end;
+  end loop;
+end $$;
+do $$ begin
+  perform t.ok((select count(*) from public.payments) >= 2, 'payments still present after truncate attempts');
+end $$;
+
+-- -------------------------------------------- SECURITY DEFINER functions
+do $$ begin
+  set local role anon;
+  begin
+    perform public.can_edit_company_profile(t.id('coA'));
+    perform t.ok(false, 'anon cannot execute can_edit_company_profile');
+  exception when insufficient_privilege then perform t.ok(true, 'anon cannot execute can_edit_company_profile'); end;
+  begin
+    perform public.is_company_member(t.id('coA'));
+    perform t.ok(false, 'anon cannot execute is_company_member');
+  exception when insufficient_privilege then perform t.ok(true, 'anon cannot execute is_company_member'); end;
+end $$;
+do $$ begin
+  perform t.as_user('userA'); set local role authenticated;
+  perform t.ok(public.can_edit_company_profile(t.id('coA')), 'owner A: can_edit_company_profile still works for authenticated');
+end $$;
+do $$ begin
+  perform t.ok(not exists (
+    select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.prosecdef and has_function_privilege('anon', p.oid, 'EXECUTE')
+  ), 'no public SECURITY DEFINER function is executable by anon');
+  perform t.ok(not exists (
+    select 1 from pg_policies where schemaname = 'public' and tablename = 'payments'
+      and cmd in ('UPDATE', 'DELETE', 'ALL')
+  ), 'payments has no update/delete/all policy');
+end $$;
+
 do $$ begin raise notice 'ALL RLS TESTS PASSED'; end $$;
