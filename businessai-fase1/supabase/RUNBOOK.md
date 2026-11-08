@@ -33,33 +33,49 @@ Guarda `data.sql` cifrado y **fuera del repositorio**.
 - [ ] (Para 0008, opcional) `inspect/inspect_definer_functions.sql` → guarda el
       código de `can_edit_company_profile` para la revisión.
 
-## 3. Ejecución — orden seguro
+## 3. Ejecución — orden seguro y lista única de comprobaciones
 
-Cada archivo se pega completo en SQL Editor → Run. Si falla, no ha cambiado nada
-(una transacción por archivo): lee el mensaje `BA000x` y para.
-Tras cada paso: `inspect/verify_after_migrations.sql` y las pruebas de la app.
+Cada archivo se pega completo en SQL Editor → Run. Una transacción por archivo:
+si falla, no cambió nada → lee el mensaje `BA000x` y **para**.
+Después de cada paso ejecuta `inspect/verify_after_migrations.sql`: devuelve una
+fila; compárala con la columna "verify" (orden de columnas: ba_table_policies,
+old_table_policies, audit_policies, payment_edit_policies, payments_editable,
+truncate_grants, logo_bucket_policies, signature_policies,
+signatures_bucket_private, logo_types_limited, payments_fk_no_action,
+anon_can_edit_fn; vacío = NULL).
 
-| Paso | Archivo | Esperado en `verify_after_migrations.sql` | Prueba en la app |
-|---|---|---|---|
-| 1 | `migrations/0005_security_baseline.sql` | `ba_table_policies=10`, `old_table_policies=0`, `audit_policies=2`, `payment_edit_policies=0`, `payments_editable=false`, `truncate_grants=0` | Login · lista y alta de clientes · crear factura · marcar como pagada · página Pagos y enlace al documento · borrar un documento **sin** pagos |
-| 2 | `migrations/0007_storage_company_assets.sql` | `logo_bucket_policies=2` | Mi empresa → subir logo · ver el logo en un documento |
-| 2b | `migrations/0009_private_signatures.sql` | `signature_policies=3`, `signatures_bucket_private=true`, `logo_types_limited=true` | Ver §6 |
-| 3 | `migrations/0006_payments_document_fk.sql` | `payments_fk_no_action=true` | Borrar una factura **con** pago → mensaje "tiene pagos registrados"; el pago sigue en Pagos |
-| 4 | `migrations/0008_definer_function_grants.sql` | `anon_can_edit_fn=false` | Igual que el paso 1 (nada usa la función) |
+| Paso | Acción | verify esperado | Pruebas en la app (empresa de prueba) | Si falla |
+|---|---|---|---|---|
+| 0 | **Línea base** (antes de nada) | `0,12,4,2,t,12,11,0,,,f,t` | — | Si difiere, la BD cambió desde la inspección: **no sigas**; vuelve a inspeccionar |
+| 1 | `0005_security_baseline.sql` | `10,0,2,0,f,0,11,0,,,f,t` | Login · Clientes: listar, buscar, crear · Documentos: crear factura y carta, abrir, "Marcar como enviada", "Marcar como pagada" · Pagos: aparece el pago y su enlace abre la factura · Borrar la carta (sin pagos) · Mi empresa: guardar con nombre legal vacío | `rollback/0005_rollback.sql` |
+| 2 | `0007_storage_company_assets.sql` | `10,0,2,0,f,0,2,0,,,f,t` | Mi empresa: subir logo PNG → se ve en un documento | `rollback/0007_rollback.sql` |
+| 3 | `0009_private_signatures.sql` | `10,0,2,0,f,0,2,3,t,t,f,t` | (código antiguo) subir logo PNG sigue funcionando · subir un SVG como logo → Storage lo rechaza | `rollback/0009_rollback.sql` |
+| 4 | **Desplegar el código de PR #1** (merge → producción en Vercel) | igual que el paso 3 | §6.1 y §6.2: firma privada (URL `/object/sign/…`, `/object/public/…` falla, caduca a los 5 min), documentos e impresión con logo y firma | Revertir el despliegue en Vercel (la BD no cambia) |
+| 5 | `0006_payments_document_fk.sql` | `10,0,2,0,f,0,2,3,t,t,t,t` | Borrar una factura **con** pago → "tiene pagos registrados"; el pago sigue en Pagos · borrar un documento sin pagos funciona | `rollback/0006_rollback.sql` |
+| 6 | `0008_definer_function_grants.sql` | `10,0,2,0,f,0,2,3,t,t,t,f` | Repetir rápidamente el paso 1 | `rollback/0008_rollback.sql` |
+| 7 | Firmas antiguas | — | §6.3: re-subir la firma y borrar `signature-*` de `Company-assets` | — |
 
-Por qué este orden: 0005 cierra los huecos más graves y no depende de nada; 0007
-es independiente pero toca una tabla gestionada por Supabase; 0009 debe aplicarse
-**antes de desplegar** el código de firmas privadas (sin el bucket, las firmas
-nuevas no se pueden subir; logos y firmas existentes siguen funcionando); 0006
-cambia el comportamiento del borrado (requiere aceptar ese cambio); 0008 es el de
-menor impacto.
+Dependencias (verificadas en local):
+- **Ninguna dependencia técnica entre las migraciones**: cada una se aplica sola
+  sobre el estado inspeccionado, y el orden inverso da el mismo estado final.
+- 0005, 0007 y 0009 usan `is_company_member` / `has_company_role` (0001).
+  0007 y 0009 crean la misma función auxiliar `storage_company_id`.
+- **El código de PR #1 necesita 0009** para subir firmas nuevas (antes: aviso
+  "no configurado"; logos y firmas existentes siguen funcionando).
+- **0006 es una decisión de negocio**: con el código antiguo de `main`, un borrado
+  bloqueado muestra un mensaje genérico; con PR #1, el mensaje específico. Por eso
+  va después del despliegue.
+- Matriz de compatibilidad (20 operaciones de la app, código nuevo y antiguo, en
+  cada paso): `tests/local/app_compat_expected.txt`. Únicos cambios: borrar un
+  documento con pagos (borra los pagos hasta 0006; bloqueado desde 0006) y subir
+  la firma privada (falla hasta 0009).
 
 ## 4. Recuperación
 
 | Síntoma | Acción | Impacto en datos |
 |---|---|---|
 | Una migración da error | Nada que hacer: se revirtió sola. Guarda el mensaje. | Ninguno |
-| La app falla tras el paso N | Ejecuta `rollback/<N>_rollback.sql`; si hace falta, los anteriores en orden inverso: 0008 → 0006 → 0009 → 0007 → 0005 | Ninguno: solo políticas, privilegios, la FK y límites de buckets |
+| La app falla tras un paso | Ejecuta el rollback de ese paso; si hace falta, los anteriores en orden inverso: 0008 → 0006 → (revertir despliegue) → 0009 → 0007 → 0005 | Ninguno: solo políticas, privilegios, la FK y límites de buckets |
 | Datos dañados (no esperado: ninguna migración toca filas) | Restaurar desde 1a (copia/PITR) o importar `data.sql` en un proyecto nuevo y comparar antes de tocar producción | Según la copia |
 
 Notas de los rollbacks:
@@ -71,9 +87,10 @@ Notas de los rollbacks:
 - `0009_rollback.sql` quita las políticas de firmas y la limitación de tipos de
   `Company-assets`, pero **no borra** el bucket `Company-signatures` (puede tener
   firmas; sin políticas solo `service_role` puede acceder).
-- Probado en local: aplicar 0005→0007→0009→0006→0008 y revertir
-  0008→0006→0009→0007→0005 deja la base idéntica a la inspección (61
-  comprobaciones; Storage = 2 políticas).
+- `0007_rollback.sql` funciona también si 0009 sigue aplicado (conserva la
+  función auxiliar que 0009 usa).
+- Probado en local: tras cada rollback, en orden inverso, la base es idéntica a
+  la de antes de esa migración (salvo las dos diferencias documentadas arriba).
 
 ## 5. Datos existentes que podrían mezclar empresas
 

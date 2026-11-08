@@ -146,6 +146,109 @@ if psqlq -d s11 -f "$MIG/0009_private_signatures.sql" >"$WORK/s11.out" 2>&1; the
   grep -q "exists but is PUBLIC" "$WORK/s11.out" && check aborted aborted "0009 aborts: bucket exists but is public"; fi
 check "$(count s11 "select count(*) from pg_policies where policyname like 'ba\_company\_signatures\_%'")" 0 "nothing changed (rolled back)"
 
+echo "== Scenario 12: application compatibility at every step of the safe order"
+STAGES=(base 0005_security_baseline 0007_storage_company_assets 0009_private_signatures 0006_payments_document_fk 0008_definer_function_grants)
+: > "$WORK/compat.txt"
+for k in "${!STAGES[@]}"; do
+  db="c$k"; base "$db"
+  for ((j=1; j<=k; j++)); do psqlq -d "$db" -f "$MIG/${STAGES[$j]}.sql" >/dev/null; done
+  psqlq -d "$db" -f "$HERE/40_app_compat.sql" | sed "s/^/${STAGES[$k]%%_*}|/" >> "$WORK/compat.txt"
+done
+python3 -I - "$WORK/compat.txt" > "$WORK/compat_matrix.txt" <<'PY'
+import sys
+rows, stages = {}, []
+for line in open(sys.argv[1]):
+    stage, op, outcome = line.rstrip("\n").split("|", 2)
+    if stage not in stages: stages.append(stage)
+    rows.setdefault(op, {})[stage] = outcome
+w = max(len(o) for o in rows)
+print("operation".ljust(w), *[s.ljust(10) for s in stages])
+for op, r in rows.items():
+    print(op.ljust(w), *[r.get(s, "-").ljust(10) for s in stages])
+PY
+sed 's/^/    /' "$WORK/compat_matrix.txt"
+if [ -n "${COMPAT_WRITE:-}" ]; then cp "$WORK/compat_matrix.txt" "$HERE/app_compat_expected.txt"; fi
+if diff -u "$HERE/app_compat_expected.txt" "$WORK/compat_matrix.txt" > "$WORK/compat.diff"; then
+  check ok ok "app compatibility matrix matches the expected outcomes"
+else cat "$WORK/compat.diff"; check different ok "app compatibility matrix matches the expected outcomes"; fi
+
+snapshot() { # $1 db, $2 out — inspection output without the timestamp
+  PGOPTIONS="-c default_transaction_read_only=on" "${RUNAS[@]}" psql -X -q -tA -v ON_ERROR_STOP=1 -h "$WORK" -p "$PORT" -U postgres -d "$1" -f "$INSPECT" \
+    | python3 -I -c "import json,sys; d=json.load(sys.stdin); d.pop('inspected_at',None); print(json.dumps(d,sort_keys=True,indent=1))" > "$2"
+}
+
+echo "== Scenario 13: each rollback, in reverse order, restores exactly the state before its migration"
+ORDER=(0005 0007 0009 0006 0008)
+declare -A FILE=([0005]=0005_security_baseline [0007]=0007_storage_company_assets [0009]=0009_private_signatures \
+                 [0006]=0006_payments_document_fk [0008]=0008_definer_function_grants)
+base r13
+snapshot r13 "$WORK/snap_0.json"
+verify() { PGOPTIONS="-c default_transaction_read_only=on" "${RUNAS[@]}" psql -X -q -tA -F, -h "$WORK" -p "$PORT" -U postgres -d "$1" -f "$HERE/../../inspect/verify_after_migrations.sql"; }
+# Expected verify_after_migrations.sql output after each step (same values as RUNBOOK §3).
+declare -A VEXP=(
+  [base]="0,12,4,2,t,12,11,0,,,f,t"
+  [0005]="10,0,2,0,f,0,11,0,,,f,t"
+  [0007]="10,0,2,0,f,0,2,0,,,f,t"
+  [0009]="10,0,2,0,f,0,2,3,t,t,f,t"
+  [0006]="10,0,2,0,f,0,2,3,t,t,t,t"
+  [0008]="10,0,2,0,f,0,2,3,t,t,t,f"
+)
+check "$(verify r13)" "${VEXP[base]}" "verify before any migration = ${VEXP[base]}"
+for i in "${!ORDER[@]}"; do
+  psqlq -d r13 -f "$MIG/${FILE[${ORDER[$i]}]}.sql" >/dev/null
+  snapshot r13 "$WORK/snap_$((i+1)).json"
+  check "$(verify r13)" "${VEXP[${ORDER[$i]}]}" "verify after ${ORDER[$i]} = ${VEXP[${ORDER[$i]}]}"
+done
+for ((i=${#ORDER[@]}-1; i>=0; i--)); do
+  m="${ORDER[$i]}"
+  psqlq -d r13 -f "$HERE/../../rollback/${m}_rollback.sql" >/dev/null || { check failed ok "rollback $m runs"; continue; }
+  snapshot r13 "$WORK/after_rb.json"
+  # Documented, intentional differences: 0007_rollback does not recreate the 9
+  # dead storage policies; 0009_rollback keeps the Company-signatures bucket.
+  rolled="${rolled:-} $m"
+  if python3 -I - "$m" "$WORK/snap_$i.json" "$WORK/after_rb.json" "$rolled" > "$WORK/rb.diff" <<'PY'
+import json, sys
+m, fa, fb, rolled = sys.argv[1:5]
+rolled = rolled.split()
+a, b = json.load(open(fa)), json.load(open(fb))
+def norm(d):
+    d = dict(d)
+    if "0007" in rolled:
+        d["rls_policies"] = [p for p in d["rls_policies"] or []
+            if not (p["table"] == "storage.objects"
+                    and "'Company-assets'" not in ((p["using"] or "") + (p["with_check"] or "")))]
+    if "0009" in rolled:
+        d["storage_buckets"] = [x for x in d["storage_buckets"] or [] if x["id"] != "Company-signatures"]
+    return d
+if norm(a) != norm(b):
+    for k in a:
+        if norm(a)[k] != norm(b).get(k): print("differs in", k)
+    sys.exit(1)
+PY
+  then
+    note=""
+    [[ " $rolled " == *" 0009 "* ]] && note=" [kept by design: Company-signatures bucket]"
+    [[ " $rolled " == *" 0007 "* ]] && note="$note [not restored by design: 9 dead storage policies]"
+    check ok ok "rollback $m → identical to the state before $m$note"
+  else cat "$WORK/rb.diff"; check different ok "rollback $m → identical to the state before $m"; fi
+done
+
+echo "== Scenario 14: dependencies — each migration alone, and the reverse order"
+for m in 0005 0007 0009 0006 0008; do
+  base "d$m"
+  psqlq -d "d$m" -f "$MIG/${FILE[$m]}.sql" >/dev/null && check ok ok "$m applies alone on the inspected state" || check failed ok "$m applies alone"
+done
+base drev
+ok_all=ok; for m in 0008 0006 0009 0007 0005; do psqlq -d drev -f "$MIG/${FILE[$m]}.sql" >/dev/null || ok_all="failed at $m"; done
+check "$ok_all" ok "reverse order 0008→0006→0009→0007→0005 also applies (no hard ordering between them)"
+snapshot drev "$WORK/rev.json"
+if diff -q "$WORK/snap_5.json" "$WORK/rev.json" >/dev/null; then check ok ok "same end state as the safe order"; else { diff "$WORK/snap_5.json" "$WORK/rev.json" || true; } | head -20; check different ok "same end state as the safe order"; fi
+base doo
+for m in 0007 0009; do psqlq -d doo -f "$MIG/${FILE[$m]}.sql" >/dev/null; done
+if psqlq -d doo -f "$HERE/../../rollback/0007_rollback.sql" >"$WORK/doo.out" 2>&1; then
+  check "$(count doo "select count(*) from pg_policies where policyname like 'ba\_company\_signatures\_%'")" 3 "out-of-order: rollback 0007 while 0009 is applied keeps signatures working"
+else grep -m1 ERROR "$WORK/doo.out"; check failed ok "out-of-order: rollback 0007 while 0009 is applied"; fi
+
 echo "== Scenario 9: a busy table makes 0005 fail fast (lock_timeout) with zero changes"
 base s9
 "${RUNAS[@]}" psql -X -q -h "$WORK" -p "$PORT" -U postgres -d s9 \

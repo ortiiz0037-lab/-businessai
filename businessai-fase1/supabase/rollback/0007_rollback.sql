@@ -22,5 +22,18 @@ create policy company_assets_upload on storage.objects for insert to authenticat
     from public.memberships m
     where ((m.user_id = (select auth.uid() as uid)) and (m.role = any (array['owner'::text, 'admin'::text]))))));
 
-drop function if exists public.storage_company_id(text);
+-- 0009 (private signatures) uses the same helper: drop it only when no
+-- policy depends on it any more, so this rollback also works while 0009
+-- is still applied.
+do $$
+begin
+  if to_regprocedure('public.storage_company_id(text)') is not null
+     and not exists (select 1 from pg_depend
+                     where refobjid = 'public.storage_company_id(text)'::regprocedure
+                       and deptype = 'n') then
+    drop function public.storage_company_id(text);
+  else
+    raise notice 'BA0007 rollback: storage_company_id kept (still used, e.g. by 0009)';
+  end if;
+end $$;
 commit;
