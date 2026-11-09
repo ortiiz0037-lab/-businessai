@@ -49,4 +49,16 @@ describe('proxy de sesión', () => {
       expect(res.status, path).toBe(307)
     }
   })
+
+  it('la página principal "/" y /register son públicas; el panel sigue protegido', async () => {
+    for (const path of ['/', '/register']) {
+      const res = await run(path)
+      expect(res.status, path).toBe(200)
+    }
+    for (const path of ['/dashboard', '/billing', '/clients', '/documents/new']) {
+      const res = await run(path)
+      expect(res.status, path).toBe(307)
+      expect(res.headers.get('location'), path).toContain('/login?next=')
+    }
+  })
 })

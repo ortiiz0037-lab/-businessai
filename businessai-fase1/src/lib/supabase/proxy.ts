@@ -2,7 +2,9 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 // Páginas públicas: autenticación y páginas informativas (precios y textos legales).
-const PUBLIC = ['/login', '/signup', '/auth', '/precios', '/terminos', '/privacidad']
+const PUBLIC = ['/login', '/signup', '/register', '/auth', '/precios', '/terminos', '/privacidad']
+// Página principal pública (solo la ruta exacta "/").
+const PUBLIC_EXACT = ['/']
 
 // Rutas llamadas por servicios externos sin sesión de usuario. Cada una se
 // autentica por su cuenta (Stripe: verificación de la firma `stripe-signature`).
@@ -34,7 +36,7 @@ export async function updateSession(request: NextRequest) {
   const { data } = await supabase.auth.getClaims()
   const isAuthed = !!data?.claims
   const path = request.nextUrl.pathname
-  const isPublic = PUBLIC.some((p) => path === p || path.startsWith(p + '/'))
+  const isPublic = PUBLIC_EXACT.includes(path) || PUBLIC.some((p) => path === p || path.startsWith(p + '/'))
 
   const redirectTo = (to: string, next?: string) => {
     const url = request.nextUrl.clone()
@@ -45,7 +47,7 @@ export async function updateSession(request: NextRequest) {
     return res
   }
 
-  if (!isAuthed && !isPublic) return redirectTo('/login', path === '/' ? undefined : path)
+  if (!isAuthed && !isPublic) return redirectTo('/login', path)
   if (isAuthed && (path === '/login' || path === '/signup')) return redirectTo('/dashboard')
 
   response.headers.set('Cache-Control', 'private, no-store')
