@@ -148,6 +148,11 @@ async function main() {
     const first = await stripe.invoices.retrieve(sub.latest_invoice)
     check('nothing charged at the start of the trial', first.amount_paid === 0, `invoice ${first.amount_paid}`)
     check('during the trial: can create clients', (await tryCreateClient(user, companyId)) === 'ok')
+    const usage = (await user.rpc('company_usage', { target: companyId })).data ?? []
+    const clients = usage.find((u) => u.metric === 'clients')
+    check('usage limits follow the plan chosen at Checkout (Pro)',
+      usage.length === 3 && clients?.max_allowed === 500 && clients?.used === 1 && clients?.level === 'ok',
+      `${clients?.used}/${clients?.max_allowed} ${clients?.level}`)
     await passTrial(customer)
     await waitFor('active after trial', row(companyId), (x) => x.status === 'active')
     const after = await stripe.subscriptions.retrieve(sub.id, { expand: ['latest_invoice'] })

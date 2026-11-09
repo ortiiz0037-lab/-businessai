@@ -44,6 +44,7 @@ ORDER=(
   0006_payments_document_fk
   0008_definer_function_grants
   0010_billing
+  0011_usage_limits
 )
 EXPECTED_VERIFY="10,0,2,0,f,0,2,3,t,t,t,"
 
@@ -103,8 +104,13 @@ if [[ "${DRY_RUN:-0}" != "1" ]]; then
 fi
 has_record="$(psqlx -tA -c "select to_regclass('ba_meta.applied_migrations') is not null")"
 
+# Once one migration is (re)applied, every later one is re-applied too: a
+# later migration may replace objects of an earlier one (e.g. 0011 replaces
+# 0010's company_billing_state), so order is preserved.
 pending=()
+cascade=0
 for name in "${ORDER[@]}"; do
+  if [[ "$cascade" == 1 ]]; then pending+=("$name"); continue; fi
   file="$MIG/$name.sql"
   [[ -f "$file" ]] || die "missing migration file $name.sql"
   sum="$(sha256sum "$file" | cut -d' ' -f1)"
@@ -113,10 +119,10 @@ for name in "${ORDER[@]}"; do
     recorded="$(psqlx -tA -c "select sha256 from ba_meta.applied_migrations where name = '$name'")"
   fi
   if [[ -z "$recorded" ]]; then
-    pending+=("$name")
+    pending+=("$name"); cascade=1
   elif [[ "$recorded" != "$sum" ]]; then
-    echo "  ~ $name changed since it was applied; it is idempotent and will be re-applied"
-    pending+=("$name")
+    echo "  ~ $name changed since it was applied; it and every later migration will be re-applied"
+    pending+=("$name"); cascade=1
   fi
 done
 

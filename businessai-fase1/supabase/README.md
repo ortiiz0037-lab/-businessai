@@ -17,6 +17,7 @@ seguridad encima de lo que existe.
 | `migrations/0008_definer_function_grants.sql` | Quitar EXECUTE a anon en `can_edit_company_profile` | **No — borrador, aprobación aparte** |
 | `migrations/0009_private_signatures.sql` | Bucket privado de firmas + tipos de imagen limitados | **No — borrador, aprobación aparte** |
 | `migrations/0010_billing.sql` | Planes, prueba de 7 días con tarjeta (Stripe), una prueba por empresa, estado de facturación, límites | **No — borrador; primero en staging** |
+| `migrations/0011_usage_limits.sql` | Avisos 80 % / 90 %, bloqueo al 100 %, reinicio mensual, límite de usuarios (requiere 0010) | **No — borrador; primero en staging** |
 | `rollback/00xx_rollback.sql` | Vuelta exacta al estado inspeccionado, por migración | Solo emergencias |
 | `RUNBOOK.md` | Respaldo, orden de ejecución, verificación y recuperación | — |
 | `inspect/verify_after_migrations.sql` | Verificación de solo lectura tras cada paso | — |

@@ -164,3 +164,31 @@ Solo en **staging** se editan datos a mano. Nunca en producción.
 | `tests/billing-webhook.test.ts` | Firmas reales de Stripe (falsificada/ausente → 400), prueba iniciada sin cobro, cobro al terminar, **tarjeta rechazada al terminar** (past_due + motivo), autenticación requerida, **cancelación durante la prueba sin cobro**, Checkout rechazado/expirado (no crea nada), **eventos duplicados**, reintentos tras error, eventos fuera de orden, cliente distinto |
 | `tests/billing-sync.test.ts` | Condiciones mostradas (precio, fecha, cancelación), parámetros de Checkout (tarjeta obligatoria, `trial_period_days`, sin prueba si ya se usó), mapeo de suscripciones, avisos |
 | `supabase/tests/local/50_billing.test.sql` | Sin Checkout no hay acceso; prueba → acceso; cancelación durante la prueba; **una prueba por empresa** (no se puede reiniciar); límites; pago fallido → gracia → impago → solo lectura; aislamiento entre empresas |
+
+## 5. Límites de uso (migración 0011)
+
+| Nivel | Cuándo | Qué ve el cliente | ¿Puede crear? |
+|---|---|---|---|
+| ok | < 80 % | nada | sí |
+| **warning** | ≥ 80 % | aviso: "Has usado el 80 % de tu plan…" | sí |
+| **upgrade** | ≥ 90 % | segundo aviso con "Mejorar plan" | sí |
+| **blocked** | 100 % | "Alcanzaste el límite… Tus datos no se modifican" y botón desactivado | **no** |
+| unlimited | plan sin límite | nada | sí |
+
+- Métricas: **clientes** (total), **documentos** (por periodo) y **usuarios** (miembros).
+  Los límites por plan están en `billing_plans`; los umbrales 80/90 en
+  `billing_config.usage_warning_percent` / `usage_upgrade_percent` (editables con SQL).
+- **Dónde se valida:** en la base de datos (triggers `enforce_billing_limits` y
+  `enforce_member_limit`, autoritativos), en el servidor antes de insertar (acciones de
+  Clientes y Documentos) y en la interfaz (avisos y botón desactivado).
+- **Reinicio mensual de documentos:** con una suscripción en su periodo actual, el
+  contador va por el **periodo de facturación de Stripe** y se reinicia en cada
+  renovación (el webhook guarda el nuevo periodo); si no, por **mes natural** (hora de
+  Puerto Rico). Nunca se borra nada.
+- **Cambios de plan** desde el Portal: el webhook guarda el nuevo plan y los límites
+  cambian al instante. Al bajar de plan con más uso que el nuevo límite, **no se borra ni
+  se modifica nada**: los datos siguen visibles y editables; solo se impide crear más.
+- **Aislamiento:** `company_usage()` solo devuelve datos a miembros de esa empresa;
+  `anon` no puede llamarla; la ventana de uso es una función interna no expuesta.
+- **Usuarios:** todavía no hay invitaciones; el límite ya se aplica a cualquier alta de
+  miembro adicional (el propietario que crea la empresa nunca se bloquea).

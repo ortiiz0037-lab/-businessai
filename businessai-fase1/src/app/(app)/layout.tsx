@@ -3,6 +3,7 @@ import { signOut } from '@/app/actions/auth'
 import { createClient } from '@/lib/supabase/server'
 import { getUserCompany } from '@/lib/billing/company'
 import { billingBanner, fetchBillingState } from '@/lib/billing/state'
+import { fetchUsage, strongestNotice } from '@/lib/billing/usage'
 import { getAppEnv } from '@/lib/env'
 
 const navigation = [
@@ -30,7 +31,14 @@ async function loadChrome() {
     if (!user) return { env, banner: null }
     const company = await getUserCompany(supabase, user)
     if (!company) return { env, banner: null }
-    return { env, banner: billingBanner(await fetchBillingState(supabase, company.companyId)) }
+    const banner = billingBanner(await fetchBillingState(supabase, company.companyId))
+    if (banner) return { env, banner }
+    // Subscription fine: show the most important usage warning (80 % / 90 % / 100 %).
+    const notice = strongestNotice(await fetchUsage(supabase, company.companyId))
+    return {
+      env,
+      banner: notice ? { tone: notice.level === 'warning' ? 'warning' as const : 'danger' as const, text: notice.text } : null,
+    }
   } catch {
     return { env, banner: null }
   }

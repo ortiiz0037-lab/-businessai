@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { BILLING_ERROR_MESSAGE, billingErrorCode } from '@/lib/billing/state'
+import { fetchUsage, isBlocked, usageNotice } from '@/lib/billing/usage'
 
 export const dynamic = 'force-dynamic'
 
@@ -60,6 +61,11 @@ async function createDocument(formData: FormData) {
 
   const companyId = membership.company_id
   const type = text(formData, 'type')
+
+  // Server-side check before inserting (the database enforces it too).
+  if (isBlocked(await fetchUsage(supabase, companyId), 'documents')) {
+    redirect(`/documents/new?type=${encodeURIComponent(type || 'invoice')}&error=limit_documents`)
+  }
 
   if (!['invoice', 'quote', 'letter', 'work_order', 'payment_reminder'].includes(type)) {
     redirect('/documents/new?error=type')
@@ -302,6 +308,9 @@ export default async function NewDocumentPage({
 
   const clientList = (clients ?? []) as ClientRow[]
   const invoiceList = (invoices ?? []) as InvoiceRow[]
+  const usage = membership?.company_id ? await fetchUsage(supabase, membership.company_id) : []
+  const documentNotice = usageNotice(usage.find((u) => u.metric === 'documents'))
+  const documentsBlocked = documentNotice?.level === 'blocked'
   const validTypes = ['invoice', 'quote', 'letter', 'work_order', 'payment_reminder']
   const selectedType = validTypes.includes(type) ? type : 'invoice'
 
@@ -347,6 +356,15 @@ export default async function NewDocumentPage({
           </Link>
         ))}
       </nav>
+
+      {documentNotice && (
+        <div role={documentNotice.level === 'warning' ? 'status' : 'alert'}
+          className={`rounded-xl border p-4 text-sm font-medium ${documentNotice.level === 'warning'
+            ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-red-200 bg-red-50 text-red-800'}`}>
+          {documentNotice.text}{' '}
+          {documentNotice.offerUpgrade && <a href="/billing" className="underline">Mejorar plan</a>}
+        </div>
+      )}
 
       {error && errorMessage[error] && (
         <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
@@ -500,9 +518,9 @@ export default async function NewDocumentPage({
               ? 'La cotización se guardará como borrador para revisarla antes de enviarla al cliente.'
               : 'El documento se guardará en la empresa asociada a tu cuenta.'}
           </p>
-          <button type="submit" disabled={selectedType === 'payment_reminder' && invoiceList.length === 0}
+          <button type="submit" disabled={documentsBlocked || (selectedType === 'payment_reminder' && invoiceList.length === 0)}
             className="rounded-xl bg-slate-950 px-6 py-3.5 text-sm font-bold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40">
-            Guardar {docTitle(selectedType)} →
+            {documentsBlocked ? 'Límite del plan alcanzado' : `Guardar ${docTitle(selectedType)} →`}
           </button>
         </div>
       </form>

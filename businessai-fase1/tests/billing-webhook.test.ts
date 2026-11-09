@@ -247,3 +247,27 @@ describe('Stripe webhook: 7-day trial with a card', () => {
     expect(store.events.get('evt_dup')).toMatchObject({ status: 'processed' })
   })
 })
+
+describe('Stripe webhook: plan changes update permissions', () => {
+  it('upgrade and downgrade through the portal change the stored plan (limits follow)', async () => {
+    const store = memoryStore()
+    current = fakeSubscription({}, { price: { id: 'price_basic', lookup_key: 'businessai_basic_monthly' } })
+    await deliver(store, ev('evt_pl1', 'customer.subscription.created', { id: 'sub_1' }))
+    expect(store.subs.get(CO)).toMatchObject({ plan: 'basic', stripe_price_id: 'price_basic' })
+    current = fakeSubscription({}, { price: { id: 'price_premium', lookup_key: 'businessai_premium_monthly' } })
+    await deliver(store, ev('evt_pl2', 'customer.subscription.updated', { id: 'sub_1' }))
+    expect(store.subs.get(CO)).toMatchObject({ plan: 'premium', stripe_price_id: 'price_premium' })
+    current = fakeSubscription({}, { price: { id: 'price_basic', lookup_key: 'businessai_basic_monthly' } })
+    await deliver(store, ev('evt_pl3', 'customer.subscription.updated', { id: 'sub_1' }))
+    expect(store.subs.get(CO)).toMatchObject({ plan: 'basic' })
+  })
+
+  it('renewal stores the new period (the monthly document counter resets on it)', async () => {
+    const store = memoryStore()
+    current = fakeSubscription({}, { current_period_start: 1_800_000_000, current_period_end: 1_802_592_000 })
+    await deliver(store, ev('evt_rn1', 'invoice.paid', { id: 'in_r1', parent: { subscription_details: { subscription: 'sub_1' } } }))
+    current = fakeSubscription({}, { current_period_start: 1_802_592_000, current_period_end: 1_805_184_000 })
+    await deliver(store, ev('evt_rn2', 'invoice.paid', { id: 'in_r2', parent: { subscription_details: { subscription: 'sub_1' } } }))
+    expect(store.subs.get(CO)?.current_period_start).toBe(new Date(1_802_592_000 * 1000).toISOString())
+  })
+})

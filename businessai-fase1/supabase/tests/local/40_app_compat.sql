@@ -199,6 +199,14 @@ do $$ declare n int; begin perform c.as_user('owner'); set local role authentica
   perform c.rec('billing: read state (rpc company_billing_state)', case when n = 1 then 'ok' else 'zero_rows' end);
 exception when others then perform c.rec('billing: read state (rpc company_billing_state)', sqlstate); end $$;
 
+do $$ declare n int; begin perform c.as_user('owner'); set local role authenticated;
+  if to_regprocedure('public.company_usage(uuid)') is null then
+    perform c.rec('billing: read usage (rpc company_usage)', 'n/a'); return;
+  end if;
+  select count(*) into n from public.company_usage(c.id('co'));
+  perform c.rec('billing: read usage (rpc company_usage)', case when n = 3 then 'ok' else 'zero_rows' end);
+exception when others then perform c.rec('billing: read usage (rpc company_usage)', sqlstate); end $$;
+
 do $$ begin perform c.as_user('owner'); set local role authenticated;
   perform 1 from storage.buckets;
   perform c.rec('branding: storage diagnostic (listBuckets)', 'ok');

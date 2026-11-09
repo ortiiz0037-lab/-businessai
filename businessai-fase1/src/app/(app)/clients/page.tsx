@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { BILLING_ERROR_MESSAGE, billingErrorCode } from '@/lib/billing/state'
+import { fetchUsage, isBlocked, usageNotice } from '@/lib/billing/usage'
 
 async function getCompanyId() {
   const supabase = await createClient()
@@ -41,6 +42,11 @@ async function createClientAction(formData: FormData) {
   }
 
   const { supabase, companyId } = await getCompanyId()
+
+  // Server-side check before inserting (the database enforces it too).
+  if (isBlocked(await fetchUsage(supabase, companyId), 'clients')) {
+    redirect('/clients?error=limit_clients')
+  }
 
   const { error } = await supabase.from('clients').insert({
     company_id: companyId,
@@ -99,6 +105,9 @@ export default async function ClientsPage({
   }
 
   const { data: clients, error } = await clientsQuery
+  const usage = await fetchUsage(supabase, companyId)
+  const clientNotice = usageNotice(usage.find((u) => u.metric === 'clients'))
+  const clientsBlocked = clientNotice?.level === 'blocked'
 
   const totalClients = clients?.length ?? 0
 
@@ -132,6 +141,15 @@ export default async function ClientsPage({
           </div>
         </div>
       </section>
+
+      {clientNotice && (
+        <div role={clientNotice.level === 'warning' ? 'status' : 'alert'}
+          className={`rounded-xl border px-4 py-3 text-sm font-medium ${clientNotice.level === 'warning'
+            ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-red-200 bg-red-50 text-red-800'}`}>
+          {clientNotice.text}{' '}
+          {clientNotice.offerUpgrade && <a href="/billing" className="underline">Mejorar plan</a>}
+        </div>
+      )}
 
       {params.success === 'created' && (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
@@ -379,9 +397,10 @@ export default async function ClientsPage({
 
             <button
               type="submit"
-              className="w-full rounded-xl bg-slate-900 px-5 py-3.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-700"
+              disabled={clientsBlocked}
+              className="w-full rounded-xl bg-slate-900 px-5 py-3.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Guardar cliente
+              {clientsBlocked ? 'Límite del plan alcanzado' : 'Guardar cliente'}
             </button>
           </form>
         </section>

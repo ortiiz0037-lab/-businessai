@@ -79,19 +79,21 @@ export function daysLeft(until: string | null, now: Date = new Date()): number |
 
 /** Maps the errors raised by enforce_billing_limits() to a UI error code. */
 export function billingErrorCode(error: { message?: string } | null | undefined):
-  'billing' | 'limit_clients' | 'limit_documents' | null {
+  'billing' | 'limit_clients' | 'limit_documents' | 'limit_members' | null {
   switch (error?.message) {
     case 'BILLING_INACTIVE': return 'billing'
     case 'PLAN_LIMIT_CLIENTS': return 'limit_clients'
     case 'PLAN_LIMIT_DOCUMENTS': return 'limit_documents'
+    case 'PLAN_LIMIT_MEMBERS': return 'limit_members'
     default: return null
   }
 }
 
-export const BILLING_ERROR_MESSAGE: Record<'billing' | 'limit_clients' | 'limit_documents', string> = {
+export const BILLING_ERROR_MESSAGE: Record<'billing' | 'limit_clients' | 'limit_documents' | 'limit_members', string> = {
   billing: 'Para crear clientes y documentos necesitas una prueba gratuita o una suscripción activa. Puedes consultar e imprimir lo que ya tienes.',
   limit_clients: 'Has alcanzado el máximo de clientes de tu plan. Mejora tu plan para añadir más.',
-  limit_documents: 'Has alcanzado el máximo de documentos de este mes en tu plan. Mejora tu plan para crear más.',
+  limit_documents: 'Has alcanzado el máximo de documentos de este periodo en tu plan. Mejora tu plan para crear más.',
+  limit_members: 'Has alcanzado el máximo de usuarios de tu plan. Mejora tu plan para añadir más.',
 }
 
 /** Banner shown in the app layout, or null when nothing needs attention. */

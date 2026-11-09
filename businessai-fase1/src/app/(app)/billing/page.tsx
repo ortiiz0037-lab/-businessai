@@ -5,6 +5,7 @@ import { getUserCompany } from '@/lib/billing/company'
 import { fetchBillingState, STATE_LABEL, daysLeft } from '@/lib/billing/state'
 import { getStripe } from '@/lib/billing/stripe'
 import { chargeTerms, formatDate, toPriceInfo, type PriceInfo } from '@/lib/billing/checkout'
+import { fetchUsage, usageNotice, type UsageRow } from '@/lib/billing/usage'
 
 export const dynamic = 'force-dynamic'
 
@@ -66,9 +67,10 @@ export default async function BillingPage({
   const company = await getUserCompany(supabase, user)
   if (!company) redirect('/onboarding')
 
-  const [state, plansResult] = await Promise.all([
+  const [state, plansResult, usage] = await Promise.all([
     fetchBillingState(supabase, company.companyId),
     supabase.from('billing_plans').select('*').order('sort_order'),
+    fetchUsage(supabase, company.companyId),
   ])
   const plans = (plansResult.data ?? []) as PlanRow[]
   const prices = await loadPrices(plans.map((p) => p.stripe_lookup_key))
@@ -169,6 +171,36 @@ export default async function BillingPage({
                 : 'Modo solo lectura: puedes ver, imprimir y cobrar tus documentos, pero no crear nuevos clientes ni documentos.'}
             </p>
           )}
+        </section>
+      )}
+
+      {hasSubscription && usage.length > 0 && (
+        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="text-lg font-bold">Uso de tu plan</h2>
+          <div className="mt-4 space-y-4">
+            {usage.map((u: UsageRow) => {
+              const notice = usageNotice(u)
+              const label = u.metric === 'clients' ? 'Clientes' : u.metric === 'documents' ? 'Documentos en este periodo' : 'Usuarios'
+              const bar = u.level === 'blocked' ? 'bg-red-600' : u.level === 'upgrade' ? 'bg-orange-500'
+                : u.level === 'warning' ? 'bg-amber-400' : 'bg-blue-600'
+              return (
+                <div key={u.metric}>
+                  <div className="flex justify-between text-sm">
+                    <span className="font-medium">{label}</span>
+                    <span className="text-slate-600">
+                      {u.used} / {u.max_allowed ?? 'Ilimitado'}{u.percent !== null ? ` (${u.percent} %)` : ''}
+                    </span>
+                  </div>
+                  {u.max_allowed !== null && (
+                    <div className="mt-1 h-2 rounded-full bg-slate-100" role="progressbar" aria-valuenow={u.percent ?? 0} aria-valuemin={0} aria-valuemax={100}>
+                      <div className={`h-2 rounded-full ${bar}`} style={{ width: `${u.percent ?? 0}%` }} />
+                    </div>
+                  )}
+                  {notice && <p className="mt-1 text-xs text-slate-600">{notice.text}</p>}
+                </div>
+              )
+            })}
+          </div>
         </section>
       )}
 
