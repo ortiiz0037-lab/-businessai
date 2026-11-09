@@ -151,6 +151,12 @@ jobs:
           if [ "$MODE" = preview ]; then node scripts/staging/preview-supabase.mjs apply
           else node scripts/staging/preview-supabase.mjs inspect; fi
 
+      - name: 1·pre. STAGING_DB_URL diagnostics (pass/fail only, no connection to Supabase)
+        if: env.DO_MIGRATIONS == 'true'
+        env:
+          STAGING_DB_URL: ${{ secrets.STAGING_DB_URL }}
+        run: node scripts/staging/db-url-diagnose.mjs
+
       - name: 1. Migrations → Supabase staging
         if: env.DO_MIGRATIONS == 'true'
         env:
