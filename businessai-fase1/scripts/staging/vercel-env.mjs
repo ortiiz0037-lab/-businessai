@@ -6,11 +6,16 @@
  *   VERCEL_TOKEN=… VERCEL_PROJECT_ID=prj_… [VERCEL_TEAM_ID=team_…] \
  *   STAGING_URL=… STAGING_SUPABASE_URL=… STAGING_SUPABASE_PUBLISHABLE_KEY=… \
  *   STAGING_SUPABASE_SERVICE_ROLE_KEY=… STRIPE_SECRET_KEY=sk_test_… \
- *   STRIPE_WEBHOOK_SECRET=whsec_… [VERCEL_DEPLOY_HOOK_URL=…] \
+ *   STRIPE_WEBHOOK_SECRET=whsec_… [VERCEL_DEPLOY_HOOK_URL=…] [STAGING_BRANCH=…] \
  *   node scripts/staging/vercel-env.mjs [--split-shared] [--plan-only]
  *
  * --plan-only: reads the project's variable list (names and targets only)
  * and prints what would change. Writes nothing.
+ *
+ * NEXT_PUBLIC_* values are compiled into the build, so the preview must be
+ * rebuilt after writing them: with VERCEL_DEPLOY_HOOK_URL if set, otherwise
+ * by redeploying the latest READY *preview* deployment of STAGING_BRANCH
+ * (never a production deployment, never with a production target).
  *
  * A variable that today is shared by Production AND Preview (one entry for
  * both) cannot get a Preview-only value without touching that entry. By
@@ -82,6 +87,23 @@ export function planChanges(existing, desired, { splitShared = false } = {}) {
     if (o.op === 'split' && o.target.includes(PREVIEW)) throw new Error('split must remove preview')
   }
   return { ops, shared, blocked: shared.length > 0 && !splitShared }
+}
+
+/**
+ * Latest READY preview deployment of a branch, from GET /v6/deployments.
+ * Production deployments are never returned.
+ */
+export function pickLatestPreview(deployments, branch) {
+  return (deployments ?? [])
+    .filter((d) => d.target !== 'production' && (d.state ?? d.readyState) === 'READY'
+      && d.meta?.githubCommitRef === branch)
+    .sort((a, b) => (b.createdAt ?? b.created ?? 0) - (a.createdAt ?? a.created ?? 0))[0] ?? null
+}
+
+/** Body for POST /v13/deployments that rebuilds a preview (no target = preview). */
+export function redeployBody(deployment) {
+  if (!deployment || deployment.target === 'production') throw new Error('refusing to redeploy a production deployment')
+  return { name: deployment.name, deploymentId: deployment.uid }
 }
 
 function fail(message) {
@@ -158,8 +180,15 @@ async function main() {
   if (process.env.VERCEL_DEPLOY_HOOK_URL) {
     const res = await fetch(process.env.VERCEL_DEPLOY_HOOK_URL, { method: 'POST' })
     console.log(res.ok ? 'Redeploy of the staging branch requested (deploy hook).' : `Deploy hook failed: ${res.status}`)
+  } else if (process.env.STAGING_BRANCH) {
+    const list = await api('GET', `/v6/deployments?projectId=${encodeURIComponent(projectId)}&limit=50`)
+    const source = pickLatestPreview(list.deployments, process.env.STAGING_BRANCH)
+    if (!source) fail(`no READY preview deployment found for branch ${process.env.STAGING_BRANCH}; push to it or Redeploy in Vercel`)
+    const created = await api('POST', '/v13/deployments?forceNew=1', redeployBody(source))
+    if (created.target === 'production') fail('Vercel reported a production target; stop and review in the Vercel dashboard')
+    console.log(`Preview rebuild requested from ${source.uid} (branch ${process.env.STAGING_BRANCH}) → ${created.id ?? created.uid}; the new build uses the staging variables.`)
   } else {
-    console.log('Variables saved. They apply to the NEXT Preview deployment (push to the staging branch or Redeploy in Vercel).')
+    console.log('Variables saved. They apply to the NEXT Preview build (push to the staging branch or Redeploy in Vercel).')
   }
 }
 

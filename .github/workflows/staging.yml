@@ -156,11 +156,13 @@ jobs:
           if [ "$MODE" = check ]; then node scripts/staging/stripe-webhook.mjs --plan-only
           else node scripts/staging/stripe-webhook.mjs; fi
 
-      - name: 3. Vercel → Preview variables (+ redeploy via deploy hook)
+      - name: 3. Vercel → Preview variables (+ rebuild of the staging preview)
         if: env.DO_VERCEL == 'true'
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+          # Rebuild this branch's preview after writing NEXT_PUBLIC_* (build-time values).
+          STAGING_BRANCH: ${{ github.head_ref || github.ref_name }}
           STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
         run: |
@@ -174,9 +176,9 @@ jobs:
         env:
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: |
-          for i in $(seq 1 20); do
+          for i in $(seq 1 30); do
             if bash scripts/staging/smoke.sh; then exit 0; fi
-            echo "…deployment not ready with the staging configuration yet; retrying in 30 s ($i/20)"; sleep 30
+            echo "…preview not rebuilt with the staging configuration yet; retrying in 30 s ($i/30)"; sleep 30
           done
           exit 1
 

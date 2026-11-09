@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { desiredVariables, planChanges } from '../scripts/staging/vercel-env.mjs'
+import { desiredVariables, pickLatestPreview, planChanges, redeployBody } from '../scripts/staging/vercel-env.mjs'
 import { WEBHOOK_EVENTS, webhookUrl } from '../scripts/staging/stripe-webhook.mjs'
 
 // Placeholders only — not credentials.
@@ -95,5 +95,28 @@ describe('stripe-webhook', () => {
       'invoice.paid', 'invoice.payment_failed', 'invoice.payment_action_required',
     ]))
     expect(WEBHOOK_EVENTS).toHaveLength(10)
+  })
+})
+
+describe('vercel-env: rebuilding the staging preview', () => {
+  const branch = 'claude/businessai-platform-audit-vjjcoc'
+  const d = (uid: string, over: Record<string, unknown> = {}) =>
+    ({ uid, name: 'businessai', state: 'READY', target: null, createdAt: 1, meta: { githubCommitRef: branch }, ...over })
+
+  it('picks the newest READY preview of the branch', () => {
+    const picked = pickLatestPreview([
+      d('old', { createdAt: 1 }), d('new', { createdAt: 3 }), d('building', { createdAt: 4, state: 'BUILDING' }),
+      d('other-branch', { createdAt: 5, meta: { githubCommitRef: 'feature' } }),
+    ], branch)
+    expect(picked.uid).toBe('new')
+  })
+
+  it('never picks or redeploys a production deployment', () => {
+    expect(pickLatestPreview([d('prod', { target: 'production', createdAt: 9 })], branch)).toBeNull()
+    expect(() => redeployBody(d('prod', { target: 'production' }))).toThrow(/production/)
+    expect(() => redeployBody(null)).toThrow()
+    const body = redeployBody(d('p1'))
+    expect(body).toEqual({ name: 'businessai', deploymentId: 'p1' })
+    expect(body).not.toHaveProperty('target')
   })
 })
