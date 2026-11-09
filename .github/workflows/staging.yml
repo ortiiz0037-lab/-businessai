@@ -14,6 +14,10 @@ name: Staging
 #     validates the staging keys (read-only), writes the 3 Supabase variables
 #     for Preview, rebuilds the branch preview and checks /login. No
 #     migrations, no Stripe, nothing in Production.
+#   * label `staging:migrate` → ONLY the database migrations 0001–0011 on
+#     the staging project (pinned ref below): plan (dry run) → apply →
+#     confirm (nothing pending + verification). No Stripe, no Vercel, no
+#     users, no tests. Owner's authorization.
 #   * label `staging:run` → applies everything (owner's authorization).
 #     Prices come from repository variables STAGING_PRICE_*_CENTS.
 #   * or Actions → Staging → Run workflow (only once the file is on main).
@@ -67,7 +71,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       ((github.event.label.name == 'staging:run' || github.event.label.name == 'staging:check' ||
-        github.event.label.name == 'staging:preview') &&
+        github.event.label.name == 'staging:preview' || github.event.label.name == 'staging:migrate') &&
        github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     defaults:
@@ -75,12 +79,12 @@ jobs:
         working-directory: businessai-fase1
     env:
       # check = read-only (label staging:check); run = apply (label staging:run / dispatch).
-      MODE: ${{ github.event.label.name == 'staging:check' && 'check' || github.event.label.name == 'staging:preview' && 'preview' || 'run' }}
-      # check = read-only · preview = only Supabase vars in Preview · run = apply everything.
+      MODE: ${{ github.event.label.name == 'staging:check' && 'check' || github.event.label.name == 'staging:preview' && 'preview' || github.event.label.name == 'staging:migrate' && 'migrate' || 'run' }}
+      # check = read-only · preview = only Supabase vars in Preview · migrate = only DB migrations · run = apply everything.
       DO_MIGRATIONS: ${{ github.event.label.name != 'staging:preview' && (github.event_name != 'workflow_dispatch' || inputs.migrations) }}
-      DO_STRIPE: ${{ github.event.label.name != 'staging:preview' && (github.event_name != 'workflow_dispatch' || inputs.stripe) }}
-      DO_VERCEL: ${{ github.event.label.name != 'staging:preview' && (github.event_name != 'workflow_dispatch' || inputs.vercel) }}
-      DO_TESTS: ${{ github.event.label.name != 'staging:check' && github.event.label.name != 'staging:preview' && (github.event_name != 'workflow_dispatch' || inputs.tests) }}
+      DO_STRIPE: ${{ github.event.label.name != 'staging:preview' && github.event.label.name != 'staging:migrate' && (github.event_name != 'workflow_dispatch' || inputs.stripe) }}
+      DO_VERCEL: ${{ github.event.label.name != 'staging:preview' && github.event.label.name != 'staging:migrate' && (github.event_name != 'workflow_dispatch' || inputs.vercel) }}
+      DO_TESTS: ${{ github.event.label.name != 'staging:check' && github.event.label.name != 'staging:preview' && github.event.label.name != 'staging:migrate' && (github.event_name != 'workflow_dispatch' || inputs.tests) }}
       DO_PREVIEW_SUPABASE: ${{ github.event.label.name == 'staging:check' || github.event.label.name == 'staging:preview' }}
       SPLIT_SHARED: ${{ inputs.split_shared || vars.STAGING_SPLIT_SHARED == 'true' }}
       PRICE_BASIC: ${{ inputs.basic_cents || vars.STAGING_PRICE_BASIC_CENTS }}
@@ -88,6 +92,10 @@ jobs:
       PRICE_PREMIUM: ${{ inputs.premium_cents || vars.STAGING_PRICE_PREMIUM_CENTS }}
       STAGING_PROJECT_REF: ${{ vars.STAGING_PROJECT_REF }}
       PRODUCTION_PROJECT_REF: ${{ vars.PRODUCTION_PROJECT_REF }}
+      # Pinned in the code (not a repository variable): the only project the
+      # migration steps may touch, and the production project they must refuse.
+      PINNED_STAGING_REF: wbfpvxptoujgvflljasc
+      PINNED_PRODUCTION_REF: rugqcumiuqrjbfwpuslm
       STAGING_URL: ${{ vars.STAGING_URL }}
       STAGING_SUPABASE_URL: https://${{ vars.STAGING_PROJECT_REF }}.supabase.co
       STAGING_SUPABASE_PUBLISHABLE_KEY: ${{ vars.STAGING_SUPABASE_PUBLISHABLE_KEY }}
@@ -160,6 +168,18 @@ jobs:
           STAGING_BRANCH: ${{ github.head_ref || github.ref_name }}
         run: node scripts/staging/auth-check.mjs
 
+      - name: "M. Migrate guard: pinned staging project, never production"
+        if: env.MODE == 'migrate'
+        run: |
+          echo "Mode: migrate — database migrations only (no Stripe, no Vercel, no users, no tests)"
+          [ "$STAGING_PROJECT_REF" = "$PINNED_STAGING_REF" ] || { echo "ERROR: STAGING_PROJECT_REF is not the pinned businessai-staging ref"; exit 1; }
+          [ "$PRODUCTION_PROJECT_REF" = "$PINNED_PRODUCTION_REF" ] || { echo "ERROR: PRODUCTION_PROJECT_REF is not the pinned production ref"; exit 1; }
+          [ "$STAGING_PROJECT_REF" != "$PINNED_PRODUCTION_REF" ] || { echo "ERROR: staging ref equals production"; exit 1; }
+          for flag in DO_STRIPE DO_VERCEL DO_TESTS DO_PREVIEW_SUPABASE; do
+            [ "${!flag}" = false ] || { echo "ERROR: $flag must be false in migrate mode"; exit 1; }
+          done
+          echo "OK: target project $STAGING_PROJECT_REF (businessai-staging); production $PINNED_PRODUCTION_REF is refused"
+
       - name: 1·pre. STAGING_DB_URL diagnostics (pass/fail only, no connection to Supabase)
         if: env.DO_MIGRATIONS == 'true'
         env:
@@ -170,9 +190,20 @@ jobs:
         if: env.DO_MIGRATIONS == 'true'
         env:
           STAGING_DB_URL: ${{ secrets.STAGING_DB_URL }}
+          EXPECT_STAGING_REF: ${{ env.MODE == 'migrate' && env.PINNED_STAGING_REF || '' }}
         run: |
-          if [ "$MODE" = check ]; then DRY_RUN=1 bash scripts/staging/apply-migrations.sh
-          else bash scripts/staging/apply-migrations.sh; fi
+          if [ "$MODE" = check ]; then DRY_RUN=1 bash scripts/staging/apply-migrations.sh; exit; fi
+          echo "== Plan (dry run: guards + pending migrations, nothing written)"
+          DRY_RUN=1 bash scripts/staging/apply-migrations.sh
+          echo "== Apply"
+          bash scripts/staging/apply-migrations.sh
+
+      - name: 1·verify. Confirm migrations (nothing pending, recorded list, verification query)
+        if: env.DO_MIGRATIONS == 'true' && env.MODE != 'check'
+        env:
+          STAGING_DB_URL: ${{ secrets.STAGING_DB_URL }}
+          EXPECT_STAGING_REF: ${{ env.MODE == 'migrate' && env.PINNED_STAGING_REF || '' }}
+        run: DRY_RUN=1 EXPECT_NONE=1 STATUS=1 bash scripts/staging/apply-migrations.sh
 
       - name: 2a. Stripe TEST → products, prices, Customer Portal
         if: env.DO_STRIPE == 'true'

@@ -11,6 +11,13 @@
 #                           appears in STAGING_DB_URL.
 #   DRY_RUN=1               Run every guard and list pending migrations,
 #                           without changing anything.
+#   EXPECT_NONE=1           (with DRY_RUN=1) fail if anything is still pending
+#                           — used to confirm a run.
+#   STATUS=1                (with DRY_RUN=1) also list the applied migrations
+#                           recorded in ba_meta.applied_migrations.
+#   EXPECT_STAGING_REF      If set, STAGING_PROJECT_REF must equal it (a ref
+#                           pinned in the workflow, so a changed repository
+#                           variable cannot redirect the run).
 #
 # Guards (any failure → exit before changing anything):
 #   * STAGING_DB_URL must contain STAGING_PROJECT_REF and must not contain
@@ -53,7 +60,11 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 : "${STAGING_DB_URL:?STAGING_DB_URL is required}"
 : "${STAGING_PROJECT_REF:?STAGING_PROJECT_REF is required}"
 [[ "$STAGING_PROJECT_REF" =~ ^[a-z0-9]{6,40}$ ]] || die "STAGING_PROJECT_REF has an unexpected format"
+[[ -z "${EXPECT_STAGING_REF:-}" || "$STAGING_PROJECT_REF" == "$EXPECT_STAGING_REF" ]] || die "STAGING_PROJECT_REF is not the pinned staging project"
 [[ "$STAGING_DB_URL" == *"$STAGING_PROJECT_REF"* ]] || die "STAGING_DB_URL does not belong to STAGING_PROJECT_REF"
+# The pooler user must be exactly postgres.<staging ref> (no other project can be reached).
+[[ "$STAGING_DB_URL" == *"://postgres.$STAGING_PROJECT_REF:"* || "$STAGING_DB_URL" == *"://postgres.$STAGING_PROJECT_REF@"* || "$STAGING_DB_URL" == *"@db.$STAGING_PROJECT_REF.supabase.co"* ]] \
+  || die "STAGING_DB_URL user/host is not the staging project (expected postgres.$STAGING_PROJECT_REF)"
 if [[ -n "${PRODUCTION_PROJECT_REF:-}" ]]; then
   [[ "$STAGING_PROJECT_REF" != "$PRODUCTION_PROJECT_REF" ]] || die "STAGING_PROJECT_REF equals PRODUCTION_PROJECT_REF"
   [[ "$STAGING_DB_URL" != *"$PRODUCTION_PROJECT_REF"* ]] || die "STAGING_DB_URL points at the PRODUCTION project"
@@ -133,6 +144,14 @@ else
 fi
 
 if [[ "${DRY_RUN:-0}" == "1" ]]; then
+  if [[ "${STATUS:-0}" == "1" && "$has_record" == "t" ]]; then
+    echo "Applied (ba_meta.applied_migrations):"
+    psqlx -tA -F' ' -c "select '  ✓ ' || name || '  ' || to_char(applied_at at time zone 'UTC', 'YYYY-MM-DD HH24:MI') || ' UTC' from ba_meta.applied_migrations order by applied_at, name"
+    result="$(psqlx -tA -F, -f "$VERIFY")"
+    echo "verify_after_migrations: $result"
+    [[ "$result" == "$EXPECTED_VERIFY" ]] || die "verification differs from the expected $EXPECTED_VERIFY"
+  fi
+  if [[ "${EXPECT_NONE:-0}" == "1" && ${#pending[@]} -gt 0 ]]; then die "migrations still pending after the run: ${pending[*]}"; fi
   echo "DRY_RUN=1: nothing applied."
   exit 0
 fi

@@ -94,6 +94,16 @@ reconstruye la preview de la rama y comprueba que `/login` responde 200 sin erro
 del middleware. Sin migraciones, sin Stripe y sin tocar Production.
 `staging:check` muestra antes, sin escribir, qué nombres tiene hoy Preview.
 
+**5a-ter. Solo migraciones (`staging:migrate`, tu autorización).** Aplica únicamente
+0001–0011 en `businessai-staging` (ref fijado en el workflow: `wbfpvxptoujgvflljasc`).
+Pasos: guarda (ref fijado, nunca `rugqcumiuqrjbfwpuslm`) → diagnóstico de
+`STAGING_DB_URL` → plan (dry run: lista lo pendiente) → aplicación → confirmación
+(nada pendiente, lista registrada en `ba_meta.applied_migrations`, consulta de
+verificación). No toca Stripe, Vercel, usuarios ni tests. El script se niega si el
+usuario de la conexión no es `postgres.<ref de staging>`, si la URL contiene el ref
+de producción, si la base tiene objetos propios de producción o si tiene datos sin la
+marca de staging.
+
 **5b. Ejecución (tu autorización).** Quita `staging:check` y aplica `staging:run`.
 Eso aplica las migraciones en staging, prepara Stripe test, escribe las variables
 Preview de Vercel y ejecuta las pruebas.

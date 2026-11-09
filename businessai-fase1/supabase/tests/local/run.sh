@@ -283,6 +283,23 @@ psqlq -d p16 -f "$MIG/0002_business_tables.sql" >/dev/null
 snapshot p16 "$WORK/p16b.json"
 if diff -q "$WORK/p16a.json" "$WORK/p16b.json" >/dev/null; then check ok ok "0002 is a no-op on the production (inspected) database"; else { diff "$WORK/p16a.json" "$WORK/p16b.json" || true; } | head; check different ok "0002 is a no-op on production"; fi
 
+echo "== Scenario 17: staging:migrate steps (scripts/staging/apply-migrations.sh) on an empty staging-like database"
+MREF=stagingreftest0000001
+psqlq -d postgres -c "create role \"postgres.$MREF\" login superuser" -c "create database mig" -c "create database prodlike" >/dev/null
+psqlq -d mig -f "$HERE/00_supabase_shim.sql" >/dev/null
+MURL="postgresql://postgres.$MREF@/mig?host=$WORK&port=$PORT"
+mig() { (cd "$HERE/../.." && env STAGING_DB_URL="$1" STAGING_PROJECT_REF="$MREF" PRODUCTION_PROJECT_REF=prodreftest0000000001 \
+  EXPECT_STAGING_REF="${PIN:-$MREF}" "${@:2}" bash ../scripts/staging/apply-migrations.sh 2>&1); }
+o="$(PIN=otherref mig "$MURL" DRY_RUN=1 || true)"; check "$(grep -c 'not the pinned staging project' <<<"$o")" 1 "migrate: a different pinned ref is refused"
+o="$(mig "postgresql://postgres.$MREF@/mig?host=$WORK&port=$PORT&x=prodreftest0000000001" DRY_RUN=1 || true)"; check "$(grep -c 'PRODUCTION' <<<"$o")" 1 "migrate: production ref in the URL is refused"
+o="$(mig "postgresql://postgres@/mig?host=$WORK&port=$PORT&a=$MREF" DRY_RUN=1 || true)"; check "$(grep -c 'user/host is not the staging project' <<<"$o")" 1 "migrate: a user without the staging ref is refused"
+o="$(mig "$MURL" DRY_RUN=1)"; check "$(grep -c 'Pending: 0001_multitenant_core.*0011_usage_limits' <<<"$o")" 1 "migrate plan: lists 0001…0011, writes nothing"
+check "$(psqlq -d mig -tA -c "select count(*) from pg_tables where schemaname='public'")" 0 "migrate plan: no table created"
+o="$(mig "$MURL")"; check "$(grep -c 'Staging database is up to date and verified' <<<"$o")" 1 "migrate apply: 11 migrations applied and verified"
+o="$(mig "$MURL" DRY_RUN=1 EXPECT_NONE=1 STATUS=1)"; check "$(grep -c '✓' <<<"$o")/$(grep -c 'No pending migrations' <<<"$o")" "11/1" "migrate confirm: nothing pending, 11 recorded"
+psqlq -d prodlike -c "create table public.companies(id int); insert into public.companies values (1)" >/dev/null
+o="$(mig "postgresql://postgres.$MREF@/prodlike?host=$WORK&port=$PORT" DRY_RUN=1 || true)"; check "$(grep -c 'production?' <<<"$o")" 1 "migrate: unmarked database with data is refused"
+
 echo "== Scenario 9: a busy table makes 0005 fail fast (lock_timeout) with zero changes"
 base s9
 "${RUNAS[@]}" psql -X -q -h "$WORK" -p "$PORT" -U postgres -d s9 \

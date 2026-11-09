@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { desiredVariables, pickLatestPreview, planChanges, redeployBody } from '../scripts/staging/vercel-env.mjs'
 import { WEBHOOK_EVENTS, webhookUrl } from '../scripts/staging/stripe-webhook.mjs'
 
@@ -129,5 +130,56 @@ describe('auth-check (read-only Preview sign-in check)', () => {
     expect(supabaseRefs(js + ' https://rugqcumiuqrjbfwpuslm.supabase.co')).toEqual(['rugqcumiuqrjbfwpuslm', 'wbfpvxptoujgvflljasc'])
     const html = '<script src="/_next/static/chunks/app.js" async></script><script src="https://cdn.example/x.js"></script>'
     expect(nextScripts(html)).toEqual(['/_next/static/chunks/app.js'])
+  })
+})
+
+describe('staging.yml: what each label runs', () => {
+  const yml = readFileSync(new URL('../../.github/workflows/staging.yml', import.meta.url), 'utf8')
+  const expr = (key: string) => {
+    const m = new RegExp(`\\n      ${key}: \\$\\{\\{ (.+) \\}\\}`).exec(yml)
+    if (!m) throw new Error(`no ${key}`)
+    return m[1]
+  }
+  /** Evaluates a GitHub expression for a label event (inputs are undefined on label events). */
+  const evalFor = (key: string, label: string) => {
+    const js = expr(key)
+      .replace(/github\.event\.label\.name/g, JSON.stringify(label))
+      .replace(/github\.event_name/g, '"pull_request"')
+      .replace(/inputs\.\w+/g, 'undefined')
+      .replace(/vars\.\w+/g, '"x"')
+    return new Function(`return (${js})`)()
+  }
+  const flags = (label: string) => Object.fromEntries(
+    ['MODE', 'DO_MIGRATIONS', 'DO_STRIPE', 'DO_VERCEL', 'DO_TESTS', 'DO_PREVIEW_SUPABASE'].map((k) => [k, evalFor(k, label)]))
+
+  it('staging:migrate runs ONLY the migrations', () => {
+    expect(flags('staging:migrate')).toEqual({
+      MODE: 'migrate', DO_MIGRATIONS: true, DO_STRIPE: false, DO_VERCEL: false, DO_TESTS: false, DO_PREVIEW_SUPABASE: false,
+    })
+  })
+
+  it('the other labels keep their behaviour', () => {
+    expect(flags('staging:check')).toEqual({ MODE: 'check', DO_MIGRATIONS: true, DO_STRIPE: true, DO_VERCEL: true, DO_TESTS: false, DO_PREVIEW_SUPABASE: true })
+    expect(flags('staging:preview')).toEqual({ MODE: 'preview', DO_MIGRATIONS: false, DO_STRIPE: false, DO_VERCEL: false, DO_TESTS: false, DO_PREVIEW_SUPABASE: true })
+    expect(flags('staging:run')).toEqual({ MODE: 'run', DO_MIGRATIONS: true, DO_STRIPE: true, DO_VERCEL: true, DO_TESTS: true, DO_PREVIEW_SUPABASE: false })
+  })
+
+  it('the job only starts for the four exact labels', () => {
+    for (const l of ['staging:check', 'staging:preview', 'staging:migrate', 'staging:run']) expect(yml).toContain(`github.event.label.name == '${l}'`)
+    expect(yml).toMatch(/github\.event\.pull_request\.head\.repo\.full_name == github\.repository/)
+  })
+
+  it('migrate mode pins the staging project and refuses production', () => {
+    expect(yml).toMatch(/PINNED_STAGING_REF: wbfpvxptoujgvflljasc/)
+    expect(yml).toMatch(/PINNED_PRODUCTION_REF: rugqcumiuqrjbfwpuslm/)
+    expect(yml).toMatch(/EXPECT_STAGING_REF: \$\{\{ env\.MODE == 'migrate' && env\.PINNED_STAGING_REF/)
+    expect(yml).toMatch(/DRY_RUN=1 EXPECT_NONE=1 STATUS=1 bash scripts\/staging\/apply-migrations\.sh/)
+    // Every step that writes to Stripe or Vercel is gated by a flag that is false in migrate mode.
+    for (const step of ['2a. Stripe TEST', '2b. Stripe TEST', '3. Vercel', '4a. Smoke', '4b. Billing', '4c. RLS']) {
+      const start = yml.indexOf(`      - name: ${step}`)
+      expect(start, step).toBeGreaterThan(0)
+      const block = yml.slice(start).split('\n      - name')[0]
+      expect(block, step).toMatch(/if: env\.DO_(STRIPE|VERCEL|TESTS) == 'true'/)
+    }
   })
 })
