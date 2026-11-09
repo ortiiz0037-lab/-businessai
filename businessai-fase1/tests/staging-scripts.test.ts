@@ -120,3 +120,14 @@ describe('vercel-env: rebuilding the staging preview', () => {
     expect(body).not.toHaveProperty('target')
   })
 })
+
+describe('auth-check (read-only Preview sign-in check)', () => {
+  it('finds Supabase project refs and Next.js scripts', async () => {
+    const { supabaseRefs, nextScripts } = await import('../scripts/staging/auth-check.mjs')
+    const js = 'a="https://wbfpvxptoujgvflljasc.supabase.co";b="https://wbfpvxptoujgvflljasc.supabase.co/auth";c="https://example.com"'
+    expect(supabaseRefs(js)).toEqual(['wbfpvxptoujgvflljasc'])
+    expect(supabaseRefs(js + ' https://rugqcumiuqrjbfwpuslm.supabase.co')).toEqual(['rugqcumiuqrjbfwpuslm', 'wbfpvxptoujgvflljasc'])
+    const html = '<script src="/_next/static/chunks/app.js" async></script><script src="https://cdn.example/x.js"></script>'
+    expect(nextScripts(html)).toEqual(['/_next/static/chunks/app.js'])
+  })
+})

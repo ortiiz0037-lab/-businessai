@@ -151,6 +151,15 @@ jobs:
           if [ "$MODE" = preview ]; then node scripts/staging/preview-supabase.mjs apply
           else node scripts/staging/preview-supabase.mjs inspect; fi
 
+      - name: A. Sign-in on the Preview (read-only: Supabase project in the bundle, Auth settings, user count, tables)
+        if: env.MODE == 'check'
+        env:
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          STAGING_BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: node scripts/staging/auth-check.mjs
+
       - name: 1·pre. STAGING_DB_URL diagnostics (pass/fail only, no connection to Supabase)
         if: env.DO_MIGRATIONS == 'true'
         env:
