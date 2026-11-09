@@ -59,21 +59,33 @@ async function waitFor(label, read, predicate) {
 export const DECLINED_TEST_PM = 'pm_card_visa_chargeDeclined'
 
 /**
- * Reads Stripe's answer to saving a card with a SetupIntent. Stripe reports a
- * decline either as a card error (thrown) or as a SetupIntent left in
- * requires_payment_method with last_setup_error. The summary carries only
- * technical fields (HTTP status, error type/code, decline code, request id):
- * no keys, customer data or card details.
+ * Reads Stripe's answer to storing a card on a customer. A decline arrives as
+ * a card error (thrown); a SetupIntent can also report it as
+ * requires_payment_method + last_setup_error. The summary carries technical
+ * fields only (HTTP status, error type/code/param, decline code, request id and
+ * Stripe's message with anything key- or email-like redacted): no keys,
+ * customer data or card details.
  */
-export function declineOutcome({ error, setupIntent }) {
+export function redact(text) {
+  return String(text ?? '')
+    .replace(/\b(sk|rk|pk)_(test|live)_[A-Za-z0-9]+/g, '[key]')
+    .replace(/\bwhsec_[A-Za-z0-9]+/g, '[secret]')
+    .replace(/[^\s@]+@[^\s@]+/g, '[email]')
+    .slice(0, 200)
+}
+
+export function declineOutcome({ error, setupIntent, attached }) {
   if (error) {
     const code = error.code ?? error.raw?.code
     const decline = error.decline_code ?? error.raw?.decline_code
+    const param = error.param ?? error.raw?.param
     const isCardError = error.type === 'StripeCardError' || error.raw?.type === 'card_error'
     const summary = `HTTP ${error.statusCode ?? '?'} ${error.type ?? error.raw?.type ?? 'error'}`
-      + ` code=${code ?? '-'} decline_code=${decline ?? '-'} request=${error.requestId ?? '-'}`
+      + ` code=${code ?? '-'} decline_code=${decline ?? '-'} param=${param ?? '-'} request=${error.requestId ?? '-'}`
+      + ` message="${redact(error.message ?? error.raw?.message)}"`
     return { declined: isCardError && code === 'card_declined', summary }
   }
+  if (attached) return { declined: false, summary: 'card attached to the customer (not declined)' }
   const last = setupIntent?.last_setup_error
   const summary = `SetupIntent status=${setupIntent?.status ?? '-'} last_setup_error=${last?.code ?? '-'}`
     + ` decline_code=${last?.decline_code ?? '-'}`
@@ -220,20 +232,19 @@ async function main() {
   // Stripe docs (docs.stripe.com/testing, "Simulate a declined payment"): the
   // generic-decline test PaymentMethod is `pm_card_visa_chargeDeclined`
   // (card_declined / generic_decline), and "You can't attach cards that
-  // simulate issuer declines to a Customer object". Saving it the way Checkout
-  // saves a card (SetupIntent, off_session) must therefore be declined.
+  // simulate issuer declines to a Customer object". So attaching it to the
+  // customer (the same call withCard() uses for a valid card) must be declined.
   {
     const { companyId, customer, user } = await newCompany('declined')
     let result
     try {
-      result = { setupIntent: await stripe.setupIntents.create({ customer: customer.id,
-        payment_method: DECLINED_TEST_PM, confirm: true, usage: 'off_session', payment_method_types: ['card'] }) }
+      result = { attached: await stripe.paymentMethods.attach(DECLINED_TEST_PM, { customer: customer.id }) }
     } catch (error) {
       result = { error }
     }
     const outcome = declineOutcome(result)
-    console.log(`      Stripe response to saving ${DECLINED_TEST_PM}: ${outcome.summary}`)
-    check('declined card cannot be saved (Stripe answers card_declined, as in Checkout)', outcome.declined, outcome.summary)
+    console.log(`      Stripe response to attaching ${DECLINED_TEST_PM}: ${outcome.summary}`)
+    check('declined card cannot be attached to the customer (Stripe answers card_declined)', outcome.declined, outcome.summary)
     const cards = await stripe.paymentMethods.list({ customer: customer.id, type: 'card', limit: 1 })
     check('declined card: no card stored on the Stripe customer', cards.data.length === 0, `${cards.data.length} stored`)
     // The script never creates a subscription here; these two confirm the
