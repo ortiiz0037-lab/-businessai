@@ -121,6 +121,12 @@ jobs:
           if [ ${#missing[@]} -gt 0 ]; then printf 'Missing:\n'; printf '  - %s\n' "${missing[@]}"; exit 1; fi
           echo "Preflight OK (mode: $MODE)"
 
+      - name: 0. Preview access (Vercel protection bypass, read-only GET)
+        if: env.DO_STRIPE == 'true' || env.DO_TESTS == 'true'
+        env:
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: bash scripts/staging/check-preview-access.sh
+
       - name: 1. Migrations → Supabase staging
         if: env.DO_MIGRATIONS == 'true'
         env:

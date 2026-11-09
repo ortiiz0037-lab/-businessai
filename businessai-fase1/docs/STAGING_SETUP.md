@@ -44,10 +44,16 @@ vercel.com → avatar → **Account Settings → Tokens** → Create
 - Scope: el equipo `ortiiz0037-lab` · Expiration: **1 day** (basta para configurar).
 - Copia → secreto `VERCEL_TOKEN`.
 
-Proyecto **businessai** → Settings → **Deployment Protection**:
-- Si las previews están protegidas (*Vercel Authentication* activo), en
-  **Protection Bypass for Automation** → Add/Generate → copia → secreto
-  `VERCEL_AUTOMATION_BYPASS_SECRET` (Stripe lo necesita para entregar los webhooks).
+Proyecto **businessai** → Settings → **Deployment Protection**
+(tu proyecto tiene *Vercel Authentication* con *Standard Protection*: **se mantiene
+activada**; producción no se ve afectada):
+- Sección **Protection Bypass for Automation** → **Add Secret** (o *Create*) → copia el
+  valor → GitHub, secreto **`VERCEL_AUTOMATION_BYPASS_SECRET`**.
+- Para qué sirve: solo deja pasar a quien envíe ese secreto (el workflow por cabecera,
+  Stripe dentro de la URL de su webhook). Todos los demás siguen viendo el login de
+  Vercel. Se puede revocar en la misma pantalla en cualquier momento.
+- El workflow lo comprueba en el paso 0 (también en `staging:check`) y se detiene
+  si la preview está protegida y el secreto falta o Vercel lo rechaza.
 
 Opcional (para que el workflow redepliegue solo): Settings → **Git → Deploy Hooks**
 → nombre `staging`, rama `claude/businessai-platform-audit-vjjcoc` → Create → copia
