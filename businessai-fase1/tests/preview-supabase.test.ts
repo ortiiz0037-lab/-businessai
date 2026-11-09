@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { fileURLToPath } from 'node:url'
 import {
-  MIDDLEWARE_NAMES, SUPABASE_NAMES, compareWithPreview, desiredSupabase, middlewareFailed, scanEnvNames, sha,
+  MIDDLEWARE_NAMES, SUPABASE_NAMES, compareProduction, compareWithPreview, desiredSupabase, middlewareFailed,
+  productionSnapshot, scanEnvNames, sha,
 } from '../scripts/staging/preview-supabase.mjs'
 
 const SRC = fileURLToPath(new URL('../src', import.meta.url))
@@ -85,5 +86,34 @@ describe('/login check', () => {
     expect(middlewareFailed(500, null, "Error: Your project's URL and Key are required to create a Supabase client!")).toBe(true)
     expect(middlewareFailed(500, 'MIDDLEWARE_INVOCATION_FAILED', '')).toBe(true)
     expect(middlewareFailed(200, null, '<html>Iniciar sesión</html>')).toBe(false)
+  })
+})
+
+describe('Production stays intact', () => {
+  const before = [
+    { id: 'a', key: 'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY', type: 'plain', target: ['production', 'preview'] },
+    { id: 'b', key: 'SUPABASE_SERVICE_ROLE_KEY', type: 'sensitive', target: ['preview', 'production'] },
+    { id: 'c', key: 'STRIPE_SECRET_KEY', type: 'sensitive', target: ['production'] },
+    { id: 'd', key: 'APP_ENV', type: 'plain', target: ['preview'] },
+  ]
+  const split = new Set(['a', 'b'])
+  const afterOk = [
+    { ...before[0], target: ['production'] }, { ...before[1], target: ['production'] }, before[2], before[3],
+    { id: 'n1', key: 'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY', type: 'plain', target: ['preview'] },
+  ]
+
+  it('accepts a split that only removes preview', () => {
+    expect(productionSnapshot(before).map((e: { id: string }) => e.id)).toEqual(['a', 'b', 'c'])
+    expect(compareProduction(productionSnapshot(before), productionSnapshot(afterOk), split)).toEqual([])
+  })
+
+  it('detects removed, retargeted, retyped and new Production entries', () => {
+    const snap = productionSnapshot(before)
+    expect(compareProduction(snap, productionSnapshot(afterOk.filter((e) => e.id !== 'c')), split).join()).toMatch(/STRIPE_SECRET_KEY: Production entry missing/)
+    expect(compareProduction(snap, productionSnapshot([...afterOk.filter((e) => e.id !== 'c'), { ...before[2], target: ['production', 'preview'] }]), split).join()).toMatch(/targets changed/)
+    expect(compareProduction(snap, productionSnapshot([...afterOk.slice(1), { ...afterOk[0], type: 'encrypted' }]), split).join()).toMatch(/entry changed/)
+    expect(compareProduction(snap, productionSnapshot([...afterOk, { id: 'x', key: 'NEW', type: 'plain', target: ['production'] }]), split).join()).toMatch(/new Production entry/)
+    // A split entry that was NOT planned must keep preview.
+    expect(compareProduction(snap, productionSnapshot(afterOk), new Set(['a'])).join()).toMatch(/SUPABASE_SERVICE_ROLE_KEY: Production targets changed/)
   })
 })

@@ -99,6 +99,33 @@ export function desiredSupabase(env) {
 
 export const sha = (v) => createHash('sha256').update(v).digest('hex')
 
+/** Production entries (id, key, type, sorted targets) — no values. */
+export function productionSnapshot(entries) {
+  return entries.filter((e) => e.target.includes('production'))
+    .map((e) => ({ id: e.id, key: e.key, type: e.type, target: [...e.target].sort(), gitBranch: e.gitBranch ?? null }))
+    .sort((a, b) => a.id.localeCompare(b.id))
+}
+
+/**
+ * Differences between two Production snapshots. Entries in splitIds may only
+ * have lost the 'preview' target; everything else must be identical, and no
+ * Production entry may appear or disappear.
+ */
+export function compareProduction(before, after, splitIds = new Set()) {
+  const problems = []
+  const byId = new Map(after.map((e) => [e.id, e]))
+  for (const b of before) {
+    const a = byId.get(b.id)
+    if (!a) { problems.push(`${b.key}: Production entry missing`); continue }
+    const expected = splitIds.has(b.id) ? b.target.filter((t) => t !== 'preview') : b.target
+    if (a.key !== b.key || a.type !== b.type || a.gitBranch !== b.gitBranch) problems.push(`${b.key}: Production entry changed`)
+    if (a.target.join() !== expected.join()) problems.push(`${b.key}: Production targets changed`)
+    byId.delete(b.id)
+  }
+  for (const a of byId.values()) problems.push(`${a.key}: new Production entry`)
+  return problems
+}
+
 /** true when a /login response shows the middleware failing. */
 export function middlewareFailed(status, vercelError, body) {
   return status >= 500 || vercelError === 'MIDDLEWARE_INVOCATION_FAILED' || /URL and Key are required/.test(body ?? '')
@@ -175,6 +202,18 @@ async function main() {
   // 4. Write (Preview only).
   const plan = planChanges(before, desired, { splitShared: env.SPLIT_SHARED === 'true' })
   if (plan.blocked) fail(`shared with Production: ${plan.shared.map((s) => s.key).join(', ')}. Set STAGING_SPLIT_SHARED=true (Production stays as is).`)
+  // Production snapshot BEFORE writing: every Production entry (id, key, type,
+  // targets) and, for the entries being split, a hash of the value when Vercel
+  // lets it be read (sensitive values cannot be read by anyone, by design).
+  const prodBefore = productionSnapshot(before)
+  const splitIds = new Set(plan.ops.filter((o) => o.op === 'split').map((o) => o.id))
+  const valueHashes = new Map()
+  for (const e of before.filter((x) => splitIds.has(x.id))) {
+    if (e.type === 'sensitive') continue
+    const read = await api('GET', `/v1/projects/${projectId}/env/${e.id}`)
+    if (typeof read.value === 'string') valueHashes.set(e.id, sha(read.value))
+  }
+  console.log(`Production snapshot: ${prodBefore.length} entries recorded (names/targets only; values hashed in memory where readable)`)
   for (const o of plan.ops) {
     if (o.op === 'split') await api('PATCH', `/v9/projects/${projectId}/env/${o.id}`, { target: o.target })
     else if (o.op === 'update') await api('PATCH', `/v9/projects/${projectId}/env/${o.id}`, { value: o.value, type: o.type, target: o.target })
@@ -195,9 +234,19 @@ async function main() {
       console.log(`✓ ${want.key}: present for Preview (sensitive: cannot be read back, by design)`)
     }
   }
-  const touchedProduction = after.some((e) => desired.some((d) => d.key === e.key) && e.target.includes('production')
-    && !before.some((b) => b.id === e.id && b.target.includes('production')))
-  if (touchedProduction) fail('unexpected Production change detected; stop and review in Vercel')
+  // Production must be exactly as before; split entries only lost 'preview'.
+  const prodProblems = compareProduction(prodBefore, productionSnapshot(after), splitIds)
+  for (const e of after.filter((x) => valueHashes.has(x.id))) {
+    const read = await api('GET', `/v1/projects/${projectId}/env/${e.id}`)
+    if (typeof read.value !== 'string' || sha(read.value) !== valueHashes.get(e.id)) prodProblems.push(`${e.key}: Production value changed`)
+  }
+  if (prodProblems.length) fail(`unexpected Production change: ${prodProblems.join('; ')}. Stop and review in Vercel.`)
+  const keptBySplit = after.filter((e) => splitIds.has(e.id))
+  console.log(`✓ Production intact: ${prodBefore.length} entries, same ids, keys, types and targets`
+    + (keptBySplit.length ? `; ${keptBySplit.map((e) => `${e.key} now ${e.target.join('+')} only`).join(', ')}` : ''))
+  for (const e of keptBySplit) {
+    console.log(`  ${e.key} (Production): ${valueHashes.has(e.id) ? 'value unchanged (SHA-256 match)' : 'sensitive — value never sent by this script, cannot be read back'}`)
+  }
 
   // 6. Rebuild the branch preview and wait until READY.
   const branch = env.STAGING_BRANCH
@@ -231,6 +280,14 @@ async function main() {
       if (!ok) await new Promise((r) => setTimeout(r, previewBase ? 200 : 15000))
     }
     if (!ok) fail(`${new URL(t).host}/login does not answer 200 without middleware errors`)
+  }
+  // 8. Vercel Authentication still protects the rebuilt preview.
+  for (const t of targets) {
+    const res = await fetch(`${t}/login`, { redirect: 'manual' })
+    const location = res.headers.get('location') ?? ''
+    const protectedNow = res.status === 401 || res.status === 403 || (res.status >= 300 && res.status < 400 && /vercel\.com/.test(location))
+    if (!protectedNow) fail(`${new URL(t).host}/login answers HTTP ${res.status} WITHOUT the bypass: protection is not active`)
+    console.log(`✓ ${new URL(t).host}: protected without the bypass (HTTP ${res.status})`)
   }
   console.log('OK: Preview has the Supabase staging variables and /login works (middleware healthy).')
 }
