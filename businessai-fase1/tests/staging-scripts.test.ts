@@ -183,3 +183,51 @@ describe('staging.yml: what each label runs', () => {
     }
   })
 })
+
+describe('staging-test.yml (label staging:test): tests only, no configuration', () => {
+  const yml = readFileSync(new URL('../../.github/workflows/staging-test.yml', import.meta.url), 'utf8')
+  const step = (name: string) => {
+    const start = yml.indexOf(`      - name: ${name}`)
+    expect(start, name).toBeGreaterThan(0)
+    return yml.slice(start).split('\n      - name')[0]
+  }
+  it('runs only on the exact label, never from forks', () => {
+    expect(yml).toMatch(/github\.event\.label\.name == 'staging:test' &&/)
+    expect(yml).toMatch(/github\.event\.pull_request\.head\.repo\.full_name == github\.repository/)
+    expect(yml).toMatch(/types: \[labeled\]/)
+    expect(yml).not.toMatch(/workflow_dispatch|push:/)
+  })
+  it('writes no Stripe, Vercel or database configuration', () => {
+    for (const writer of ['stripe-setup-test', 'stripe-webhook', 'vercel-env', 'preview-supabase', 'apply-migrations', 'VERCEL_TOKEN', 'STAGING_DB_URL']) {
+      expect(yml, writer).not.toContain(writer)
+    }
+  })
+  it('staging only and Stripe TEST only, pinned in the file', () => {
+    expect(yml).toMatch(/PINNED_STAGING_REF: wbfpvxptoujgvflljasc/)
+    expect(yml).toMatch(/PINNED_PRODUCTION_REF: rugqcumiuqrjbfwpuslm/)
+    const guard = step('Guard')
+    expect(guard).toContain('[ "$STAGING_PROJECT_REF" = "$PINNED_STAGING_REF" ]')
+    expect(guard).toMatch(/\^\(sk\|rk\)_test_/)
+    expect(guard).toContain('"$PINNED_PRODUCTION_REF"')
+  })
+  it('billing and RLS run even if an earlier test fails, but never without the guard', () => {
+    for (const s of ['2. Billing', '3. RLS']) {
+      expect(step(s), s).toContain("if: ${{ !cancelled() && steps.guard.outcome == 'success' }}")
+    }
+    expect(step('2. Billing')).toContain('node scripts/staging/e2e-billing.mjs')
+  })
+  it('skipped RLS suites count as a failure', () => {
+    const rls = step('3. RLS')
+    expect(rls).toContain('tests/rls.test.ts tests/rls-business.test.ts')
+    expect(rls).toContain('numPendingTests')
+    expect(rls).toContain('RLS_TEST_PROJECT_REF: ${{ env.STAGING_PROJECT_REF }}')
+  })
+})
+
+describe('staging.yml ignores the staging:test label', () => {
+  const yml = readFileSync(new URL('../../.github/workflows/staging.yml', import.meta.url), 'utf8')
+  it('its job condition lists only its own four labels', () => {
+    const cond = yml.slice(yml.indexOf('    if: >-'), yml.indexOf('    runs-on:'))
+    expect(cond).not.toContain('staging:test')
+  })
+})

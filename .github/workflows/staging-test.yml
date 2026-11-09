@@ -1,0 +1,117 @@
+name: Staging tests
+
+# TESTS ONLY against the staging setup that already exists (label
+# `staging:test` on the pull request). It writes NO configuration:
+#   * no Stripe products, prices, portal or webhook endpoints;
+#   * no Vercel variables, no redeploys;
+#   * no database migrations.
+# It runs, in order:
+#   1. smoke test of the staging Preview (HTTP checks only);
+#   2. billing end-to-end (Stripe TEST clocks + staging webhook + staging DB;
+#      throw-away users/companies/customers, removed at the end);
+#   3. RLS tests against staging (tenant isolation, business tables, storage;
+#      throw-away users/companies, removed at the end).
+# Steps 2 and 3 run even if an earlier test step fails, so every result is
+# visible; the job fails if any of them fails or if the RLS suites are skipped.
+# Never production: refs pinned below, TEST Stripe key only.
+
+on:
+  pull_request:
+    types: [labeled]
+
+# Same group as staging.yml: never runs at the same time as a staging setup.
+concurrency: staging
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    if: >-
+      github.event.label.name == 'staging:test' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: businessai-fase1
+    env:
+      PINNED_STAGING_REF: wbfpvxptoujgvflljasc
+      PINNED_PRODUCTION_REF: rugqcumiuqrjbfwpuslm
+      STAGING_PROJECT_REF: ${{ vars.STAGING_PROJECT_REF }}
+      PRODUCTION_PROJECT_REF: ${{ vars.PRODUCTION_PROJECT_REF }}
+      STAGING_URL: ${{ vars.STAGING_URL }}
+      STAGING_SUPABASE_URL: https://${{ vars.STAGING_PROJECT_REF }}.supabase.co
+      STAGING_SUPABASE_PUBLISHABLE_KEY: ${{ vars.STAGING_SUPABASE_PUBLISHABLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: businessai-fase1/package-lock.json
+      - run: npm ci
+
+      - name: Guard (staging only, Stripe TEST only; names only, never values)
+        id: guard
+        env:
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+          HAS_SERVICE: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY != '' }}
+          HAS_BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET != '' }}
+        run: |
+          problems=()
+          [ "$STAGING_PROJECT_REF" = "$PINNED_STAGING_REF" ] || problems+=("variable STAGING_PROJECT_REF is not the pinned staging project")
+          [ "$PRODUCTION_PROJECT_REF" = "$PINNED_PRODUCTION_REF" ] || problems+=("variable PRODUCTION_PROJECT_REF is not the pinned production project")
+          [ "$STAGING_SUPABASE_URL" = "https://$PINNED_STAGING_REF.supabase.co" ] || problems+=("Supabase URL is not the staging project")
+          [ -n "$STAGING_URL" ] || problems+=("variable STAGING_URL")
+          case "$STAGING_URL$STAGING_SUPABASE_URL" in *"$PINNED_PRODUCTION_REF"*) problems+=("a URL mentions the PRODUCTION project");; esac
+          [ -n "$STAGING_SUPABASE_PUBLISHABLE_KEY" ] || problems+=("variable STAGING_SUPABASE_PUBLISHABLE_KEY")
+          [ "$HAS_SERVICE" = true ] || problems+=("secret STAGING_SUPABASE_SERVICE_ROLE_KEY")
+          [ "$HAS_BYPASS" = true ] || problems+=("secret VERCEL_AUTOMATION_BYPASS_SECRET")
+          if [ -z "$STRIPE_SECRET_KEY" ]; then problems+=("secret STRIPE_TEST_SECRET_KEY")
+          elif ! [[ "$STRIPE_SECRET_KEY" =~ ^(sk|rk)_test_ ]]; then problems+=("STRIPE_TEST_SECRET_KEY is not a TEST key (refused)"); fi
+          if [ ${#problems[@]} -gt 0 ]; then printf 'Stopped before any test:\n'; printf '  - %s\n' "${problems[@]}"; exit 1; fi
+          echo "Guard OK: staging $PINNED_STAGING_REF, Stripe TEST key, production $PINNED_PRODUCTION_REF refused."
+
+      - name: 1. Smoke test of the staging Preview (HTTP checks only)
+        id: smoke
+        env:
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: bash scripts/staging/smoke.sh
+
+      - name: 2. Billing end-to-end (Stripe TEST clocks + staging webhook + staging DB)
+        id: billing
+        if: ${{ !cancelled() && steps.guard.outcome == 'success' }}
+        env:
+          STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+        run: node scripts/staging/e2e-billing.mjs
+
+      - name: 3. RLS tests against staging (runs even if billing failed)
+        id: rls
+        if: ${{ !cancelled() && steps.guard.outcome == 'success' }}
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ env.STAGING_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ env.STAGING_SUPABASE_PUBLISHABLE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          RLS_TEST_PROJECT_REF: ${{ env.STAGING_PROJECT_REF }}
+        run: |
+          set +e
+          npx vitest run tests/rls.test.ts tests/rls-business.test.ts \
+            --reporter=verbose --reporter=json --outputFile.json=rls-results.json
+          status=$?
+          # A suite whose environment is missing is SKIPPED and vitest still
+          # exits 0: treat any skipped or missing test as a failure.
+          node -e '
+            const r = require("./rls-results.json")
+            console.log(`RLS: ${r.numPassedTests} passed, ${r.numFailedTests} failed, ${r.numPendingTests + r.numTodoTests} skipped, ${r.numTotalTests} total`)
+            if (r.numTotalTests === 0 || r.numPendingTests + r.numTodoTests > 0) { console.log("RLS suites were skipped: not a valid result"); process.exit(1) }
+          ' || status=1
+          exit $status
+
+      - name: Summary
+        if: ${{ !cancelled() }}
+        run: |
+          echo "guard:   ${{ steps.guard.outcome }}"
+          echo "smoke:   ${{ steps.smoke.outcome }}"
+          echo "billing: ${{ steps.billing.outcome }}"
+          echo "rls:     ${{ steps.rls.outcome }}"

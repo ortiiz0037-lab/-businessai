@@ -55,6 +55,31 @@ async function waitFor(label, read, predicate) {
   throw new Error(`timeout waiting for ${label}; last value: ${JSON.stringify(last)}`)
 }
 
+/** Documented generic-decline test PaymentMethod (docs.stripe.com/testing). */
+export const DECLINED_TEST_PM = 'pm_card_visa_chargeDeclined'
+
+/**
+ * Reads Stripe's answer to saving a card with a SetupIntent. Stripe reports a
+ * decline either as a card error (thrown) or as a SetupIntent left in
+ * requires_payment_method with last_setup_error. The summary carries only
+ * technical fields (HTTP status, error type/code, decline code, request id):
+ * no keys, customer data or card details.
+ */
+export function declineOutcome({ error, setupIntent }) {
+  if (error) {
+    const code = error.code ?? error.raw?.code
+    const decline = error.decline_code ?? error.raw?.decline_code
+    const isCardError = error.type === 'StripeCardError' || error.raw?.type === 'card_error'
+    const summary = `HTTP ${error.statusCode ?? '?'} ${error.type ?? error.raw?.type ?? 'error'}`
+      + ` code=${code ?? '-'} decline_code=${decline ?? '-'} request=${error.requestId ?? '-'}`
+    return { declined: isCardError && code === 'card_declined', summary }
+  }
+  const last = setupIntent?.last_setup_error
+  const summary = `SetupIntent status=${setupIntent?.status ?? '-'} last_setup_error=${last?.code ?? '-'}`
+    + ` decline_code=${last?.decline_code ?? '-'}`
+  return { declined: setupIntent?.status === 'requires_payment_method' && last?.code === 'card_declined', summary }
+}
+
 function check(name, ok, detail = '') {
   results.push({ name, ok })
   console.log(`${ok ? 'PASS' : 'FAIL'}: ${name}${detail ? ` — ${detail}` : ''}`)
@@ -192,19 +217,30 @@ async function main() {
   }
 
   // -------------------------------------------- 4. card declined at sign-up
+  // Stripe docs (docs.stripe.com/testing, "Simulate a declined payment"): the
+  // generic-decline test PaymentMethod is `pm_card_visa_chargeDeclined`
+  // (card_declined / generic_decline), and "You can't attach cards that
+  // simulate issuer declines to a Customer object". Saving it the way Checkout
+  // saves a card (SetupIntent, off_session) must therefore be declined.
   {
     const { companyId, customer, user } = await newCompany('declined')
-    let declined = false
+    let result
     try {
-      await stripe.setupIntents.create({ customer: customer.id, payment_method: 'pm_card_chargeDeclined',
-        confirm: true, usage: 'off_session', payment_method_types: ['card'] })
-    } catch (e) {
-      declined = e?.code === 'card_declined' || e?.raw?.code === 'card_declined'
+      result = { setupIntent: await stripe.setupIntents.create({ customer: customer.id,
+        payment_method: DECLINED_TEST_PM, confirm: true, usage: 'off_session', payment_method_types: ['card'] }) }
+    } catch (error) {
+      result = { error }
     }
-    check('declined card cannot be saved (as in Checkout)', declined)
+    const outcome = declineOutcome(result)
+    console.log(`      Stripe response to saving ${DECLINED_TEST_PM}: ${outcome.summary}`)
+    check('declined card cannot be saved (Stripe answers card_declined, as in Checkout)', outcome.declined, outcome.summary)
+    const cards = await stripe.paymentMethods.list({ customer: customer.id, type: 'card', limit: 1 })
+    check('declined card: no card stored on the Stripe customer', cards.data.length === 0, `${cards.data.length} stored`)
+    // The script never creates a subscription here; these two confirm the
+    // company stays without a subscription and without access.
     const subs = await stripe.subscriptions.list({ customer: customer.id, status: 'all', limit: 1 })
-    check('declined card: no subscription created', subs.data.length === 0)
-    check('declined card: still no access', (await state(user, companyId))?.state === 'none')
+    check('declined card: the customer has no subscription', subs.data.length === 0)
+    check('declined card: the company has no access (billing state "none")', (await state(user, companyId))?.state === 'none')
   }
 
   // ---------------------------------------------- 5. webhook bookkeeping
@@ -216,7 +252,7 @@ async function main() {
   }
 }
 
-main()
+if (import.meta.url === `file://${process.argv[1]}`) main()
   .catch((e) => { check('unexpected error', false, e?.message ?? String(e)) })
   .finally(async () => {
     for (const step of cleanup) { try { await step() } catch { /* best effort */ } }
