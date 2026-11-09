@@ -9,6 +9,11 @@ name: Staging
 #   * label `staging:check` on the pull request → READ-ONLY check: preflight,
 #     staging DB guards + pending migrations (dry run), and the Stripe and
 #     Vercel plans. Writes nothing anywhere.
+#   * label `staging:preview` → ONLY the Supabase variables of the Preview
+#     environment: compares the names the code reads with Vercel Preview,
+#     validates the staging keys (read-only), writes the 3 Supabase variables
+#     for Preview, rebuilds the branch preview and checks /login. No
+#     migrations, no Stripe, nothing in Production.
 #   * label `staging:run` → applies everything (owner's authorization).
 #     Prices come from repository variables STAGING_PRICE_*_CENTS.
 #   * or Actions → Staging → Run workflow (only once the file is on main).
@@ -61,7 +66,8 @@ jobs:
     # Label runs: only the exact label, and never from forks (no secrets there).
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      ((github.event.label.name == 'staging:run' || github.event.label.name == 'staging:check') &&
+      ((github.event.label.name == 'staging:run' || github.event.label.name == 'staging:check' ||
+        github.event.label.name == 'staging:preview') &&
        github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     defaults:
@@ -69,12 +75,13 @@ jobs:
         working-directory: businessai-fase1
     env:
       # check = read-only (label staging:check); run = apply (label staging:run / dispatch).
-      MODE: ${{ github.event.label.name == 'staging:check' && 'check' || 'run' }}
-      # Label runs execute every step; dispatch runs follow the checkboxes.
-      DO_MIGRATIONS: ${{ github.event_name != 'workflow_dispatch' || inputs.migrations }}
-      DO_STRIPE: ${{ github.event_name != 'workflow_dispatch' || inputs.stripe }}
-      DO_VERCEL: ${{ github.event_name != 'workflow_dispatch' || inputs.vercel }}
-      DO_TESTS: ${{ github.event.label.name != 'staging:check' && (github.event_name != 'workflow_dispatch' || inputs.tests) }}
+      MODE: ${{ github.event.label.name == 'staging:check' && 'check' || github.event.label.name == 'staging:preview' && 'preview' || 'run' }}
+      # check = read-only · preview = only Supabase vars in Preview · run = apply everything.
+      DO_MIGRATIONS: ${{ github.event.label.name != 'staging:preview' && (github.event_name != 'workflow_dispatch' || inputs.migrations) }}
+      DO_STRIPE: ${{ github.event.label.name != 'staging:preview' && (github.event_name != 'workflow_dispatch' || inputs.stripe) }}
+      DO_VERCEL: ${{ github.event.label.name != 'staging:preview' && (github.event_name != 'workflow_dispatch' || inputs.vercel) }}
+      DO_TESTS: ${{ github.event.label.name != 'staging:check' && github.event.label.name != 'staging:preview' && (github.event_name != 'workflow_dispatch' || inputs.tests) }}
+      DO_PREVIEW_SUPABASE: ${{ github.event.label.name == 'staging:check' || github.event.label.name == 'staging:preview' }}
       SPLIT_SHARED: ${{ inputs.split_shared || vars.STAGING_SPLIT_SHARED == 'true' }}
       PRICE_BASIC: ${{ inputs.basic_cents || vars.STAGING_PRICE_BASIC_CENTS }}
       PRICE_PRO: ${{ inputs.pro_cents || vars.STAGING_PRICE_PRO_CENTS }}
@@ -118,14 +125,31 @@ jobs:
           fi
           if $DO_VERCEL; then [ "$HAS_VERCEL" = true ] || missing+=("secret VERCEL_TOKEN"); fi
           if [ "$MODE" = run ] && $DO_VERCEL && ! $DO_STRIPE; then missing+=("run step 2 (Stripe) together with step 3 (Vercel): the webhook secret is created there"); fi
+          if $DO_PREVIEW_SUPABASE; then
+            [ "$HAS_SERVICE" = true ] || missing+=("secret STAGING_SUPABASE_SERVICE_ROLE_KEY")
+            [ -n "$STAGING_SUPABASE_PUBLISHABLE_KEY" ] || missing+=("variable STAGING_SUPABASE_PUBLISHABLE_KEY")
+            [ "$HAS_VERCEL" = true ] || missing+=("secret VERCEL_TOKEN")
+            [ -n "$STAGING_URL" ] || missing+=("variable STAGING_URL")
+          fi
           if [ ${#missing[@]} -gt 0 ]; then printf 'Missing:\n'; printf '  - %s\n' "${missing[@]}"; exit 1; fi
           echo "Preflight OK (mode: $MODE)"
 
       - name: 0. Preview access (Vercel protection bypass, read-only GET)
-        if: env.DO_STRIPE == 'true' || env.DO_TESTS == 'true'
+        if: env.DO_STRIPE == 'true' || env.DO_TESTS == 'true' || env.DO_PREVIEW_SUPABASE == 'true'
         env:
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: bash scripts/staging/check-preview-access.sh
+
+      - name: P. Supabase variables in Vercel Preview (check = inspect only · preview = write, rebuild, verify /login)
+        if: env.DO_PREVIEW_SUPABASE == 'true'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          STAGING_BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          if [ "$MODE" = preview ]; then node scripts/staging/preview-supabase.mjs apply
+          else node scripts/staging/preview-supabase.mjs inspect; fi
 
       - name: 1. Migrations → Supabase staging
         if: env.DO_MIGRATIONS == 'true'

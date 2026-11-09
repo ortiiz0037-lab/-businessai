@@ -85,6 +85,15 @@ staging y aplica todas las protecciones contra producción, lista las migracione
 pendientes sin aplicarlas y muestra el plan de Stripe y de Vercel. **No escribe
 nada en ningún servicio.** Revisa el resultado en Actions → Staging.
 
+**5a-bis. Variables de Supabase en Preview (`staging:preview`).** Solo escribe, para
+el entorno **Preview**, las 3 variables de Supabase que lee el código
+(`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` — las que necesita
+el middleware — y `SUPABASE_SERVICE_ROLE_KEY`), tras comprobar con Supabase staging
+que las claves son de ese proyecto. Después confirma que quedaron guardadas,
+reconstruye la preview de la rama y comprueba que `/login` responde 200 sin error
+del middleware. Sin migraciones, sin Stripe y sin tocar Production.
+`staging:check` muestra antes, sin escribir, qué nombres tiene hoy Preview.
+
 **5b. Ejecución (tu autorización).** Quita `staging:check` y aplica `staging:run`.
 Eso aplica las migraciones en staging, prepara Stripe test, escribe las variables
 Preview de Vercel y ejecuta las pruebas.
