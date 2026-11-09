@@ -95,7 +95,7 @@ del middleware. Sin migraciones, sin Stripe y sin tocar Production.
 `staging:check` muestra antes, sin escribir, qué nombres tiene hoy Preview.
 
 **5a-ter. Solo migraciones (`staging:migrate`, tu autorización).** Aplica únicamente
-0001–0011 en `businessai-staging` (ref fijado en el workflow: `wbfpvxptoujgvflljasc`).
+0001–0011 y 0014a (fundación de permisos) en `businessai-staging` (ref fijado en el workflow: `wbfpvxptoujgvflljasc`).
 Pasos: guarda (ref fijado, nunca `rugqcumiuqrjbfwpuslm`) → diagnóstico de
 `STAGING_DB_URL` → plan (dry run: lista lo pendiente) → aplicación → confirmación
 (nada pendiente, lista registrada en `ba_meta.applied_migrations`, consulta de

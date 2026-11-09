@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { desiredVariables, pickLatestPreview, planChanges, redeployBody } from '../scripts/staging/vercel-env.mjs'
 import { WEBHOOK_EVENTS, webhookUrl } from '../scripts/staging/stripe-webhook.mjs'
 
@@ -229,5 +229,57 @@ describe('staging.yml ignores the staging:test label', () => {
   it('its job condition lists only its own four labels', () => {
     const cond = yml.slice(yml.indexOf('    if: >-'), yml.indexOf('    runs-on:'))
     expect(cond).not.toContain('staging:test')
+  })
+})
+
+describe('migrations: order, identifiers and transactions (apply-migrations.sh)', () => {
+  const script = readFileSync(new URL('../scripts/staging/apply-migrations.sh', import.meta.url), 'utf8')
+  const order = /\nORDER=\(\n([\s\S]*?)\n\)/.exec(script)![1].split('\n').map((l) => l.trim()).filter(Boolean)
+  const dir = new URL('../supabase/migrations/', import.meta.url)
+  const files = readdirSync(dir).filter((f) => f.endsWith('.sql')).map((f) => f.replace(/\.sql$/, '')).sort()
+  const sql = (name: string) => readFileSync(new URL(`${name}.sql`, dir), 'utf8')
+  // Statement-level lines only (comments and dollar-quoted bodies keep
+  // `begin` inside DO blocks and functions, which is not a transaction).
+  const topLevel = (text: string) => text.replace(/\$([a-z]*)\$[\s\S]*?\$\1\$/g, '').split('\n')
+    .map((l) => l.replace(/--.*$/, '').trim()).filter(Boolean)
+
+  it('ORDER lists every migration file exactly once, and nothing else', () => {
+    expect([...order].sort()).toEqual(files)
+    expect(new Set(order).size).toBe(order.length)
+  })
+  it('0014a_permissions is recognised and runs right after 0011, last', () => {
+    expect(order).toContain('0014a_permissions')
+    expect(order.indexOf('0014a_permissions')).toBe(order.indexOf('0011_usage_limits') + 1)
+    expect(order.at(-1)).toBe('0014a_permissions')
+  })
+  it('identifiers are safe to store in ba_meta.applied_migrations', () => {
+    for (const name of order) expect(name, name).toMatch(/^\d{4}[a-z]?_[a-z0-9_]+$/)
+    expect(script).toMatch(/name text primary key, sha256 text not null/)
+    expect(script).toMatch(/on conflict \(name\) do update/)
+  })
+  it('the record is written only after the file succeeded (set -e + ON_ERROR_STOP)', () => {
+    expect(script).toMatch(/set -euo pipefail/)
+    expect(script).toMatch(/-v ON_ERROR_STOP=1/)
+    const apply = script.slice(script.indexOf('for name in "${pending[@]}"'))
+    expect(apply.indexOf('psqlx -f "$file"')).toBeLessThan(apply.indexOf('insert into ba_meta.applied_migrations'))
+  })
+  it('from 0014a on, each migration is one explicit transaction', () => {
+    const recent = order.slice(order.indexOf('0014a_permissions'))
+    expect(recent.length).toBeGreaterThan(0)
+    for (const name of recent) {
+      const lines = topLevel(sql(name))
+      expect(lines[0], `${name}: first statement`).toMatch(/^begin;$/i)
+      expect(lines.at(-1), `${name}: last statement`).toMatch(/^commit;$/i)
+      expect(lines.filter((l) => /^(begin|start transaction|commit|end|rollback)\s*;/i.test(l)), name).toHaveLength(2)
+      expect(sql(name), `${name}: statements that cannot run in a transaction`).not.toMatch(/\bconcurrently\b|^\s*vacuum\b|alter\s+system/im)
+      expect(sql(name), `${name}: lock_timeout`).toMatch(/set local lock_timeout/)
+    }
+  })
+  it('0014a: fixed search_path on every SECURITY DEFINER function, and a rollback script', () => {
+    const text = sql('0014a_permissions')
+    const fns = [...text.matchAll(/create or replace function[\s\S]*?\$\$;/g)].map((m) => m[0])
+    expect(fns.length).toBe(3)
+    for (const f of fns) expect(f).toMatch(/security definer set search_path = ''/)
+    expect(existsSync(new URL('../supabase/rollback/0014a_rollback.sql', import.meta.url))).toBe(true)
   })
 })

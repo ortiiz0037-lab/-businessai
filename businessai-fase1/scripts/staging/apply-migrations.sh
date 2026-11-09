@@ -29,8 +29,14 @@
 #     (ba_meta.environment). Later runs require that marker. A database that
 #     already has companies and no staging marker (production) is refused,
 #     whatever else changes in it over time.
-# Applied migrations are recorded in ba_meta.applied_migrations; each file
-# runs in its own transaction (the files contain begin/commit).
+# Applied migrations are recorded in ba_meta.applied_migrations (name =
+# identifier in ORDER, sha256 of the file), only after the file succeeded.
+# Transactions: 0002 and 0005 onwards wrap their whole content in
+# begin/commit, so a failure changes nothing; 0001, 0003 and 0004 have no
+# explicit transaction (already applied; not modified). Every new migration
+# must start with "begin;" and end with "commit;" (tests/staging-scripts.test.ts).
+# If a file commits but its record is lost, the next run re-applies it:
+# migrations must be idempotent.
 # =====================================================================
 set -euo pipefail
 
@@ -52,6 +58,7 @@ ORDER=(
   0008_definer_function_grants
   0010_billing
   0011_usage_limits
+  0014a_permissions
 )
 EXPECTED_VERIFY="10,0,2,0,f,0,2,3,t,t,t,"
 

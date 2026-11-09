@@ -14,7 +14,7 @@ name: Staging
 #     validates the staging keys (read-only), writes the 3 Supabase variables
 #     for Preview, rebuilds the branch preview and checks /login. No
 #     migrations, no Stripe, nothing in Production.
-#   * label `staging:migrate` → ONLY the database migrations 0001–0011 on
+#   * label `staging:migrate` → ONLY the database migrations 0001–0011 + 0014a on
 #     the staging project (pinned ref below): plan (dry run) → apply →
 #     confirm (nothing pending + verification). No Stripe, no Vercel, no
 #     users, no tests. Owner's authorization.
