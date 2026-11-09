@@ -34,4 +34,19 @@ describe('proxy de sesión', () => {
     expect(res.status).toBe(307)
     expect(res.headers.get('location')).toContain('/login?next=%2Fpayments')
   })
+
+  it('deja ver /precios, /terminos y /privacidad sin sesión', async () => {
+    for (const path of ['/precios', '/terminos', '/privacidad']) {
+      const res = await run(path)
+      expect(res.status, path).toBe(200)
+      expect(res.headers.get('location'), path).toBeNull()
+    }
+  })
+
+  it('no hace públicas rutas parecidas', async () => {
+    for (const path of ['/precios-admin', '/billing', '/terminosx']) {
+      const res = await run(path)
+      expect(res.status, path).toBe(307)
+    }
+  })
 })

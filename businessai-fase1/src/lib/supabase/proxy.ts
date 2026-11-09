@@ -1,7 +1,8 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-const PUBLIC = ['/login', '/signup', '/auth']
+// Páginas públicas: autenticación y páginas informativas (precios y textos legales).
+const PUBLIC = ['/login', '/signup', '/auth', '/precios', '/terminos', '/privacidad']
 
 // Rutas llamadas por servicios externos sin sesión de usuario. Cada una se
 // autentica por su cuenta (Stripe: verificación de la firma `stripe-signature`).

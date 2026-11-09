@@ -8,7 +8,12 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   const { next, error } = await searchParams
   return (
     <AuthCard title="Iniciar sesión" subtitle="Accede a tu cuenta de BusinessAI"
-      footer={<>¿No tienes cuenta? <Link href="/signup" className="font-medium text-slate-900 underline">Regístrate</Link></>}>
+      footer={
+        <div className="space-y-3">
+          <p>¿No tienes cuenta? <Link href="/signup" className="font-medium text-slate-900 underline">Regístrate</Link></p>
+          <p className="text-xs"><Link href="/precios" className="underline">Ver planes y precios</Link></p>
+        </div>
+      }>
       {error === 'confirm' && (
         <p role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">El enlace de confirmación no es válido o expiró.</p>
       )}

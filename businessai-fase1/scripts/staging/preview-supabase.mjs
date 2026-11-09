@@ -51,6 +51,7 @@ export function scanEnvNames(dir) {
     }
   }
   walk(dir)
+  names.delete('NODE_ENV') // set by Next.js/Vercel, never configured as a project variable
   return [...names].sort()
 }
 

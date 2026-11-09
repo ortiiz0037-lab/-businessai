@@ -5,8 +5,9 @@ import { getUserCompany } from '@/lib/billing/company'
 import { billingBanner, fetchBillingState } from '@/lib/billing/state'
 import { fetchUsage, strongestNotice } from '@/lib/billing/usage'
 import { getAppEnv } from '@/lib/env'
+import { AppNav, type NavItem } from '@/components/app-nav'
 
-const navigation = [
+const navigation: NavItem[] = [
   { href: '/dashboard', label: 'Inicio', icon: '⌂' },
   { href: '/settings/company', label: 'Mi empresa', icon: '▦' },
   { href: '/clients', label: 'Clientes', icon: '♧' },
@@ -77,22 +78,7 @@ export default async function AppLayout({
             </span>
           </Link>
 
-          <nav className="flex max-w-full items-center gap-1 overflow-x-auto rounded-2xl border border-slate-200/80 bg-slate-50/80 p-1.5">
-            {navigation.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`flex shrink-0 items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold transition duration-200 sm:px-4 ${
-                  item.href === '/dashboard'
-                    ? 'bg-slate-950 text-white shadow-md shadow-slate-950/15'
-                    : 'text-slate-500 hover:bg-white hover:text-slate-950 hover:shadow-sm'
-                }`}
-              >
-                <span className="text-base">{item.icon}</span>
-                <span>{item.label}</span>
-              </Link>
-            ))}
-          </nav>
+          <AppNav items={navigation} />
 
           <form action={signOut} className="shrink-0">
             <button

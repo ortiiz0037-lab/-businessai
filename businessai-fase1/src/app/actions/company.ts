@@ -1,6 +1,8 @@
 'use server'
+import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { SELECTED_PLAN_COOKIE, isPlanKey } from '@/lib/billing/catalog'
 import { companySchema, fieldErrors, type FormState } from '@/lib/validators'
 
 export async function createCompany(_: FormState, formData: FormData): Promise<FormState> {
@@ -15,5 +17,9 @@ export async function createCompany(_: FormState, formData: FormData): Promise<F
   const { error } = await supabase.rpc('create_company', { company_name: parsed.data.name })
   if (error) return { error: 'No se pudo crear la empresa. Inténtalo de nuevo.' }
   // Next step of sign-up: choose a plan and enter a card to start the trial.
-  redirect('/billing?welcome=1')
+  // The plan chosen on /precios (if any) arrives preselected.
+  const store = await cookies()
+  const plan = store.get(SELECTED_PLAN_COOKIE)?.value
+  store.delete(SELECTED_PLAN_COOKIE)
+  redirect(isPlanKey(plan) ? `/billing?welcome=1&plan=${plan}#plan-${plan}` : '/billing?welcome=1')
 }

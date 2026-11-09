@@ -3,8 +3,9 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { getUserCompany } from '@/lib/billing/company'
 import { fetchBillingState, STATE_LABEL, daysLeft } from '@/lib/billing/state'
-import { getStripe } from '@/lib/billing/stripe'
-import { chargeTerms, formatDate, toPriceInfo, type PriceInfo } from '@/lib/billing/checkout'
+import { chargeTerms, formatDate } from '@/lib/billing/checkout'
+import { loadPrices } from '@/lib/billing/prices'
+import { isPlanKey } from '@/lib/billing/catalog'
 import { fetchUsage, usageNotice, type UsageRow } from '@/lib/billing/usage'
 
 export const dynamic = 'force-dynamic'
@@ -38,26 +39,10 @@ function limit(value: number | null) {
   return value === null ? 'Ilimitado' : String(value)
 }
 
-/** Prices from Stripe by lookup key. Never throws (empty when not configured). */
-async function loadPrices(lookupKeys: string[]) {
-  const prices = new Map<string, PriceInfo>()
-  try {
-    const { stripe } = getStripe()
-    const list = await stripe.prices.list({ lookup_keys: lookupKeys, active: true, limit: 10 })
-    for (const p of list.data) {
-      const info = toPriceInfo(p)
-      if (p.lookup_key && info) prices.set(p.lookup_key, info)
-    }
-  } catch {
-    // Not configured in this environment: the page still renders.
-  }
-  return prices
-}
-
 export default async function BillingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ checkout?: string; error?: string; welcome?: string }>
+  searchParams: Promise<{ checkout?: string; error?: string; welcome?: string; plan?: string; changed?: string }>
 }) {
   const params = await searchParams
   const supabase = await createClient()
@@ -77,6 +62,8 @@ export default async function BillingPage({
   const now = new Date()
   const hasSubscription = Boolean(state && state.state !== 'none')
   const trialDays = state?.trial_eligible ? (state.trial_days ?? 7) : null
+  // Plan chosen on /precios (or kept through signup): highlighted below.
+  const selected = isPlanKey(params.plan) ? plans.find((p) => p.plan === params.plan) ?? null : null
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
@@ -87,9 +74,14 @@ export default async function BillingPage({
 
       {params.welcome === '1' && state?.state === 'none' && (
         <div role="status" className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
-          ¡Tu empresa está creada! Último paso: elige un plan para empezar tu prueba gratuita
-          de {state.trial_days ?? 7} días. Se pide una tarjeta de crédito o débito, pero no se cobra
-          nada durante la prueba.
+          ¡Tu empresa está creada! Último paso: {selected ? <>confirma el plan <strong>{selected.name}</strong></> : 'elige un plan'} para
+          empezar tu prueba gratuita de {state.trial_days ?? 7} días. Se pide una tarjeta de crédito o débito, pero no se
+          cobra nada durante la prueba.
+        </div>
+      )}
+      {params.changed === '1' && (
+        <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+          Cambio de plan confirmado en Stripe. Puede tardar unos segundos en reflejarse aquí; recarga la página si no lo ves.
         </div>
       )}
       {params.checkout === 'success' && (
@@ -209,8 +201,13 @@ export default async function BillingPage({
           const price = prices.get(p.stripe_lookup_key)
           const current = hasSubscription && state?.plan === p.plan && state.can_write
           const offer = price ? chargeTerms({ planName: p.name, price, trialDays, now }) : null
+          const isSelected = selected?.plan === p.plan && !current
           return (
-            <div key={p.plan} className={`flex flex-col rounded-2xl border bg-white p-6 shadow-sm ${current ? 'border-blue-500' : 'border-slate-200'}`}>
+            <div key={p.plan} id={`plan-${p.plan}`}
+              className={`flex scroll-mt-28 flex-col rounded-2xl border bg-white p-6 shadow-sm ${
+                current ? 'border-blue-500' : isSelected ? 'border-blue-600 ring-2 ring-blue-600/30' : 'border-slate-200'}`}>
+              {current && <p className="mb-2 text-xs font-bold uppercase tracking-wider text-blue-700">Tu plan actual</p>}
+              {isSelected && <p className="mb-2 text-xs font-bold uppercase tracking-wider text-blue-700">Plan elegido</p>}
               <h2 className="text-lg font-bold">{p.name}</h2>
               <p className="mt-1 text-xl font-bold">{offer?.headline ?? 'Precio no disponible'}</p>
               <ul className="mt-4 space-y-1 text-sm text-slate-600">
@@ -221,10 +218,14 @@ export default async function BillingPage({
 
               {company.canManageBilling && hasSubscription && (
                 <form action="/api/stripe/portal" method="post" className="mt-auto pt-5">
+                  <input type="hidden" name="plan" value={p.plan} />
                   <button type="submit" disabled={current}
                     className="w-full rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50">
-                    {current ? 'Plan actual' : 'Cambiar de plan'}
+                    {current ? 'Plan actual' : `Cambiar a ${p.name}`}
                   </button>
+                  {!current && (
+                    <p className="mt-2 text-center text-xs text-slate-500">Stripe te mostrará el importe del cambio antes de confirmarlo.</p>
+                  )}
                 </form>
               )}
 
@@ -237,12 +238,13 @@ export default async function BillingPage({
                   <label className="flex items-start gap-2 text-xs text-slate-700">
                     <input type="checkbox" name="accept_terms" value="yes" required className="mt-0.5 h-4 w-4" />
                     <span>
-                      Acepto estas condiciones{trialDays ? ` y el cobro automático el ${formatDate(offer.firstCharge)}` : ''}.
+                      Acepto estas condiciones{trialDays ? ` y el cobro automático el ${formatDate(offer.firstCharge)}` : ''}
+                      {' '}(ver <Link href="/terminos" target="_blank" className="underline">Términos</Link>).
                     </span>
                   </label>
                   <button type="submit"
                     className="w-full rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800">
-                    {trialDays ? `Empezar prueba de ${trialDays} días` : 'Suscribirme'}
+                    {trialDays ? `Empezar prueba de ${trialDays} días con ${p.name}` : `Suscribirme a ${p.name}`}
                   </button>
                 </form>
               )}
@@ -257,7 +259,9 @@ export default async function BillingPage({
       <p className="text-xs text-slate-400">
         Los pagos se procesan con Stripe; BusinessAI no ve ni guarda los datos de tu tarjeta. Puedes cancelar en
         cualquier momento desde “Administrar suscripción”: durante la prueba no se cobra nada; después, mantienes el
-        acceso hasta el final del periodo pagado. <Link href="/dashboard" className="underline">Volver al inicio</Link>
+        acceso hasta el final del periodo pagado. <Link href="/precios" className="underline">Precios</Link> ·{' '}
+        <Link href="/terminos" className="underline">Términos</Link> · <Link href="/privacidad" className="underline">Privacidad</Link> ·{' '}
+        <Link href="/dashboard" className="underline">Volver al inicio</Link>
       </p>
     </div>
   )
