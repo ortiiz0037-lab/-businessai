@@ -1,6 +1,7 @@
 
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
+import { EmptyState, PageHeader, StatCard } from '@/components/ui/page'
 import { createClient } from '@/lib/supabase/server'
 
 type LinkedDocument = {
@@ -88,111 +89,71 @@ export default async function PaymentsPage() {
     0
   )
 
+  const usd = (value: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
+  const methodLabel = (method: string | null) =>
+    method === 'manual' ? 'Registro manual' : method || 'No especificado'
+
   return (
-    <main className="min-h-screen bg-slate-100 px-4 py-8">
-      <div className="mx-auto max-w-6xl">
-        <h1 className="text-3xl font-bold text-slate-950">
-          Pagos y cobros
-        </h1>
+    <div className="space-y-8">
+      <PageHeader eyebrow="Cobros" title="Pagos y cobros" description="Historial de pagos registrados en tu empresa." />
 
-        <p className="mt-2 text-slate-500">
-          Historial de pagos de tu empresa.
-        </p>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <StatCard label="Total cobrado" value={usd(total)} hint={`${rows.length} ${rows.length === 1 ? 'pago registrado' : 'pagos registrados'}`} icon="wallet" tone="gold" />
+      </div>
 
-        <section className="mt-6 rounded-2xl bg-white p-6 shadow-sm">
-          <p className="text-sm text-slate-500">Total cobrado</p>
-          <p className="mt-2 text-3xl font-bold text-slate-950">
-            {new Intl.NumberFormat('en-US', {
-              style: 'currency',
-              currency: 'USD',
-            }).format(total)}
-          </p>
-          <p className="mt-2 text-sm text-slate-500">
-            {rows.length} pagos registrados
-          </p>
-        </section>
+      <section className="card overflow-hidden" aria-labelledby="history-title">
+        <div className="border-b border-stone-100 px-6 py-5">
+          <h2 id="history-title" className="font-display text-2xl font-semibold tracking-tight text-ink-950">Historial de pagos</h2>
+        </div>
 
-        <section className="mt-6 overflow-hidden rounded-2xl border bg-white">
-          <div className="border-b p-5">
-            <h2 className="text-xl font-bold">Historial de pagos</h2>
-          </div>
-
-          {error ? (
-            <p className="p-6 text-red-600">
-              No se pudieron cargar los pagos. Revisa la conexión con Supabase.
-            </p>
-          ) : rows.length === 0 ? (
-            <div className="p-10 text-center">
-              <p className="font-semibold">Todavía no hay pagos registrados.</p>
-              <Link className="mt-4 inline-block text-blue-600 underline" href="/documents">
-                Ir a documentos
-              </Link>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 text-slate-500">
-                  <tr>
-                    <th className="p-4">Fecha</th>
-                    <th className="p-4">Documento</th>
-                    <th className="p-4">Método</th>
-                    <th className="p-4 text-right">Importe</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((payment) => (
-                    <tr key={payment.id} className="border-t">
-                      <td className="p-4">
+        {error ? (
+          <p className="alert-danger m-6">No se pudieron cargar los pagos. Revisa la conexión con Supabase.</p>
+        ) : rows.length === 0 ? (
+          <EmptyState icon="wallet" title="Todavía no hay pagos registrados."
+            description="Registra los pagos desde cada documento y aparecerán aquí."
+            action={<Link className="btn-primary" href="/documents">Ir a documentos</Link>} />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="table-premium min-w-[640px]">
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Documento</th>
+                  <th>Método</th>
+                  <th className="text-right">Importe</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((payment) => {
+                  const doc = payment.document_id ? linkedDocuments.get(payment.document_id) : undefined
+                  return (
+                    <tr key={payment.id}>
+                      <td className="whitespace-nowrap text-stone-600">
                         {payment.paid_at || payment.created_at
-                          ? new Date(
-                              payment.paid_at ?? payment.created_at
-                            ).toLocaleDateString('es-PR')
+                          ? new Date(payment.paid_at ?? payment.created_at).toLocaleDateString('es-PR')
                           : '—'}
                       </td>
-                      <td className="p-4">
-                        {(() => {
-                          const doc = payment.document_id
-                            ? linkedDocuments.get(payment.document_id)
-                            : undefined
-
-                          if (!doc) {
-                            return (
-                              <span className="text-slate-400">
-                                {payment.document_id
-                                  ? 'Documento no disponible'
-                                  : 'Sin documento vinculado'}
-                              </span>
-                            )
-                          }
-
-                          return (
-                            <Link
-                              className="text-blue-600 underline"
-                              href={`/documents/${doc.id}`}
-                            >
-                              {documentTypeLabel(doc.document_type)}{' '}
-                              {doc.document_number || doc.title || ''}
-                            </Link>
-                          )
-                        })()}
+                      <td>
+                        {doc ? (
+                          <Link className="font-semibold text-ink-950 underline decoration-gold-400 underline-offset-4 hover:text-gold-700" href={`/documents/${doc.id}`}>
+                            {documentTypeLabel(doc.document_type)} {doc.document_number || doc.title || ''}
+                          </Link>
+                        ) : (
+                          <span className="text-stone-400">
+                            {payment.document_id ? 'Documento no disponible' : 'Sin documento vinculado'}
+                          </span>
+                        )}
                       </td>
-                      <td className="p-4">
-                        {payment.payment_method || 'No especificado'}
-                      </td>
-                      <td className="p-4 text-right font-semibold">
-                        {new Intl.NumberFormat('en-US', {
-                          style: 'currency',
-                          currency: 'USD',
-                        }).format(Number(payment.amount ?? 0))}
-                      </td>
+                      <td><span className="badge-neutral">{methodLabel(payment.payment_method)}</span></td>
+                      <td className="text-right font-bold tabular-nums text-ink-950">{usd(Number(payment.amount ?? 0))}</td>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-      </div>
-    </main>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </div>
   )
 }

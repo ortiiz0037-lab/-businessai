@@ -1,15 +1,23 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
+import { Manrope, Playfair_Display } from 'next/font/google'
 import './globals.css'
+
+const manrope = Manrope({ subsets: ['latin'], variable: '--font-manrope', display: 'swap' })
+const playfair = Playfair_Display({ subsets: ['latin'], variable: '--font-playfair', weight: ['500', '600', '700'], display: 'swap' })
 
 export const metadata: Metadata = {
   title: 'BusinessAI',
-  description: 'Documentos profesionales con IA para tu negocio',
+  description: 'Clientes, documentos y pagos de tu negocio con imagen profesional.',
+}
+
+export const viewport: Viewport = {
+  themeColor: '#0a0a0c',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="es">
-      <body className="bg-slate-50 text-slate-900 antialiased">{children}</body>
+    <html lang="es" className={`${manrope.variable} ${playfair.variable}`}>
+      <body className="bg-canvas font-sans text-ink-900 antialiased">{children}</body>
     </html>
   )
 }

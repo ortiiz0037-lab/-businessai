@@ -128,15 +128,15 @@ export default async function CompanySettingsPage({
     <div className="py-1">
       <div className="mx-auto max-w-5xl">
         <div className="mb-8">
-          <p className="text-sm font-semibold text-blue-600">
+          <p className="eyebrow">
             BusinessAI
           </p>
 
-          <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-950">
+          <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight text-ink-950 sm:text-4xl">
             Configuración de la empresa
           </h1>
 
-          <p className="mt-2 max-w-2xl text-slate-600">
+          <p className="mt-2 max-w-2xl text-stone-600">
             Configura la información que BusinessAI utilizará para crear
             cotizaciones, facturas, recibos, órdenes de trabajo y documentos
             profesionales con la identidad de tu empresa.
@@ -144,39 +144,39 @@ export default async function CompanySettingsPage({
         </div>
 
         {params.saved === 'true' && (
-          <div className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
+          <div className="alert-success mb-6 font-medium">
             ✓ Los cambios se guardaron correctamente.
           </div>
         )}
 
         {params.error === 'save_failed' && (
-          <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800">
+          <div className="alert-danger mb-6 font-medium">
             No pudimos guardar los cambios. Revisa los datos e inténtalo
             nuevamente.
           </div>
         )}
 
         {params.error === 'missing_name' && (
-          <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+          <div className="alert-warning mb-6 font-medium">
             El nombre de la empresa es requerido (entre 2 y 160 caracteres).
           </div>
         )}
 
         <form action={saveCompanyProfile} className="space-y-6">
-          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <section className="card p-6 sm:p-8">
             <div className="mb-6">
-              <h2 className="text-lg font-bold text-slate-950">
+              <h2 className="font-display text-2xl font-semibold tracking-tight text-ink-950">
                 Información principal
               </h2>
 
-              <p className="mt-1 text-sm text-slate-500">
+              <p className="mt-1 text-sm text-stone-500">
                 Estos datos aparecerán en tus documentos.
               </p>
             </div>
 
             <div className="grid gap-5 md:grid-cols-2">
               <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">
+                <label className="field-label">
                   Nombre legal
                 </label>
 
@@ -184,12 +184,12 @@ export default async function CompanySettingsPage({
                   name="legal_name"
                   defaultValue={profile?.legal_name ?? ''}
                   placeholder="Ej. PR Medical Ride Services LLC"
-                  className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="field"
                 />
               </div>
 
               <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">
+                <label className="field-label">
                   Nombre comercial
                 </label>
 
@@ -198,12 +198,12 @@ export default async function CompanySettingsPage({
                   required
                   defaultValue={profile?.display_name ?? ''}
                   placeholder="Ej. PR Medical Ride"
-                  className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="field"
                 />
               </div>
 
               <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">
+                <label className="field-label">
                   Teléfono
                 </label>
 
@@ -212,12 +212,12 @@ export default async function CompanySettingsPage({
                   type="tel"
                   defaultValue={profile?.phone ?? ''}
                   placeholder="(787) 000-0000"
-                  className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="field"
                 />
               </div>
 
               <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">
+                <label className="field-label">
                   Email
                 </label>
 
@@ -226,26 +226,26 @@ export default async function CompanySettingsPage({
                   type="email"
                   defaultValue={profile?.email ?? user.email ?? ''}
                   placeholder="empresa@email.com"
-                  className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="field"
                 />
               </div>
             </div>
           </section>
 
-          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <section className="card p-6 sm:p-8">
             <div className="mb-6">
-              <h2 className="text-lg font-bold text-slate-950">
+              <h2 className="font-display text-2xl font-semibold tracking-tight text-ink-950">
                 Dirección
               </h2>
 
-              <p className="mt-1 text-sm text-slate-500">
+              <p className="mt-1 text-sm text-stone-500">
                 Información utilizada en tus documentos comerciales.
               </p>
             </div>
 
             <div className="grid gap-5 md:grid-cols-2">
               <div className="md:col-span-2">
-                <label className="mb-2 block text-sm font-semibold text-slate-700">
+                <label className="field-label">
                   Dirección
                 </label>
 
@@ -253,12 +253,12 @@ export default async function CompanySettingsPage({
                   name="address"
                   defaultValue={profile?.address ?? ''}
                   placeholder="Calle, número, urbanización"
-                  className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="field"
                 />
               </div>
 
               <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">
+                <label className="field-label">
                   Ciudad
                 </label>
 
@@ -266,24 +266,24 @@ export default async function CompanySettingsPage({
                   name="city"
                   defaultValue={profile?.city ?? ''}
                   placeholder="Ponce"
-                  className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="field"
                 />
               </div>
 
               <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">
+                <label className="field-label">
                   Estado / territorio
                 </label>
 
                 <input
                   name="state"
                   defaultValue={profile?.state ?? 'Puerto Rico'}
-                  className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="field"
                 />
               </div>
 
               <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">
+                <label className="field-label">
                   Código postal
                 </label>
 
@@ -291,19 +291,19 @@ export default async function CompanySettingsPage({
                   name="postal_code"
                   defaultValue={profile?.postal_code ?? ''}
                   placeholder="00730"
-                  className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="field"
                 />
               </div>
             </div>
           </section>
 
-          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <section className="card p-6 sm:p-8">
             <div className="mb-6">
-              <h2 className="text-lg font-bold text-slate-950">
+              <h2 className="font-display text-2xl font-semibold tracking-tight text-ink-950">
                 Identidad visual
               </h2>
 
-              <p className="mt-1 text-sm text-slate-500">
+              <p className="mt-1 text-sm text-stone-500">
                 Estos colores serán utilizados para darle identidad a tus
                 documentos.
               </p>
@@ -311,7 +311,7 @@ export default async function CompanySettingsPage({
 
             <div className="grid gap-5 md:grid-cols-2">
               <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">
+                <label className="field-label">
                   Color principal
                 </label>
 
@@ -320,19 +320,19 @@ export default async function CompanySettingsPage({
                     name="primary_color"
                     type="color"
                     defaultValue={profile?.primary_color ?? '#2563EB'}
-                    className="h-12 w-16 cursor-pointer rounded-lg border border-slate-300 bg-white p-1"
+                    className="h-12 w-16 cursor-pointer rounded-xl border border-stone-300 bg-white p-1 shadow-sm"
                   />
 
                   <input
                     defaultValue={profile?.primary_color ?? '#2563EB'}
                     readOnly
-                    className="flex-1 rounded-xl border border-slate-300 px-4 py-3 text-slate-600"
+                    className="field flex-1 text-stone-600"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">
+                <label className="field-label">
                   Color secundario
                 </label>
 
@@ -341,26 +341,26 @@ export default async function CompanySettingsPage({
                     name="secondary_color"
                     type="color"
                     defaultValue={profile?.secondary_color ?? '#0F172A'}
-                    className="h-12 w-16 cursor-pointer rounded-lg border border-slate-300 bg-white p-1"
+                    className="h-12 w-16 cursor-pointer rounded-xl border border-stone-300 bg-white p-1 shadow-sm"
                   />
 
                   <input
                     defaultValue={profile?.secondary_color ?? '#0F172A'}
                     readOnly
-                    className="flex-1 rounded-xl border border-slate-300 px-4 py-3 text-slate-600"
+                    className="field flex-1 text-stone-600"
                   />
                 </div>
               </div>
             </div>
           </section>
 
-          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <section className="card p-6 sm:p-8">
             <div className="mb-6">
-              <h2 className="text-lg font-bold text-slate-950">
+              <h2 className="font-display text-2xl font-semibold tracking-tight text-ink-950">
                 Información de pago
               </h2>
 
-              <p className="mt-1 text-sm text-slate-500">
+              <p className="mt-1 text-sm text-stone-500">
                 Información que puede aparecer en facturas y recibos.
               </p>
             </div>
@@ -370,7 +370,7 @@ export default async function CompanySettingsPage({
               defaultValue={profile?.payment_info ?? ''}
               rows={5}
               placeholder="Ej. Métodos de pago aceptados, instrucciones de ATH Móvil, cheque, transferencia bancaria, etc."
-              className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="field"
             />
           </section>
 
@@ -385,7 +385,7 @@ export default async function CompanySettingsPage({
 <div className="flex justify-end">
             <button
               type="submit"
-              className="rounded-xl bg-slate-950 px-7 py-3.5 text-sm font-bold text-white shadow-lg transition hover:bg-slate-800"
+              className="btn-gold btn-lg"
             >
               Guardar cambios
             </button>

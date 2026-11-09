@@ -137,10 +137,11 @@ export default function CompanyBranding({
   }
 
   return (
-    <section className="space-y-6">
+    <section className="card space-y-6 p-6 sm:p-8">
       <div>
-        <h2 className="text-lg font-semibold">Imagen de la empresa</h2>
-        <p className="text-sm text-gray-500">
+        <p className="eyebrow">Marca</p>
+        <h2 className="mt-1.5 font-display text-2xl font-semibold tracking-tight text-ink-950">Imagen de la empresa</h2>
+        <p className="text-sm text-stone-500">
           Sube el logo y la firma que aparecerán en tus documentos (PNG, JPG o WEBP).
         </p>
       </div>
@@ -149,20 +150,21 @@ export default function CompanyBranding({
         type="button"
         onClick={diagnosticarStorage}
         disabled={loading}
-        className="rounded border px-4 py-2 text-sm disabled:opacity-50"
+        className="btn-secondary btn-sm"
       >
         Diagnosticar conexión de Storage
       </button>
 
       {message && (
-        <p role="status" className="break-words text-sm">
+        <p role="status" className="alert-info break-words">
           {message}
         </p>
       )}
 
-      <div className="space-y-3">
-        <h3 className="font-medium">Logo de la empresa</h3>
-        <p className="text-xs text-gray-500">
+      <div className="grid gap-5 md:grid-cols-2">
+      <div className="space-y-3 rounded-2xl border border-stone-200 bg-stone-50/60 p-5">
+        <h3 className="font-bold text-ink-950">Logo de la empresa</h3>
+        <p className="text-xs text-stone-500">
           El logo es público: lo verá cualquier persona que reciba tus documentos. Máximo 5 MB.
         </p>
 
@@ -170,7 +172,7 @@ export default function CompanyBranding({
           <img
             src={logo}
             alt="Logo de la empresa"
-            className="max-h-32 max-w-48 rounded border object-contain"
+            className="max-h-32 max-w-48 rounded-xl border border-stone-200 bg-white object-contain p-2"
           />
         )}
 
@@ -178,21 +180,22 @@ export default function CompanyBranding({
           type="file"
           accept={ACCEPT}
           disabled={loading}
+          className="block w-full text-sm text-stone-600 file:mr-4 file:rounded-xl file:border-0 file:bg-ink-950 file:px-4 file:py-2.5 file:text-sm file:font-semibold file:text-white hover:file:bg-ink-800"
           onChange={(event) =>
             subirArchivo(event.target.files?.[0], 'logo')
           }
         />
       </div>
 
-      <div className="space-y-3">
-        <h3 className="font-medium">Firma para documentos</h3>
-        <p className="text-xs text-gray-500">
+      <div className="space-y-3 rounded-2xl border border-stone-200 bg-stone-50/60 p-5">
+        <h3 className="font-bold text-ink-950">Firma para documentos</h3>
+        <p className="text-xs text-stone-500">
           La firma se guarda de forma privada y solo se muestra a miembros de tu
           empresa mediante enlaces temporales. Máximo 2 MB.
         </p>
 
         {legacySignature && (
-          <p role="alert" className="rounded border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+          <p role="alert" className="alert-warning text-xs">
             Tu firma actual se subió antes de este cambio y está en almacenamiento
             público. Vuelve a subirla para protegerla.
           </p>
@@ -202,7 +205,7 @@ export default function CompanyBranding({
           <img
             src={signature}
             alt="Firma de la empresa"
-            className="max-h-32 max-w-48 rounded border object-contain"
+            className="max-h-32 max-w-48 rounded-xl border border-stone-200 bg-white object-contain p-2"
           />
         )}
 
@@ -210,10 +213,12 @@ export default function CompanyBranding({
           type="file"
           accept={ACCEPT}
           disabled={loading}
+          className="block w-full text-sm text-stone-600 file:mr-4 file:rounded-xl file:border-0 file:bg-ink-950 file:px-4 file:py-2.5 file:text-sm file:font-semibold file:text-white hover:file:bg-ink-800"
           onChange={(event) =>
             subirArchivo(event.target.files?.[0], 'signature')
           }
         />
+      </div>
       </div>
     </section>
   )

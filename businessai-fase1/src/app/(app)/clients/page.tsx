@@ -113,29 +113,29 @@ export default async function ClientsPage({
 
   return (
     <div className="space-y-6">
-      <section className="rounded-2xl bg-slate-900 px-6 py-8 text-white shadow-sm">
+      <section className="card-dark px-6 py-8 sm:px-10 sm:py-10">
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
-            <p className="text-sm font-medium text-slate-300">
+            <p className="text-sm font-medium text-stone-300">
               Clientes
             </p>
 
-            <h1 className="mt-1 text-3xl font-bold tracking-tight">
+            <h1 className="mt-3 font-display text-3xl font-semibold tracking-tight sm:text-4xl">
               Tus clientes, organizados en un solo lugar.
             </h1>
 
-            <p className="mt-2 max-w-2xl text-sm text-slate-300">
+            <p className="mt-2 max-w-2xl text-sm text-stone-300">
               Guarda la información de tus clientes y úsala después para
               preparar cotizaciones, facturas, documentos y seguimiento de
               cobros.
             </p>
           </div>
 
-          <div className="rounded-xl bg-white/10 px-5 py-4">
-            <p className="text-xs uppercase tracking-wide text-slate-300">
+          <div className="rounded-2xl border border-white/10 bg-white/[0.06] px-6 py-5">
+            <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-gold-300">
               Clientes registrados
             </p>
-            <p className="mt-1 text-3xl font-bold">
+            <p className="mt-1 font-display text-4xl font-semibold">
               {totalClients}
             </p>
           </div>
@@ -144,47 +144,46 @@ export default async function ClientsPage({
 
       {clientNotice && (
         <div role={clientNotice.level === 'warning' ? 'status' : 'alert'}
-          className={`rounded-xl border px-4 py-3 text-sm font-medium ${clientNotice.level === 'warning'
-            ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-red-200 bg-red-50 text-red-800'}`}>
+          className={`font-medium ${clientNotice.level === 'warning' ? 'alert-warning' : 'alert-danger'}`}>
           {clientNotice.text}{' '}
           {clientNotice.offerUpgrade && <a href="/billing" className="underline">Mejorar plan</a>}
         </div>
       )}
 
       {params.success === 'created' && (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
+        <div className="alert-success font-medium">
           Cliente guardado correctamente.
         </div>
       )}
 
       {params.error === 'missing_name' && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800">
+        <div className="alert-danger font-medium">
           El nombre del cliente es obligatorio.
         </div>
       )}
 
       {(params.error === 'billing' || params.error === 'limit_clients') && (
-        <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
+        <div role="alert" className="alert-warning font-medium">
           {BILLING_ERROR_MESSAGE[params.error]}{' '}
           <a href="/billing" className="underline">Ver planes</a>
         </div>
       )}
 
       {params.error === 'save' && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800">
+        <div className="alert-danger font-medium">
           No se pudo guardar el cliente. Revisa la consola para ver el error.
         </div>
       )}
 
       <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
-        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <section className="card p-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h2 className="text-lg font-semibold text-slate-900">
+              <h2 className="text-lg font-semibold text-ink-900">
                 Mis clientes
               </h2>
 
-              <p className="mt-1 text-sm text-slate-500">
+              <p className="mt-1 text-sm text-stone-500">
                 Busca y administra los clientes de tu empresa.
               </p>
             </div>
@@ -197,12 +196,12 @@ export default async function ClientsPage({
                 name="q"
                 defaultValue={query}
                 placeholder="Buscar cliente..."
-                className="min-w-0 flex-1 rounded-xl border border-slate-300 px-4 py-2.5 text-sm outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200 sm:w-64"
+                className="field min-w-0 flex-1 py-2.5 sm:w-64"
               />
 
               <button
                 type="submit"
-                className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700"
+                className="btn-primary py-2.5"
               >
                 Buscar
               </button>
@@ -211,35 +210,35 @@ export default async function ClientsPage({
 
           <div className="mt-6 overflow-x-auto">
             {error ? (
-              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-4 text-sm text-red-800">
+              <div className="alert-danger py-4">
                 No se pudieron cargar los clientes.
               </div>
             ) : clients && clients.length > 0 ? (
-              <div className="min-w-[700px] divide-y divide-slate-100">
+              <div className="min-w-[700px] divide-y divide-stone-100">
                 {clients.map((client) => (
                   <div
                     key={client.id}
                     className="flex items-center justify-between gap-4 py-4"
                   >
                     <div className="min-w-0">
-                      <p className="truncate font-semibold text-slate-900">
+                      <p className="truncate font-semibold text-ink-900">
                         {client.name}
                       </p>
 
                       {client.business_name && (
-                        <p className="truncate text-sm text-slate-500">
+                        <p className="truncate text-sm text-stone-500">
                           {client.business_name}
                         </p>
                       )}
 
-                      <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-400">
+                      <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-stone-400">
                         {client.email && <span>{client.email}</span>}
                         {client.phone && <span>{client.phone}</span>}
                         {client.city && <span>{client.city}</span>}
                       </div>
                     </div>
 
-                    <span className="shrink-0 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                    <span className="badge-success shrink-0">
                       {client.status === 'active'
                         ? 'Activo'
                         : client.status}
@@ -248,14 +247,14 @@ export default async function ClientsPage({
                 ))}
               </div>
             ) : (
-              <div className="rounded-xl border border-dashed border-slate-300 px-6 py-12 text-center">
-                <p className="font-semibold text-slate-900">
+              <div className="rounded-2xl border border-dashed border-gold-300/60 bg-gold-50/30 px-6 py-12 text-center">
+                <p className="font-semibold text-ink-900">
                   {query
                     ? 'No encontramos clientes.'
                     : 'Todavía no tienes clientes.'}
                 </p>
 
-                <p className="mt-1 text-sm text-slate-500">
+                <p className="mt-1 text-sm text-stone-500">
                   {query
                     ? 'Prueba con otro nombre, teléfono o correo.'
                     : 'Agrega tu primer cliente usando el formulario.'}
@@ -265,23 +264,23 @@ export default async function ClientsPage({
           </div>
         </section>
 
-        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+        <section className="card p-6">
+          <p className="eyebrow">
             Nuevo cliente
           </p>
 
-          <h2 className="mt-1 text-xl font-bold text-slate-900">
+          <h2 className="mt-1.5 font-display text-2xl font-semibold text-ink-950">
             Agregar cliente
           </h2>
 
-          <p className="mt-2 text-sm text-slate-500">
+          <p className="mt-2 text-sm text-stone-500">
             Una vez guardado, BusinessAI podrá reutilizar estos datos en
             documentos y procesos administrativos.
           </p>
 
           <form action={createClientAction} className="mt-6 space-y-4">
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-700">
+              <label className="field-label">
                 Nombre *
               </label>
 
@@ -289,25 +288,25 @@ export default async function ClientsPage({
                 name="name"
                 required
                 placeholder="Ej. Juan Pérez"
-                className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+                className="field"
               />
             </div>
 
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-700">
+              <label className="field-label">
                 Empresa
               </label>
 
               <input
                 name="business_name"
                 placeholder="Nombre del negocio"
-                className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+                className="field"
               />
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-slate-700">
+                <label className="field-label">
                   Correo
                 </label>
 
@@ -315,75 +314,75 @@ export default async function ClientsPage({
                   name="email"
                   type="email"
                   placeholder="cliente@email.com"
-                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+                  className="field"
                 />
               </div>
 
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-slate-700">
+                <label className="field-label">
                   Teléfono
                 </label>
 
                 <input
                   name="phone"
                   placeholder="787-000-0000"
-                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+                  className="field"
                 />
               </div>
             </div>
 
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-700">
+              <label className="field-label">
                 Dirección
               </label>
 
               <input
                 name="address"
                 placeholder="Dirección física o postal"
-                className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+                className="field"
               />
             </div>
 
             <div className="grid gap-4 sm:grid-cols-3">
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-slate-700">
+                <label className="field-label">
                   Ciudad
                 </label>
 
                 <input
                   name="city"
                   placeholder="Ponce"
-                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+                  className="field"
                 />
               </div>
 
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-slate-700">
+                <label className="field-label">
                   Estado
                 </label>
 
                 <input
                   name="state"
                   placeholder="PR"
-                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+                  className="field"
                 />
               </div>
 
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-slate-700">
+                <label className="field-label">
                   ZIP
                 </label>
 
                 <input
                   name="postal_code"
                   placeholder="00730"
-                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+                  className="field"
                 />
               </div>
             </div>
 
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-700">
+              <label className="field-label">
                 Notas
               </label>
 
@@ -391,14 +390,14 @@ export default async function ClientsPage({
                 name="notes"
                 rows={3}
                 placeholder="Información adicional del cliente..."
-                className="w-full resize-none rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+                className="field resize-none"
               />
             </div>
 
             <button
               type="submit"
               disabled={clientsBlocked}
-              className="w-full rounded-xl bg-slate-900 px-5 py-3.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+              className="btn-primary btn-lg w-full"
             >
               {clientsBlocked ? 'Límite del plan alcanzado' : 'Guardar cliente'}
             </button>

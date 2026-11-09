@@ -1,6 +1,9 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { Icon } from '@/components/ui/icon'
+import { EmptyState, StatCard } from '@/components/ui/page'
+import { StatusBadge, documentIcon } from '@/components/ui/status'
 
 export const dynamic = 'force-dynamic'
 
@@ -34,30 +37,6 @@ const typeName = (type: string | null) => {
   return names[type || ''] || 'Documento'
 }
 
-const statusName = (status: string | null) => {
-  const names: Record<string, string> = {
-    draft: 'Borrador',
-    sent: 'Enviado',
-    paid: 'Pagado',
-    overdue: 'Vencido',
-    cancelled: 'Cancelado',
-  }
-
-  return names[status || ''] || status || 'Pendiente'
-}
-
-const statusStyle = (status: string | null) => {
-  const styles: Record<string, string> = {
-    draft: 'bg-slate-100 text-slate-600',
-    sent: 'bg-blue-50 text-blue-700',
-    paid: 'bg-emerald-50 text-emerald-700',
-    overdue: 'bg-rose-50 text-rose-700',
-    cancelled: 'bg-slate-100 text-slate-500',
-  }
-
-  return styles[status || ''] || 'bg-amber-50 text-amber-700'
-}
-
 const dateLabel = (value: string | null) => {
   if (!value) return 'Fecha no disponible'
 
@@ -86,17 +65,10 @@ export default async function DashboardPage() {
 
   if (!membership?.company_id) {
     return (
-      <div className="rounded-3xl border border-amber-200 bg-amber-50 p-8 text-amber-900">
-        <h2 className="text-lg font-bold">Configura tu empresa</h2>
-        <p className="mt-2 text-sm">
-          No encontramos una empresa asociada a tu usuario.
-        </p>
-        <Link
-          href="/settings/company"
-          className="mt-5 inline-flex rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white"
-        >
-          Configurar empresa
-        </Link>
+      <div className="card p-8">
+        <EmptyState icon="building" title="Configura tu empresa"
+          description="No encontramos una empresa asociada a tu usuario."
+          action={<Link href="/settings/company" className="btn-primary">Configurar empresa</Link>} />
       </div>
     )
   }
@@ -172,337 +144,132 @@ export default async function DashboardPage() {
     user.email?.split('@')[0] ||
     'bienvenido'
 
-  return (
-    <div className="space-y-8 lg:space-y-10">
-      <section className="relative isolate overflow-hidden rounded-[28px] bg-[#081426] p-7 text-white shadow-2xl shadow-slate-900/10 sm:p-10 lg:p-12">
-        <div className="absolute -right-20 -top-28 -z-10 h-80 w-80 rounded-full bg-blue-600/30 blur-3xl" />
-        <div className="absolute -bottom-36 right-1/4 -z-10 h-72 w-72 rounded-full bg-indigo-500/20 blur-3xl" />
+  const quickActions = [
+    { href: '/documents/new?type=invoice', icon: 'filePlus' as const, title: 'Nueva factura', text: 'Crea una factura y organiza tus cobros.' },
+    { href: '/documents/new?type=quote', icon: 'clipboard' as const, title: 'Nueva cotización', text: 'Prepara una propuesta con partidas y totales.' },
+    { href: '/clients', icon: 'users' as const, title: 'Administrar clientes', text: 'Consulta y organiza tus contactos comerciales.' },
+    { href: '/settings/company', icon: 'building' as const, title: 'Configurar empresa', text: 'Logo, datos y firma de tus documentos.' },
+  ]
 
+  return (
+    <div className="space-y-10">
+      {/* Welcome */}
+      <section className="card-dark p-7 sm:p-10">
         <div className="flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-2xl">
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-semibold tracking-wide text-blue-200">
-              <span className="h-2 w-2 rounded-full bg-emerald-400" />
-              CENTRO DE CONTROL EMPRESARIAL
-            </div>
-
-            <h1 className="mt-6 text-3xl font-bold tracking-tight sm:text-4xl lg:text-5xl">
-              Hola, {firstName}
-              <span className="text-blue-400">.</span>
+            <p className="inline-flex items-center gap-2 rounded-full border border-gold-400/25 bg-gold-400/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.22em] text-gold-200">
+              <span className="h-1.5 w-1.5 rounded-full bg-gold-300" aria-hidden="true" />
+              {businessName}
+            </p>
+            <h1 className="mt-6 font-display text-4xl font-semibold tracking-tight sm:text-5xl">
+              Hola, {firstName}<span className="text-gold-400">.</span>
             </h1>
-
-            <p className="mt-3 text-base text-slate-300 sm:text-lg">
+            <p className="mt-3 text-base text-white/60 sm:text-lg">
               Todo lo importante de tu negocio, en un solo lugar.
             </p>
-
-            <div className="mt-6 flex items-center gap-3 text-sm text-slate-300">
-              <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/[0.07] text-blue-200">
-                ◈
-              </span>
-              <div>
-                <p className="font-semibold text-white">{businessName}</p>
-                <p className="mt-0.5 text-xs text-slate-400">
-                  Panel de administración
-                </p>
-              </div>
-            </div>
           </div>
 
-          <div className="flex flex-wrap gap-3">
-            <Link
-              href="/documents/new?type=invoice"
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-5 py-3.5 text-sm font-bold text-slate-950 shadow-lg transition hover:-translate-y-0.5 hover:bg-blue-50"
-            >
-              <span className="text-lg">＋</span>
-              Crear factura
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <Link href="/documents/new?type=invoice" className="btn-gold btn-lg">
+              <Icon name="plus" className="h-4 w-4" /> Crear factura
             </Link>
-
-            <Link
-              href="/documents"
-              className="inline-flex items-center justify-center rounded-xl border border-white/15 bg-white/[0.06] px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-white/10"
-            >
-              Ver documentos →
+            <Link href="/documents" className="btn-outline-light btn-lg">
+              Ver documentos <Icon name="arrowRight" className="h-4 w-4" />
             </Link>
           </div>
         </div>
       </section>
 
-      <section>
+      {/* KPIs */}
+      <section aria-labelledby="kpi-title">
         <div className="mb-5 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-600">
-              Resumen financiero
-            </p>
-            <h2 className="mt-1 text-xl font-bold tracking-tight text-slate-950 sm:text-2xl">
-              Tu negocio de un vistazo
-            </h2>
+            <p className="eyebrow">Resumen financiero</p>
+            <h2 id="kpi-title" className="mt-1.5 font-display text-2xl font-semibold tracking-tight text-ink-950">Tu negocio de un vistazo</h2>
           </div>
-          <p className="text-sm text-slate-500">
-            Basado en tus documentos registrados
-          </p>
+          <p className="text-sm text-stone-500">Basado en tus documentos registrados</p>
         </div>
-
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-lg">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-slate-500">
-                Por cobrar
-              </span>
-              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50 text-lg text-amber-700">
-                ◷
-              </span>
-            </div>
-            <p className="mt-5 text-3xl font-bold tracking-tight text-slate-950">
-              {money(receivable)}
-            </p>
-            <p className="mt-2 text-xs text-slate-500">
-              Facturas pendientes de pago
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-lg">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-slate-500">
-                Cobrado
-              </span>
-              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-lg text-emerald-700">
-                ✓
-              </span>
-            </div>
-            <p className="mt-5 text-3xl font-bold tracking-tight text-slate-950">
-              {money(paid)}
-            </p>
-            <p className="mt-2 text-xs text-slate-500">
-              Facturas marcadas como pagadas
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-lg">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-slate-500">
-                Clientes
-              </span>
-              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-lg text-blue-700">
-                ♧
-              </span>
-            </div>
-            <p className="mt-5 text-3xl font-bold tracking-tight text-slate-950">
-              {clientCount}
-            </p>
-            <p className="mt-2 text-xs text-slate-500">
-              Clientes registrados
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-lg">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-slate-500">
-                Documentos
-              </span>
-              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50 text-lg text-violet-700">
-                ▤
-              </span>
-            </div>
-            <p className="mt-5 text-3xl font-bold tracking-tight text-slate-950">
-              {documents.length}
-            </p>
-            <p className="mt-2 text-xs text-slate-500">
-              Documentos recientes consultados
-            </p>
-          </div>
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
+          <StatCard label="Por cobrar" value={money(receivable)} hint="Facturas pendientes de pago" icon="clock" tone="warning" />
+          <StatCard label="Cobrado" value={money(paid)} hint="Facturas marcadas como pagadas" icon="check" tone="success" />
+          <StatCard label="Clientes" value={clientCount} hint="Clientes registrados" icon="users" tone="gold" />
+          <StatCard label="Documentos" value={documents.length} hint="Documentos recientes consultados" icon="file" />
         </div>
       </section>
 
-      <section>
-        <div className="mb-5">
-          <p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-600">
-            Productividad
-          </p>
-          <h2 className="mt-1 text-xl font-bold tracking-tight text-slate-950 sm:text-2xl">
-            Acciones rápidas
-          </h2>
-          <p className="mt-1 text-sm text-slate-500">
-            Accede directamente a las herramientas que utilizas a diario.
-          </p>
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          <Link
-            href="/documents/new?type=invoice"
-            className="group rounded-2xl border border-slate-200/80 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:border-blue-200 hover:shadow-xl"
-          >
-            <div className="flex items-center justify-between">
-              <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 text-xl text-blue-700 transition group-hover:bg-blue-600 group-hover:text-white">
-                ＋
-              </span>
-              <span className="text-slate-300 transition group-hover:translate-x-1 group-hover:text-blue-600">
-                →
-              </span>
-            </div>
-            <h3 className="mt-5 font-bold text-slate-950">
-              Nueva factura
-            </h3>
-            <p className="mt-1 text-sm leading-6 text-slate-500">
-              Crea una factura y organiza tus cobros.
-            </p>
-          </Link>
-
-          <Link
-            href="/clients"
-            className="group rounded-2xl border border-slate-200/80 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:border-emerald-200 hover:shadow-xl"
-          >
-            <div className="flex items-center justify-between">
-              <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-xl text-emerald-700 transition group-hover:bg-emerald-600 group-hover:text-white">
-                ♧
-              </span>
-              <span className="text-slate-300 transition group-hover:translate-x-1 group-hover:text-emerald-600">
-                →
-              </span>
-            </div>
-            <h3 className="mt-5 font-bold text-slate-950">
-              Administrar clientes
-            </h3>
-            <p className="mt-1 text-sm leading-6 text-slate-500">
-              Consulta y organiza tus contactos comerciales.
-            </p>
-          </Link>
-
-          <Link
-            href="/settings/company"
-            className="group rounded-2xl border border-slate-200/80 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:border-violet-200 hover:shadow-xl"
-          >
-            <div className="flex items-center justify-between">
-              <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-50 text-xl text-violet-700 transition group-hover:bg-violet-600 group-hover:text-white">
-                ⚙
-              </span>
-              <span className="text-slate-300 transition group-hover:translate-x-1 group-hover:text-violet-600">
-                →
-              </span>
-            </div>
-            <h3 className="mt-5 font-bold text-slate-950">
-              Configurar empresa
-            </h3>
-            <p className="mt-1 text-sm leading-6 text-slate-500">
-              Revisa la información de tu negocio.
-            </p>
-          </Link>
+      {/* Quick actions */}
+      <section aria-labelledby="actions-title">
+        <p className="eyebrow">Productividad</p>
+        <h2 id="actions-title" className="mt-1.5 font-display text-2xl font-semibold tracking-tight text-ink-950">Acciones rápidas</h2>
+        <div className="mt-5 grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
+          {quickActions.map((a) => (
+            <Link key={a.href} href={a.href} className="card-interactive group p-4 sm:p-6">
+              <div className="flex items-center justify-between">
+                <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-ink-950 text-gold-300 transition group-hover:bg-gold-400 group-hover:text-ink-950">
+                  <Icon name={a.icon} />
+                </span>
+                <Icon name="arrowRight" className="h-4 w-4 text-stone-300 transition group-hover:translate-x-1 group-hover:text-gold-600" />
+              </div>
+              <h3 className="mt-4 text-sm font-bold text-ink-950 sm:mt-5 sm:text-base">{a.title}</h3>
+              <p className="mt-1 hidden text-sm leading-6 text-stone-500 sm:block">{a.text}</p>
+            </Link>
+          ))}
         </div>
       </section>
 
-      <section className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
-        <div className="flex flex-col gap-3 border-b border-slate-100 p-6 sm:flex-row sm:items-center sm:justify-between sm:px-8">
+      {/* Recent documents */}
+      <section className="card overflow-hidden" aria-labelledby="recent-title">
+        <div className="flex flex-col gap-3 border-b border-stone-100 p-6 sm:flex-row sm:items-center sm:justify-between sm:px-8">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-600">
-              Actividad
-            </p>
-            <h2 className="mt-1 text-xl font-bold tracking-tight text-slate-950">
-              Documentos recientes
-            </h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Consulta los últimos documentos de tu empresa.
-            </p>
+            <p className="eyebrow">Actividad</p>
+            <h2 id="recent-title" className="mt-1.5 font-display text-2xl font-semibold tracking-tight text-ink-950">Documentos recientes</h2>
           </div>
-
-          <Link
-            href="/documents"
-            className="inline-flex w-fit items-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-          >
-            Ver todos <span>→</span>
+          <Link href="/documents" className="btn-secondary btn-sm w-fit">
+            Ver todos <Icon name="arrowRight" className="h-4 w-4" />
           </Link>
         </div>
 
         {recent.length === 0 ? (
-          <div className="px-6 py-14 text-center sm:px-8">
-            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-2xl text-slate-500">
-              ▤
-            </div>
-            <h3 className="mt-4 font-bold text-slate-950">
-              Todo listo para comenzar
-            </h3>
-            <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
-              Cuando crees una factura, cotización u otro documento,
-              aparecerá aquí para que puedas consultarlo rápidamente.
-            </p>
-            <Link
-              href="/documents/new?type=invoice"
-              className="mt-5 inline-flex rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-700"
-            >
-              Crear mi primera factura
-            </Link>
-          </div>
+          <EmptyState icon="file" title="Todo listo para comenzar"
+            description="Cuando crees una factura, cotización u otro documento, aparecerá aquí para que puedas consultarlo rápidamente."
+            action={<Link href="/documents/new?type=invoice" className="btn-primary">Crear mi primera factura</Link>} />
         ) : (
-          <div className="divide-y divide-slate-100">
+          <ul className="divide-y divide-stone-100">
             {recent.map((doc) => (
-              <Link
-                key={doc.id}
-                href={`/documents/${doc.id}`}
-                className="group flex flex-col gap-4 px-6 py-5 transition hover:bg-slate-50 sm:flex-row sm:items-center sm:justify-between sm:px-8"
-              >
-                <div className="flex min-w-0 items-center gap-4">
-                  <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-lg text-slate-600 transition group-hover:bg-blue-50 group-hover:text-blue-700">
-                    ▤
-                  </span>
-
-                  <div className="min-w-0">
-                    <p className="truncate font-semibold text-slate-950">
-                      {doc.title || typeName(doc.document_type)}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {typeName(doc.document_type)} ·{' '}
-                      {dateLabel(doc.created_at)}
-                    </p>
+              <li key={doc.id}>
+                <Link href={`/documents/${doc.id}`}
+                  className="group flex flex-col gap-4 px-6 py-5 transition hover:bg-gold-50/40 sm:flex-row sm:items-center sm:justify-between sm:px-8">
+                  <div className="flex min-w-0 items-center gap-4">
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-stone-100 text-ink-700 transition group-hover:bg-ink-950 group-hover:text-gold-300">
+                      <Icon name={documentIcon(doc.document_type)} />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-ink-950">{doc.title || typeName(doc.document_type)}</p>
+                      <p className="mt-1 text-xs text-stone-500">{typeName(doc.document_type)} · {dateLabel(doc.created_at)}</p>
+                    </div>
                   </div>
-                </div>
-
-                <div className="flex items-center justify-between gap-4 sm:justify-end">
-                  <span
-                    className={`rounded-full px-3 py-1.5 text-xs font-semibold ${statusStyle(doc.status)}`}
-                  >
-                    {statusName(doc.status)}
-                  </span>
-
-                  <span className="min-w-24 text-right font-bold tabular-nums text-slate-950">
-                    {money(Number(doc.total || 0))}
-                  </span>
-
-                  <span className="text-slate-300 transition group-hover:translate-x-1 group-hover:text-blue-600">
-                    →
-                  </span>
-                </div>
-              </Link>
+                  <div className="flex items-center justify-between gap-4 sm:justify-end">
+                    <StatusBadge status={doc.status} />
+                    <span className="min-w-28 text-right font-bold tabular-nums text-ink-950">{money(Number(doc.total || 0))}</span>
+                    <Icon name="chevronRight" className="hidden h-4 w-4 text-stone-300 transition group-hover:translate-x-1 group-hover:text-gold-600 sm:block" />
+                  </div>
+                </Link>
+              </li>
             ))}
-          </div>
+          </ul>
         )}
-
-        <div className="flex flex-col gap-2 border-t border-slate-100 bg-slate-50/70 px-6 py-4 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between sm:px-8">
-          <span>Información de tu empresa</span>
-          <span>Actualizado al consultar el panel</span>
-        </div>
       </section>
 
-      <section className="relative isolate overflow-hidden rounded-3xl bg-gradient-to-r from-slate-950 via-[#10264a] to-blue-900 p-7 text-white shadow-xl sm:p-9">
-        <div className="absolute -right-12 -top-20 -z-10 h-64 w-64 rounded-full bg-blue-400/20 blur-3xl" />
-
-        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-          <div className="max-w-2xl">
-            <span className="text-xs font-bold uppercase tracking-[0.2em] text-blue-300">
-              BUSINESSAI INTELLIGENCE
-            </span>
-            <h2 className="mt-3 text-2xl font-bold tracking-tight">
-              Tu negocio, bajo control.
-            </h2>
-            <p className="mt-2 text-sm leading-6 text-slate-300">
-              Administra clientes, documentos y cobros desde un solo
-              espacio de trabajo.
-            </p>
-          </div>
-
-          <Link
-            href="/payments"
-            className="inline-flex w-fit shrink-0 items-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-bold text-slate-950 transition hover:bg-blue-50"
-          >
-            Revisar pagos <span>→</span>
-          </Link>
+      {/* Payments CTA */}
+      <section className="card-dark flex flex-col gap-5 p-7 sm:flex-row sm:items-center sm:justify-between sm:p-9">
+        <div className="max-w-2xl">
+          <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-gold-300">Cobros</p>
+          <h2 className="mt-3 font-display text-2xl font-semibold tracking-tight">Tu negocio, bajo control.</h2>
+          <p className="mt-2 text-sm leading-6 text-white/60">Administra clientes, documentos y cobros desde un solo espacio de trabajo.</p>
         </div>
+        <Link href="/payments" className="btn-gold w-fit shrink-0">
+          Revisar pagos <Icon name="arrowRight" className="h-4 w-4" />
+        </Link>
       </section>
     </div>
   )

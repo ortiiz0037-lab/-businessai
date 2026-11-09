@@ -1,7 +1,8 @@
 import Link from 'next/link'
 import { PLAN_CATALOG, limitText, type CatalogPlan } from '@/lib/billing/catalog'
 import { formatAmount, type PriceInfo } from '@/lib/billing/checkout'
-import type { LandingCopy } from '@/lib/i18n/landing'
+import type { LandingCopy, Locale } from '@/lib/i18n/landing'
+import { Icon } from '@/components/ui/icon'
 
 /** Stripe price when configured in this environment; otherwise the catalog list price. */
 export function displayPrice(plan: CatalogPlan, prices: Map<string, PriceInfo>) {
@@ -10,65 +11,68 @@ export function displayPrice(plan: CatalogPlan, prices: Map<string, PriceInfo>) 
 }
 
 /** Where each plan button leads: signup with the plan (signed out) or the plan page (signed in). */
-export function planHrefs(plan: string, signedIn: boolean) {
+export function planHrefs(plan: string, signedIn: boolean, locale: Locale = 'es') {
   const billing = `/billing?plan=${plan}#plan-${plan}`
+  const lang = locale === 'en' ? '&lang=en' : ''
   return {
-    start: signedIn ? billing : `/signup?plan=${plan}`,
-    login: `/login?next=${encodeURIComponent(billing)}`,
+    start: signedIn ? billing : `/signup?plan=${plan}${lang}`,
+    login: `/login?next=${encodeURIComponent(billing)}${lang}`,
   }
 }
 
-/** The three plan cards (Básico/Basic, Pro, Premium), in the given language. */
-export function PlanCards({ copy, prices, signedIn }: {
-  copy: LandingCopy['pricing']; prices: Map<string, PriceInfo>; signedIn: boolean
+/** The three plan cards (Básico/Basic, Pro, Premium), in the given language. The recommended plan is dark/gold. */
+export function PlanCards({ copy, prices, signedIn, locale = 'es' }: {
+  copy: LandingCopy['pricing']; prices: Map<string, PriceInfo>; signedIn: boolean; locale?: Locale
 }) {
   return (
     <div className="mx-auto grid max-w-xl gap-8 lg:max-w-none lg:grid-cols-3 lg:gap-6">
       {PLAN_CATALOG.map((p) => {
         const price = displayPrice(p, prices)
         const text = copy.plans[p.plan]
-        const hrefs = planHrefs(p.plan, signedIn)
+        const hrefs = planHrefs(p.plan, signedIn, locale)
         const perInterval = price.interval === 'month' ? copy.perMonth : `/ ${price.interval}`
+        const dark = p.recommended
         return (
           <article key={p.plan}
-            className={`relative flex flex-col rounded-3xl bg-white p-7 shadow-xl ring-1 sm:p-8 ${
-              p.recommended
-                ? 'shadow-blue-950/20 ring-2 ring-blue-600 lg:-translate-y-3'
-                : 'shadow-slate-900/10 ring-slate-200'
+            className={`relative flex flex-col rounded-3xl p-7 sm:p-8 ${
+              dark ? 'card-dark ring-1 ring-gold-400/40 lg:-translate-y-4' : 'card'
             }`}>
-            {p.recommended && (
-              <span className="absolute -top-3.5 left-1/2 -translate-x-1/2 rounded-full bg-blue-600 px-4 py-1 text-xs font-bold uppercase tracking-wider text-white shadow-md">
+            {dark && (
+              <span className="absolute right-6 top-6 rounded-full border border-gold-400/40 bg-gold-400/15 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-gold-200">
                 {copy.recommended}
               </span>
             )}
-            <h3 className="text-xl font-extrabold text-slate-950">{text.name}</h3>
-            <p className="mt-2 min-h-12 text-sm leading-6 text-slate-500">{text.tagline}</p>
+            <h3 className={`font-display text-2xl font-semibold ${dark ? 'text-white' : 'text-ink-950'}`}>{text.name}</h3>
+            <p className={`mt-2 min-h-12 text-sm leading-6 ${dark ? 'text-white/60' : 'text-stone-500'}`}>{text.tagline}</p>
 
             <p className="mt-6 flex items-baseline gap-1.5">
-              <span className="text-5xl font-black tracking-tight text-slate-950">{price.amount}</span>
-              <span className="text-sm font-semibold text-slate-500">{perInterval}</span>
+              <span className={`text-5xl font-extrabold tracking-tight tabular-nums ${dark ? 'text-white' : 'text-ink-950'}`}>{price.amount}</span>
+              <span className={`text-sm font-semibold ${dark ? 'text-white/55' : 'text-stone-500'}`}>{perInterval}</span>
             </p>
-            <p className="mt-1 text-xs text-slate-400">{copy.taxes}</p>
+            <p className={`mt-1 text-xs ${dark ? 'text-white/40' : 'text-stone-400'}`}>{copy.taxes}</p>
 
-            <p className="mt-5 rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">{copy.trial}</p>
+            <p className={`mt-6 flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold ${
+              dark ? 'border border-gold-400/25 bg-gold-400/10 text-gold-200' : 'border border-gold-200 bg-gold-50 text-gold-800'}`}>
+              <Icon name="sparkle" className="h-4 w-4 shrink-0" />
+              {copy.trial}
+            </p>
 
-            <ul className="mt-6 space-y-3 text-sm">
-              <Line>{p.maxClients === null ? copy.limits.unlimitedClients : copy.limits.clients(limitText(p.maxClients))}</Line>
-              <Line>{p.maxDocumentsPerMonth === null ? copy.limits.unlimitedDocuments : copy.limits.documents(limitText(p.maxDocumentsPerMonth))}</Line>
-              <Line>{copy.limits.users(limitText(p.maxMembers))}</Line>
+            <div className={`my-7 h-px ${dark ? 'bg-white/10' : 'bg-stone-200'}`} />
+
+            <ul className="space-y-3.5 text-sm">
+              <Line dark={dark}>{p.maxClients === null ? copy.limits.unlimitedClients : copy.limits.clients(limitText(p.maxClients))}</Line>
+              <Line dark={dark}>{p.maxDocumentsPerMonth === null ? copy.limits.unlimitedDocuments : copy.limits.documents(limitText(p.maxDocumentsPerMonth))}</Line>
+              <Line dark={dark}>{copy.limits.users(limitText(p.maxMembers))}</Line>
             </ul>
 
-            <div className="mt-auto pt-8">
-              <Link href={hrefs.start}
-                className={`block w-full rounded-2xl px-5 py-3.5 text-center text-sm font-bold shadow-sm transition ${
-                  p.recommended ? 'bg-blue-600 text-white hover:bg-blue-500' : 'bg-slate-950 text-white hover:bg-slate-800'
-                }`}>
+            <div className="mt-auto pt-9">
+              <Link href={hrefs.start} className={`${dark ? 'btn-gold' : 'btn-primary'} btn-lg w-full`}>
                 {signedIn ? `${copy.choose} ${text.name}` : copy.start}
               </Link>
               {!signedIn && (
-                <p className="mt-3 text-center text-xs text-slate-500">
+                <p className={`mt-3 text-center text-xs ${dark ? 'text-white/50' : 'text-stone-500'}`}>
                   {copy.haveAccount}{' '}
-                  <Link href={hrefs.login} className="font-semibold text-slate-700 underline">{copy.login}</Link>
+                  <Link href={hrefs.login} className={`font-semibold underline underline-offset-4 ${dark ? 'text-white' : 'text-ink-900'}`}>{copy.login}</Link>
                 </p>
               )}
             </div>
@@ -79,19 +83,15 @@ export function PlanCards({ copy, prices, signedIn }: {
   )
 }
 
-export function Check({ className = 'text-blue-600' }: { className?: string }) {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 20 20" className={`mt-0.5 h-5 w-5 shrink-0 ${className}`} fill="currentColor">
-      <path fillRule="evenodd" d="M16.7 5.3a1 1 0 0 1 0 1.4l-7.5 7.5a1 1 0 0 1-1.4 0L3.3 9.7a1 1 0 1 1 1.4-1.4l3.8 3.8 6.8-6.8a1 1 0 0 1 1.4 0Z" clipRule="evenodd" />
-    </svg>
-  )
+export function Check({ className = 'text-gold-600' }: { className?: string }) {
+  return <Icon name="check" className={`mt-0.5 h-5 w-5 shrink-0 ${className}`} strokeWidth={2.2} />
 }
 
-function Line({ children }: { children: React.ReactNode }) {
+function Line({ children, dark }: { children: React.ReactNode; dark: boolean }) {
   return (
     <li className="flex items-center gap-3">
-      <Check />
-      <span className="font-medium text-slate-900">{children}</span>
+      <Check className={dark ? 'text-gold-300' : 'text-gold-600'} />
+      <span className={`font-medium ${dark ? 'text-white/85' : 'text-ink-900'}`}>{children}</span>
     </li>
   )
 }

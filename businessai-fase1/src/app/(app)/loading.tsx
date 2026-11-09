@@ -1,10 +1,11 @@
 export default function Loading() {
   return (
-    <div className="animate-pulse space-y-4" aria-busy="true">
-      <div className="h-8 w-64 rounded bg-slate-200" />
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {[0, 1, 2, 3].map((i) => <div key={i} className="h-28 rounded-xl bg-slate-200" />)}
+    <div className="animate-pulse space-y-8" aria-busy="true" aria-label="Cargando">
+      <div className="h-40 rounded-3xl bg-ink-950/90" />
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {[0, 1, 2, 3].map((i) => <div key={i} className="h-32 rounded-2xl border border-stone-200 bg-white" />)}
       </div>
+      <div className="h-72 rounded-2xl border border-stone-200 bg-white" />
     </div>
   )
 }

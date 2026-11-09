@@ -165,18 +165,18 @@ function DocumentUnavailable({
     <main className="mx-auto max-w-4xl px-4 py-12">
       <div className="rounded-3xl border border-red-200 bg-red-50 p-8 text-center">
         <div className="text-4xl">⚠️</div>
-        <h1 className="mt-4 text-2xl font-bold text-slate-900">{title}</h1>
-        <p className="mt-2 text-sm text-slate-600">{message}</p>
+        <h1 className="mt-4 text-2xl font-bold text-ink-900">{title}</h1>
+        <p className="mt-2 text-sm text-stone-600">{message}</p>
         <div className="mt-6 flex flex-wrap justify-center gap-3">
           <Link
             href="/documents"
-            className="inline-flex rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white"
+            className="btn-primary"
           >
             ← Volver a Documentos
           </Link>
           <Link
             href="/payments"
-            className="inline-flex rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700"
+            className="btn-secondary"
           >
             Ir a Pagos
           </Link>
@@ -472,22 +472,22 @@ export default async function DocumentDetailPage({
   const quoteDetails = parseQuoteNotes(doc.notes)
 
   return (
-    <main className="min-h-screen bg-slate-100 px-4 py-8 sm:px-6 lg:px-8">
+    <div>
       <div className="mx-auto max-w-5xl">
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <Link
               href="/documents"
-              className="text-sm font-semibold text-slate-500 transition hover:text-slate-900"
+              className="text-sm font-semibold text-stone-500 transition hover:text-ink-900"
             >
               ← Volver a Documentos
             </Link>
 
-            <h1 className="mt-3 text-2xl font-bold tracking-tight text-slate-950">
+            <h1 className="mt-3 font-display text-3xl font-semibold tracking-tight text-ink-950">
               Vista del documento
             </h1>
 
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="mt-1 text-sm text-stone-500">
               Revisa la información antes de enviarla al cliente.
             </p>
           </div>
@@ -495,7 +495,7 @@ export default async function DocumentDetailPage({
           <div className="flex flex-wrap items-center gap-2">
             <PrintButton />
 
-            <span className="rounded-full bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
+            <span className="badge-warning">
               {statusLabel(doc.status)}
             </span>
 
@@ -503,7 +503,7 @@ export default async function DocumentDetailPage({
               action={deleteDocument}
               className="flex flex-wrap items-center gap-2 rounded-xl border border-red-200 bg-white px-3 py-2"
             >
-              <label className="flex items-center gap-2 text-xs text-slate-700">
+              <label className="flex items-center gap-2 text-xs text-stone-700">
                 <input
                   type="checkbox"
                   name="confirm_delete"
@@ -516,7 +516,7 @@ export default async function DocumentDetailPage({
 
               <button
                 type="submit"
-                className="rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                className="btn btn-sm bg-red-600 text-white hover:bg-red-700"
               >
                 Eliminar documento
               </button>
@@ -527,7 +527,7 @@ export default async function DocumentDetailPage({
         {query?.deleteError && (
           <div
             role="alert"
-            className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"
+            className="alert-danger mb-5 p-4"
           >
             {query.deleteError === 'payments'
               ? 'Este documento tiene pagos registrados y no se puede eliminar. Los pagos se conservan como historial.'
@@ -545,7 +545,7 @@ export default async function DocumentDetailPage({
 
                 <button
                   type="submit"
-                  className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white"
+                  className="btn-gold btn-sm"
                 >
                   Marcar como enviada
                 </button>
@@ -558,7 +558,7 @@ export default async function DocumentDetailPage({
 
                 <button
                   type="submit"
-                  className="rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white"
+                  className="btn btn-sm bg-emerald-600 text-white hover:bg-emerald-700"
                 >
                   Marcar como pagada
                 </button>
@@ -566,14 +566,14 @@ export default async function DocumentDetailPage({
             )}
 
             {doc.status === 'paid' && (
-              <span className="rounded-xl bg-green-100 px-4 py-2 text-sm font-semibold text-green-700">
+              <span className="badge-success px-4 py-2 text-sm">
                 ✓ Factura pagada
               </span>
             )}
           </div>
         )}
 
-        <article className="overflow-hidden rounded-3xl bg-white shadow-xl ring-1 ring-slate-200">
+        <article className="overflow-hidden rounded-3xl bg-white shadow-xl ring-1 ring-stone-200">
           <header
             className="px-6 py-8 text-white sm:px-10"
             style={{ backgroundColor: primaryColor }}
@@ -659,72 +659,72 @@ export default async function DocumentDetailPage({
 
           {isLetter ? (
             <section className="px-6 py-10 sm:px-10">
-              <h3 className="text-2xl font-bold text-slate-900">
+              <h3 className="text-2xl font-bold text-ink-900">
                 {doc.title || 'Carta comercial'}
               </h3>
 
-              <p className="mt-2 text-sm text-slate-500">
+              <p className="mt-2 text-sm text-stone-500">
                 Fecha: {formatDate(doc.issue_date)}
               </p>
 
-              <p className="mt-6 text-sm text-slate-700">
+              <p className="mt-6 text-sm text-stone-700">
                 Para:{' '}
                 {clientData?.business_name ||
                   clientData?.name ||
                   'Destinatario'}
               </p>
 
-              <div className="mt-8 whitespace-pre-wrap text-base leading-8 text-slate-700">
+              <div className="mt-8 whitespace-pre-wrap text-base leading-8 text-stone-700">
                 {doc.notes || 'Contenido de la carta no especificado.'}
               </div>
             </section>
           ) : isWorkOrder ? (
             <section className="px-6 py-8 sm:px-10">
-              <h3 className="text-xl font-bold text-slate-900">
+              <h3 className="text-xl font-bold text-ink-900">
                 Detalles de la orden de trabajo
               </h3>
 
-              <p className="mt-4 text-sm text-slate-500">Cliente</p>
+              <p className="mt-4 text-sm text-stone-500">Cliente</p>
 
-              <p className="font-semibold text-slate-900">
+              <p className="font-semibold text-ink-900">
                 {clientData?.business_name ||
                   clientData?.name ||
                   'Cliente no especificado'}
               </p>
 
               {clientData?.email && (
-                <p className="mt-1 text-sm text-slate-600">
+                <p className="mt-1 text-sm text-stone-600">
                   {clientData.email}
                 </p>
               )}
 
               {clientData?.phone && (
-                <p className="mt-1 text-sm text-slate-600">
+                <p className="mt-1 text-sm text-stone-600">
                   {clientData.phone}
                 </p>
               )}
 
-              <p className="mt-5 text-sm text-slate-500">
+              <p className="mt-5 text-sm text-stone-500">
                 Trabajo solicitado
               </p>
 
-              <p className="mt-1 text-lg font-semibold text-slate-900">
+              <p className="mt-1 text-lg font-semibold text-ink-900">
                 {doc.title || 'Trabajo no especificado'}
               </p>
 
               {doc.due_date && (
-                <p className="mt-4 text-sm text-slate-600">
+                <p className="mt-4 text-sm text-stone-600">
                   Fecha límite: {formatDate(doc.due_date)}
                 </p>
               )}
             </section>
           ) : isReminder ? (
             <section className="px-6 py-8 sm:px-10">
-              <h3 className="text-xl font-bold text-slate-900">
+              <h3 className="text-xl font-bold text-ink-900">
                 Recordatorio de pago
               </h3>
 
-              <p className="mt-4 text-slate-700">
+              <p className="mt-4 text-stone-700">
                 Estimado/a{' '}
                 {clientData?.name ||
                   clientData?.business_name ||
@@ -732,7 +732,7 @@ export default async function DocumentDetailPage({
                 ,
               </p>
 
-              <p className="mt-3 leading-7 text-slate-600">
+              <p className="mt-3 leading-7 text-stone-600">
                 Le recordamos que tiene un balance pendiente de pago. Le
                 agradecemos realizar el pago correspondiente o comunicarse con
                 nosotros si ya realizó el pago.
@@ -754,25 +754,25 @@ export default async function DocumentDetailPage({
             </section>
           ) : (
             <>
-              <section className="grid gap-6 border-b border-slate-200 px-6 py-7 sm:grid-cols-2 sm:px-10">
+              <section className="grid gap-6 border-b border-stone-200 px-6 py-7 sm:grid-cols-2 sm:px-10">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                  <p className="text-xs font-bold uppercase tracking-wider text-stone-400">
                     {isQuote ? 'Preparado para' : 'Facturado a'}
                   </p>
 
-                  <h3 className="mt-2 text-lg font-bold text-slate-900">
+                  <h3 className="mt-2 text-lg font-bold text-ink-900">
                     {clientData?.business_name ||
                       clientData?.name ||
                       'Cliente no especificado'}
                   </h3>
 
                   {clientData?.business_name && clientData?.name && (
-                    <p className="mt-1 text-sm text-slate-600">
+                    <p className="mt-1 text-sm text-stone-600">
                       {clientData.name}
                     </p>
                   )}
 
-                  <div className="mt-3 space-y-1 text-sm text-slate-500">
+                  <div className="mt-3 space-y-1 text-sm text-stone-500">
                     {clientData?.email && <p>{clientData.email}</p>}
                     {clientData?.phone && <p>{clientData.phone}</p>}
                     {clientData?.address && <p>{clientData.address}</p>}
@@ -793,16 +793,16 @@ export default async function DocumentDetailPage({
                   </div>
                 </div>
 
-                <div className="rounded-2xl bg-slate-50 p-5 sm:text-right">
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                <div className="rounded-2xl bg-stone-50 p-5 sm:text-right">
+                  <p className="text-xs font-bold uppercase tracking-wider text-stone-400">
                     Resumen
                   </p>
 
-                  <p className="mt-2 text-3xl font-bold text-slate-950">
+                  <p className="mt-2 text-3xl font-bold text-ink-950">
                     {money(total)}
                   </p>
 
-                  <p className="mt-1 text-sm text-slate-500">
+                  <p className="mt-1 text-sm text-stone-500">
                     Total del documento
                   </p>
                 </div>
@@ -810,8 +810,8 @@ export default async function DocumentDetailPage({
 
               <section className="px-6 py-8 sm:px-10">
                 {isQuote ? (
-                  <div className="overflow-hidden rounded-2xl border border-slate-200">
-                    <div className="grid grid-cols-[minmax(100px,1fr)_42px_72px_78px] gap-1 bg-slate-50 px-2 py-3 text-[9px] font-bold uppercase tracking-wide text-slate-500 sm:grid-cols-[minmax(0,1fr)_90px_130px_130px] sm:gap-3 sm:px-5 sm:text-xs">
+                  <div className="overflow-hidden rounded-2xl border border-stone-200">
+                    <div className="grid grid-cols-[minmax(100px,1fr)_42px_72px_78px] gap-1 bg-stone-50 px-2 py-3 text-[9px] font-bold uppercase tracking-wide text-stone-500 sm:grid-cols-[minmax(0,1fr)_90px_130px_130px] sm:gap-3 sm:px-5 sm:text-xs">
                       <span>Descripción</span>
                       <span className="text-right">Cant.</span>
                       <span className="text-right">Precio unit.</span>
@@ -822,9 +822,9 @@ export default async function DocumentDetailPage({
                       quoteDetails.items.map((item, index) => (
                         <div
                           key={`${item.description}-${index}`}
-                          className="grid grid-cols-[minmax(100px,1fr)_42px_72px_78px] gap-1 border-t border-slate-100 px-2 py-4 text-xs text-slate-700 sm:grid-cols-[minmax(0,1fr)_90px_130px_130px] sm:gap-3 sm:px-5 sm:text-sm"
+                          className="grid grid-cols-[minmax(100px,1fr)_42px_72px_78px] gap-1 border-t border-stone-100 px-2 py-4 text-xs text-stone-700 sm:grid-cols-[minmax(0,1fr)_90px_130px_130px] sm:gap-3 sm:px-5 sm:text-sm"
                         >
-                          <span className="break-words font-medium text-slate-900">
+                          <span className="break-words font-medium text-ink-900">
                             {item.description}
                           </span>
                           <span className="text-right">{item.quantity}</span>
@@ -837,11 +837,11 @@ export default async function DocumentDetailPage({
                         </div>
                       ))
                     ) : (
-                      <div className="border-t border-slate-100 px-5 py-6">
-                        <p className="font-semibold text-slate-900">
+                      <div className="border-t border-stone-100 px-5 py-6">
+                        <p className="font-semibold text-ink-900">
                           {doc.title || 'Cotización'}
                         </p>
-                        <p className="mt-1 text-sm text-slate-500">
+                        <p className="mt-1 text-sm text-stone-500">
                           No hay partidas detalladas guardadas en esta
                           cotización.
                         </p>
@@ -849,23 +849,23 @@ export default async function DocumentDetailPage({
                     )}
                   </div>
                 ) : (
-                  <div className="rounded-2xl border border-slate-200">
-                    <div className="grid grid-cols-1 bg-slate-50 px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 sm:grid-cols-[1fr_140px]">
+                  <div className="rounded-2xl border border-stone-200">
+                    <div className="grid grid-cols-1 bg-stone-50 px-5 py-3 text-xs font-bold uppercase tracking-wider text-stone-500 sm:grid-cols-[1fr_140px]">
                       <span>Descripción</span>
                       <span className="sm:text-right">Importe</span>
                     </div>
 
                     <div className="grid grid-cols-1 gap-3 px-5 py-6 sm:grid-cols-[1fr_140px]">
                       <div>
-                        <p className="font-semibold text-slate-900">
+                        <p className="font-semibold text-ink-900">
                           {doc.title || 'Servicio profesional'}
                         </p>
-                        <p className="mt-1 text-sm text-slate-500">
+                        <p className="mt-1 text-sm text-stone-500">
                           {documentType(doc.document_type)}
                         </p>
                       </div>
 
-                      <p className="text-lg font-bold text-slate-900 sm:text-right">
+                      <p className="text-lg font-bold text-ink-900 sm:text-right">
                         {money(subtotal)}
                       </p>
                     </div>
@@ -874,32 +874,32 @@ export default async function DocumentDetailPage({
 
                 <div className="mt-6 flex justify-end">
                   <div className="w-full max-w-sm space-y-3">
-                    <div className="flex justify-between text-sm text-slate-500">
+                    <div className="flex justify-between text-sm text-stone-500">
                       <span>Subtotal</span>
-                      <span className="font-medium text-slate-800">
+                      <span className="font-medium text-ink-800">
                         {money(subtotal)}
                       </span>
                     </div>
 
                     {isQuote && quoteDetails.discount > 0 && (
-                      <div className="flex justify-between text-sm text-slate-500">
+                      <div className="flex justify-between text-sm text-stone-500">
                         <span>Descuento</span>
-                        <span className="font-medium text-slate-800">
+                        <span className="font-medium text-ink-800">
                           −{money(quoteDetails.discount)}
                         </span>
                       </div>
                     )}
 
-                    <div className="flex justify-between text-sm text-slate-500">
+                    <div className="flex justify-between text-sm text-stone-500">
                       <span>Impuesto</span>
-                      <span className="font-medium text-slate-800">
+                      <span className="font-medium text-ink-800">
                         {money(tax)}
                       </span>
                     </div>
 
-                    <div className="border-t border-slate-200 pt-4">
+                    <div className="border-t border-stone-200 pt-4">
                       <div className="flex items-end justify-between">
-                        <span className="text-base font-bold text-slate-900">
+                        <span className="text-base font-bold text-ink-900">
                           Total
                         </span>
 
@@ -918,33 +918,33 @@ export default async function DocumentDetailPage({
           )}
 
           {(isQuote ? quoteDetails.cleanNotes : doc.notes) && !isLetter && (
-            <section className="border-t border-slate-200 px-6 py-7 sm:px-10">
-              <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">
+            <section className="border-t border-stone-200 px-6 py-7 sm:px-10">
+              <h3 className="text-sm font-bold uppercase tracking-wider text-stone-400">
                 {isWorkOrder
                   ? 'Descripción del trabajo y notas'
                   : 'Notas y condiciones'}
               </h3>
 
-              <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-600">
+              <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-stone-600">
                 {isQuote ? quoteDetails.cleanNotes : doc.notes}
               </p>
             </section>
           )}
 
           {companyData?.payment_info && (isInvoice || isQuote) && (
-            <section className="border-t border-slate-200 px-6 py-7 sm:px-10">
-              <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">
+            <section className="border-t border-stone-200 px-6 py-7 sm:px-10">
+              <h3 className="text-sm font-bold uppercase tracking-wider text-stone-400">
                 Información de pago
               </h3>
 
-              <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-600">
+              <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-stone-600">
                 {companyData.payment_info}
               </p>
             </section>
           )}
 
           {signature && (
-            <section className="border-t border-slate-200 px-6 py-7 sm:px-10">
+            <section className="border-t border-stone-200 px-6 py-7 sm:px-10">
               <div className="flex justify-end">
                 <div className="w-full max-w-xs text-center">
                   <img
@@ -952,7 +952,7 @@ export default async function DocumentDetailPage({
                     alt="Firma autorizada"
                     className="mx-auto h-20 max-w-[240px] object-contain"
                   />
-                  <div className="mt-2 border-t border-slate-300 pt-2 text-xs text-slate-500">
+                  <div className="mt-2 border-t border-stone-300 pt-2 text-xs text-stone-500">
                     Firma autorizada
                     {companyData?.display_name || companyData?.legal_name
                       ? ` · ${companyData.display_name || companyData.legal_name}`
@@ -963,12 +963,12 @@ export default async function DocumentDetailPage({
             </section>
           )}
 
-          <footer className="border-t border-slate-200 bg-slate-50 px-6 py-6 text-center sm:px-10">
-            <p className="text-xs text-slate-400">
+          <footer className="border-t border-stone-200 bg-stone-50 px-6 py-6 text-center sm:px-10">
+            <p className="text-xs text-stone-400">
               Documento generado con BusinessAI
             </p>
 
-            <p className="mt-1 text-xs text-slate-400">
+            <p className="mt-1 text-xs text-stone-400">
               {companyData?.display_name ||
                 companyData?.legal_name ||
                 'BusinessAI'}
@@ -979,12 +979,12 @@ export default async function DocumentDetailPage({
         <div className="mt-6 flex justify-center">
           <Link
             href="/documents"
-            className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+            className="btn-primary"
           >
             ← Volver a Documentos
           </Link>
         </div>
       </div>
-    </main>
+    </div>
   )
 }

@@ -6,42 +6,45 @@ import { billingBanner, fetchBillingState } from '@/lib/billing/state'
 import { fetchUsage, strongestNotice } from '@/lib/billing/usage'
 import { getAppEnv } from '@/lib/env'
 import { AppNav, type NavItem } from '@/components/app-nav'
+import { Icon } from '@/components/ui/icon'
 
 const navigation: NavItem[] = [
-  { href: '/dashboard', label: 'Inicio', icon: '⌂' },
-  { href: '/settings/company', label: 'Mi empresa', icon: '▦' },
-  { href: '/clients', label: 'Clientes', icon: '♧' },
-  { href: '/documents', label: 'Documentos', icon: '▤' },
-  { href: '/payments', label: 'Pagos', icon: '$' },
-  { href: '/billing', label: 'Plan', icon: '★' },
+  { href: '/dashboard', label: 'Inicio', icon: 'home' },
+  { href: '/clients', label: 'Clientes', icon: 'users' },
+  { href: '/documents', label: 'Documentos', icon: 'file' },
+  { href: '/payments', label: 'Pagos', icon: 'wallet' },
+  { href: '/settings/company', label: 'Mi empresa', icon: 'building' },
+  { href: '/billing', label: 'Plan', icon: 'crown' },
 ]
 
 const BANNER_STYLE = {
-  info: 'border-blue-200 bg-blue-50 text-blue-900',
-  warning: 'border-amber-200 bg-amber-50 text-amber-900',
-  danger: 'border-red-200 bg-red-50 text-red-800',
+  info: 'alert-info',
+  warning: 'alert-warning',
+  danger: 'alert-danger',
 } as const
 
-/** Trial / payment banner and non-production environment badge. Never throws. */
+/** Trial / payment banner, non-production badge and the account shown in the menu. Never throws. */
 async function loadChrome() {
   let env = 'development'
   try { env = getAppEnv() } catch { /* invalid APP_ENV: shown as development */ }
+  const empty = { env, banner: null, companyName: null as string | null, email: null as string | null }
   try {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return { env, banner: null }
+    if (!user) return empty
     const company = await getUserCompany(supabase, user)
-    if (!company) return { env, banner: null }
+    const base = { ...empty, email: user.email ?? null, companyName: company?.companyName ?? null }
+    if (!company) return base
     const banner = billingBanner(await fetchBillingState(supabase, company.companyId))
-    if (banner) return { env, banner }
+    if (banner) return { ...base, banner }
     // Subscription fine: show the most important usage warning (80 % / 90 % / 100 %).
     const notice = strongestNotice(await fetchUsage(supabase, company.companyId))
     return {
-      env,
+      ...base,
       banner: notice ? { tone: notice.level === 'warning' ? 'warning' as const : 'danger' as const, text: notice.text } : null,
     }
   } catch {
-    return { env, banner: null }
+    return empty
   }
 }
 
@@ -50,68 +53,41 @@ export default async function AppLayout({
 }: Readonly<{
   children: React.ReactNode
 }>) {
-  const { env, banner } = await loadChrome()
+  const { env, banner, companyName, email } = await loadChrome()
   return (
-    <div className="min-h-screen bg-[#f5f7fb] text-slate-900">
-      {env !== 'production' && (
-        <div className="bg-violet-700 px-4 py-1 text-center text-xs font-bold uppercase tracking-widest text-white">
-          Entorno: {env} — pagos en modo test
-        </div>
-      )}
-      <header className="sticky top-0 z-50 border-b border-slate-200/80 bg-white/95 shadow-sm backdrop-blur-xl">
-        <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-5 py-4 sm:px-8">
-          <Link
-            href="/dashboard"
-            className="flex shrink-0 items-center gap-3"
-          >
-            <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-slate-950 to-blue-700 text-lg font-black text-white shadow-lg shadow-blue-950/20">
-              B
-            </span>
+    <div className="min-h-screen bg-canvas text-ink-900 lg:flex">
+      <AppNav items={navigation} companyName={companyName} email={email} signOut={signOut} />
 
-            <span>
-              <span className="block text-lg font-extrabold tracking-tight text-slate-950">
-                Business<span className="text-blue-600">AI</span>
-              </span>
-              <span className="block text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-400">
-                Business workspace
-              </span>
-            </span>
-          </Link>
-
-          <AppNav items={navigation} />
-
-          <form action={signOut} className="shrink-0">
-            <button
-              type="submit"
-              className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700 sm:px-4"
-            >
-              <span className="hidden sm:inline">Cerrar sesión</span>
-              <span className="sm:hidden">Salir</span>
-            </button>
-          </form>
-        </div>
-      </header>
-
-      <main className="mx-auto min-h-[calc(100vh-80px)] max-w-[1600px] px-4 py-7 sm:px-8 sm:py-10">
-        {banner && (
-          <div role="status" className={`mb-6 flex flex-col gap-2 rounded-xl border px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between ${BANNER_STYLE[banner.tone]}`}>
-            <span>{banner.text}</span>
-            <Link href="/billing" className="font-semibold underline">Ver plan</Link>
+      <div className="flex min-h-screen min-w-0 flex-1 flex-col">
+        {env !== 'production' && (
+          <div className="border-b border-gold-200 bg-gold-50 px-4 py-1.5 text-center text-[11px] font-bold uppercase tracking-[0.2em] text-gold-800">
+            Entorno: {env} — pagos en modo test
           </div>
         )}
-        {children}
-      </main>
 
-      <footer className="border-t border-slate-200/80 bg-white">
-        <div className="mx-auto flex max-w-[1600px] flex-col gap-2 px-5 py-5 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between sm:px-8">
-          <p>
-            © {new Date().getFullYear()} BusinessAI. Todos los derechos reservados.
-          </p>
-          <p className="font-medium tracking-wide">
-            GESTIÓN EMPRESARIAL INTELIGENTE
-          </p>
-        </div>
-      </footer>
+        <main className="mx-auto w-full max-w-[1320px] flex-1 px-4 py-7 sm:px-8 sm:py-10 lg:px-10 lg:py-12">
+          {banner && (
+            <div role="status" className={`mb-8 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between ${BANNER_STYLE[banner.tone]}`}>
+              <span className="flex items-start gap-2.5">
+                <Icon name={banner.tone === 'info' ? 'info' : 'alert'} className="mt-0.5 h-4 w-4 shrink-0" />
+                {banner.text}
+              </span>
+              <Link href="/billing" className="shrink-0 font-semibold underline underline-offset-4">Ver plan</Link>
+            </div>
+          )}
+          {children}
+        </main>
+
+        <footer className="border-t border-stone-200/80">
+          <div className="mx-auto flex w-full max-w-[1320px] flex-col gap-2 px-4 py-5 text-xs text-stone-400 sm:flex-row sm:items-center sm:justify-between sm:px-8 lg:px-10">
+            <p>© {new Date().getFullYear()} BusinessAI</p>
+            <nav aria-label="Enlaces legales" className="flex gap-4">
+              <Link href="/terminos" className="hover:text-ink-900">Términos</Link>
+              <Link href="/privacidad" className="hover:text-ink-900">Privacidad</Link>
+            </nav>
+          </div>
+        </footer>
+      </div>
     </div>
   )
 }

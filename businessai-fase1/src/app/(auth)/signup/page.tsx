@@ -3,35 +3,44 @@ import { ActionForm } from '@/components/action-form'
 import { AuthCard } from '@/components/auth-card'
 import { signUp } from '@/app/actions/auth'
 import { TRIAL_DAYS, catalogPlan, isPlanKey } from '@/lib/billing/catalog'
+import { AUTH } from '@/lib/i18n/auth'
+import { LANDING, toLocale } from '@/lib/i18n/landing'
 
-export default async function SignUpPage({ searchParams }: { searchParams: Promise<{ plan?: string }> }) {
-  const { plan } = await searchParams
+export default async function SignUpPage({ searchParams }: { searchParams: Promise<{ plan?: string; lang?: string }> }) {
+  const { plan, lang } = await searchParams
+  const locale = toLocale(lang)
+  const t = AUTH[locale]
   const chosen = isPlanKey(plan) ? catalogPlan(plan) : null
+  const chosenName = chosen ? LANDING[locale].pricing.plans[chosen.plan].name : null
+  const params = new URLSearchParams()
+  if (chosen) params.set('plan', chosen.plan)
+  if (locale === 'es') params.set('lang', 'en')
+  const langHref = `/signup${params.size ? `?${params}` : ''}`
+  const login = locale === 'en' ? '/login?lang=en' : '/login'
+
   return (
-    <AuthCard title="Crea tu cuenta" subtitle="Empieza en un minuto"
+    <AuthCard title={t.signup.title} subtitle={t.signup.subtitle} copy={t} lang={locale} langHref={langHref}
       footer={
         <div className="space-y-3">
-          <p>¿Ya tienes cuenta? <Link href="/login" className="font-medium text-slate-900 underline">Inicia sesión</Link></p>
+          <p>{t.signup.haveAccount} <Link href={login} className="font-semibold text-ink-950 underline decoration-gold-400 underline-offset-4">{t.signup.login}</Link></p>
           <p className="text-xs">
-            Consulta los <Link href="/terminos" className="underline">Términos</Link>, la{' '}
-            <Link href="/privacidad" className="underline">Privacidad</Link> y los{' '}
-            <Link href="/precios" className="underline">Precios</Link>.
+            {t.signup.legal[0]}<Link href="/terminos" className="underline">{t.signup.legal[1]}</Link>
+            {t.signup.legal[2]}<Link href="/privacidad" className="underline">{t.signup.legal[3]}</Link>.
           </p>
         </div>
       }>
-      {chosen && (
-        <p role="status" className="mb-5 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
-          Plan elegido: <strong>{chosen.name}</strong>, con {TRIAL_DAYS} días de prueba gratuita. Después de crear tu
-          cuenta y tu empresa podrás confirmarlo.{' '}
-          <Link href="/precios" className="font-semibold underline">Cambiar</Link>
-        </p>
+      {chosen && chosenName && (
+        <div role="status" className="mb-6 flex items-start justify-between gap-3 rounded-2xl border border-gold-200 bg-gold-50 p-4 text-sm text-gold-900">
+          <p>{t.signup.chosen(chosenName, TRIAL_DAYS)}</p>
+          <Link href={locale === 'en' ? '/?lang=en#pricing' : '/precios'} className="shrink-0 font-semibold underline underline-offset-4">{t.signup.change}</Link>
+        </div>
       )}
-      <ActionForm action={signUp} submitLabel="Crear cuenta"
+      <ActionForm action={signUp} submitLabel={t.signup.submit} variant="gold"
         hidden={chosen ? { plan: chosen.plan } : undefined}
         fields={[
-          { name: 'fullName', label: 'Nombre', autoComplete: 'name' },
-          { name: 'email', label: 'Correo', type: 'email', autoComplete: 'email' },
-          { name: 'password', label: 'Contraseña (mín. 8)', type: 'password', autoComplete: 'new-password' },
+          { name: 'fullName', label: t.signup.name, autoComplete: 'name' },
+          { name: 'email', label: t.signup.email, type: 'email', autoComplete: 'email', placeholder: 'tu@empresa.com' },
+          { name: 'password', label: t.signup.password, type: 'password', autoComplete: 'new-password' },
         ]} />
     </AuthCard>
   )
