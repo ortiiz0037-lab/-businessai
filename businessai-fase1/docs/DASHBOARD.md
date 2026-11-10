@@ -39,8 +39,8 @@ Moneda: USD.
 ## Gráficos
 
 - Facturado vs. cobrado, 12 meses: barras agrupadas, un solo eje. Paleta
-  validada con el validador de dataviz sobre la superficie blanca de las
-  tarjetas (azul `#2a78d6`, oro `#a67e2f`; contraste ≥ 3:1, separación para
+  validada con el validador de dataviz sobre la superficie de las
+  tarjetas oscuras `#111827` (azul `#2563eb`, cian `#0ea5c9`; contraste ≥ 3:1, separación para
   daltonismo). Leyenda, lectura al tocar o pasar el ratón y vista de tabla.
 - Cuentas por cobrar: barra apilada (al día / vence en 7 días / vencido) con
   colores de estado, siempre acompañados de etiqueta e importe.

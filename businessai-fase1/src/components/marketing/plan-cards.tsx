@@ -35,29 +35,29 @@ export function PlanCards({ copy, prices, signedIn, locale = 'es' }: {
         return (
           <article key={p.plan}
             className={`relative flex flex-col rounded-3xl p-7 sm:p-8 ${
-              dark ? 'card-dark ring-1 ring-gold-400/40 lg:-translate-y-4' : 'card'
+              dark ? 'card-hero ring-1 ring-electric/40 lg:-translate-y-4' : 'card'
             }`}>
             {dark && (
-              <span className="absolute right-6 top-6 rounded-full border border-gold-400/40 bg-gold-400/15 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-gold-200">
+              <span className="absolute right-6 top-6 rounded-full border border-electric/40 bg-brand/15 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-accent">
                 {copy.recommended}
               </span>
             )}
-            <h3 className={`font-display text-2xl font-semibold ${dark ? 'text-white' : 'text-ink-950'}`}>{text.name}</h3>
-            <p className={`mt-2 min-h-12 text-sm leading-6 ${dark ? 'text-white/60' : 'text-stone-500'}`}>{text.tagline}</p>
+            <h3 className={`font-display text-2xl font-semibold ${dark ? 'text-white' : 'text-fg'}`}>{text.name}</h3>
+            <p className={`mt-2 min-h-12 text-sm leading-6 ${dark ? 'text-white/60' : 'text-muted'}`}>{text.tagline}</p>
 
             <p className="mt-6 flex items-baseline gap-1.5">
-              <span className={`text-5xl font-extrabold tracking-tight tabular-nums ${dark ? 'text-white' : 'text-ink-950'}`}>{price.amount}</span>
-              <span className={`text-sm font-semibold ${dark ? 'text-white/55' : 'text-stone-500'}`}>{perInterval}</span>
+              <span className={`text-5xl font-extrabold tracking-tight tabular-nums ${dark ? 'text-white' : 'text-fg'}`}>{price.amount}</span>
+              <span className={`text-sm font-semibold ${dark ? 'text-white/55' : 'text-muted'}`}>{perInterval}</span>
             </p>
-            <p className={`mt-1 text-xs ${dark ? 'text-white/40' : 'text-stone-400'}`}>{copy.taxes}</p>
+            <p className={`mt-1 text-xs ${dark ? 'text-white/40' : 'text-slate-500'}`}>{copy.taxes}</p>
 
             <p className={`mt-6 flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold ${
-              dark ? 'border border-gold-400/25 bg-gold-400/10 text-gold-200' : 'border border-gold-200 bg-gold-50 text-gold-800'}`}>
+              dark ? 'border border-electric/25 bg-brand/10 text-accent' : 'border border-electric/30 bg-electric/10 text-blue-300'}`}>
               <Icon name="sparkle" className="h-4 w-4 shrink-0" />
               {copy.trial}
             </p>
 
-            <div className={`my-7 h-px ${dark ? 'bg-white/10' : 'bg-stone-200'}`} />
+            <div className={`my-7 h-px ${dark ? 'bg-card/10' : 'bg-line'}`} />
 
             <ul className="space-y-3.5 text-sm">
               <Line dark={dark}>{p.maxClients === null ? copy.limits.unlimitedClients : copy.limits.clients(limitText(p.maxClients))}</Line>
@@ -66,13 +66,13 @@ export function PlanCards({ copy, prices, signedIn, locale = 'es' }: {
             </ul>
 
             <div className="mt-auto pt-9">
-              <Link href={hrefs.start} className={`${dark ? 'btn-gold' : 'btn-primary'} btn-lg w-full`}>
+              <Link href={hrefs.start} className={`${dark ? 'btn-accent' : 'btn-primary'} btn-lg w-full`}>
                 {signedIn ? `${copy.choose} ${text.name}` : copy.start}
               </Link>
               {!signedIn && (
-                <p className={`mt-3 text-center text-xs ${dark ? 'text-white/50' : 'text-stone-500'}`}>
+                <p className={`mt-3 text-center text-xs ${dark ? 'text-white/50' : 'text-muted'}`}>
                   {copy.haveAccount}{' '}
-                  <Link href={hrefs.login} className={`font-semibold underline underline-offset-4 ${dark ? 'text-white' : 'text-ink-900'}`}>{copy.login}</Link>
+                  <Link href={hrefs.login} className={`font-semibold underline underline-offset-4 ${dark ? 'text-white' : 'text-fg'}`}>{copy.login}</Link>
                 </p>
               )}
             </div>
@@ -83,15 +83,15 @@ export function PlanCards({ copy, prices, signedIn, locale = 'es' }: {
   )
 }
 
-export function Check({ className = 'text-gold-600' }: { className?: string }) {
+export function Check({ className = 'text-blue-400' }: { className?: string }) {
   return <Icon name="check" className={`mt-0.5 h-5 w-5 shrink-0 ${className}`} strokeWidth={2.2} />
 }
 
 function Line({ children, dark }: { children: React.ReactNode; dark: boolean }) {
   return (
     <li className="flex items-center gap-3">
-      <Check className={dark ? 'text-gold-300' : 'text-gold-600'} />
-      <span className={`font-medium ${dark ? 'text-white/85' : 'text-ink-900'}`}>{children}</span>
+      <Check className={dark ? 'text-accent' : 'text-blue-400'} />
+      <span className={`font-medium ${dark ? 'text-white/85' : 'text-fg'}`}>{children}</span>
     </li>
   )
 }

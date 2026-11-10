@@ -97,8 +97,8 @@ export default async function PaymentsPage() {
       </div>
 
       <section className="card overflow-hidden" aria-labelledby="history-title">
-        <div className="border-b border-stone-100 px-6 py-5">
-          <h2 id="history-title" className="font-display text-2xl font-semibold tracking-tight text-ink-950">Historial de pagos</h2>
+        <div className="border-b border-line px-6 py-5">
+          <h2 id="history-title" className="font-display text-2xl font-semibold tracking-tight text-fg">Historial de pagos</h2>
         </div>
 
         {error ? (
@@ -123,24 +123,24 @@ export default async function PaymentsPage() {
                   const doc = payment.document_id ? linkedDocuments.get(payment.document_id) : undefined
                   return (
                     <tr key={payment.id}>
-                      <td className="whitespace-nowrap text-stone-600">
+                      <td className="whitespace-nowrap text-slate-400">
                         {payment.paid_at || payment.created_at
                           ? new Date(payment.paid_at ?? payment.created_at).toLocaleDateString('es-PR')
                           : '—'}
                       </td>
                       <td>
                         {doc ? (
-                          <Link className="font-semibold text-ink-950 underline decoration-gold-400 underline-offset-4 hover:text-gold-700" href={`/documents/${doc.id}`}>
+                          <Link className="font-semibold text-fg underline decoration-blue-400 underline-offset-4 hover:text-blue-400" href={`/documents/${doc.id}`}>
                             {documentTypeLabel(doc.document_type)} {doc.document_number || doc.title || ''}
                           </Link>
                         ) : (
-                          <span className="text-stone-400">
+                          <span className="text-slate-500">
                             {payment.document_id ? 'Documento no disponible' : 'Sin documento vinculado'}
                           </span>
                         )}
                       </td>
                       <td><span className="badge-neutral">{methodLabel(payment.payment_method)}</span></td>
-                      <td className="text-right font-bold tabular-nums text-ink-950">{usd(Number(payment.amount ?? 0))}</td>
+                      <td className="text-right font-bold tabular-nums text-fg">{usd(Number(payment.amount ?? 0))}</td>
                     </tr>
                   )
                 })}

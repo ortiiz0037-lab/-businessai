@@ -321,14 +321,14 @@ export default async function NewDocumentPage({
 
   return (
     <main className="mx-auto max-w-5xl space-y-6 px-4 py-8">
-      <Link href="/documents" className="text-sm font-semibold text-stone-500 hover:text-ink-950">
+      <Link href="/documents" className="text-sm font-semibold text-muted hover:text-fg">
         ← Volver a Documentos
       </Link>
 
-      <header className="card-dark p-7 sm:p-10">
-        <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-gold-300">BUSINESSAI · DOCUMENTOS</p>
+      <header className="card-hero p-7 sm:p-10">
+        <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-accent">BUSINESSAI · DOCUMENTOS</p>
         <h1 className="mt-3 font-display text-3xl font-semibold sm:text-4xl">{docTitle(selectedType)}</h1>
-        <p className="mt-2 text-sm text-stone-300">
+        <p className="mt-2 text-sm text-slate-600">
           {selectedType === 'quote'
             ? 'Prepara una propuesta comercial profesional con partidas y precios detallados.'
             : 'Crea y guarda documentos de tu empresa en un solo lugar.'}
@@ -340,8 +340,8 @@ export default async function NewDocumentPage({
           <Link key={item} href={`/documents/new?type=${item}`}
             className={`rounded-xl border px-3 py-3 text-center text-sm font-semibold transition ${
               selectedType === item
-                ? 'border-ink-950 bg-ink-950 text-gold-200 shadow-sm'
-                : 'border-stone-200 bg-white text-stone-700 hover:border-gold-300 hover:bg-gold-50/40'
+                ? 'border-app-2 bg-app-2 text-accent shadow-sm'
+                : 'border-line bg-card text-slate-300 hover:border-electric/40 hover:bg-electric/40'
             }`}>
             {docTitle(item)}
           </Link>
@@ -367,7 +367,7 @@ export default async function NewDocumentPage({
 
         {selectedType === 'payment_reminder' ? (
           <section className="card space-y-5 p-6">
-            <h2 className="font-display text-2xl font-semibold tracking-tight text-ink-950">Factura pendiente</h2>
+            <h2 className="font-display text-2xl font-semibold tracking-tight text-fg">Factura pendiente</h2>
             {invoiceList.length === 0 ? (
               <div className="alert-warning p-4">
                 No hay facturas pendientes disponibles. Crea una factura primero para preparar un recordatorio.
@@ -397,7 +397,7 @@ export default async function NewDocumentPage({
         ) : selectedType === 'invoice' || selectedType === 'quote' ? (
           <>
             <section className="card space-y-5 p-6">
-              <h2 className="font-display text-2xl font-semibold tracking-tight text-ink-950">Cliente y detalles</h2>
+              <h2 className="font-display text-2xl font-semibold tracking-tight text-fg">Cliente y detalles</h2>
               <label className="field-label">Cliente *
                 <select name="client_id" required defaultValue="" className={`${fieldClass} mt-2`}>
                   <option value="" disabled>Selecciona un cliente</option>
@@ -427,17 +427,17 @@ export default async function NewDocumentPage({
 
             <section className="card space-y-5 p-6">
               <div>
-                <h2 className="font-display text-2xl font-semibold tracking-tight text-ink-950">
+                <h2 className="font-display text-2xl font-semibold tracking-tight text-fg">
                   {selectedType === 'quote' ? 'Partidas de la cotización' : 'Detalle de la factura'}
                 </h2>
-                <p className="mt-1 text-sm text-stone-500">
+                <p className="mt-1 text-sm text-muted">
                   Añade materiales, piezas, mano de obra o servicios. Puedes usar hasta 30 partidas.
                 </p>
               </div>
 
               <div className="space-y-4">
                 {Array.from({ length: 3 }, (_, index) => index + 1).map((index) => (
-                  <div key={index} className="grid gap-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:grid-cols-6">
+                  <div key={index} className="grid gap-3 rounded-2xl border border-line bg-card p-4 shadow-sm sm:grid-cols-6">
                     <label className="field-label sm:col-span-3">
                       {`Partida ${index} — descripción`}
                       <input
@@ -457,14 +457,14 @@ export default async function NewDocumentPage({
                     </label>
                   </div>
                 ))}
-                <details className="group rounded-2xl border border-dashed border-gold-300/70 bg-gold-50/30">
-                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 text-sm font-semibold text-ink-900">
+                <details className="group rounded-2xl border border-dashed border-electric/70 bg-electric/30">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 text-sm font-semibold text-fg">
                     <span>Añadir más partidas (hasta 30)</span>
-                    <span aria-hidden="true" className="flex h-7 w-7 items-center justify-center rounded-full border border-gold-300 text-gold-700 transition group-open:rotate-45">+</span>
+                    <span aria-hidden="true" className="flex h-7 w-7 items-center justify-center rounded-full border border-electric/40 text-blue-400 transition group-open:rotate-45">+</span>
                   </summary>
                   <div className="space-y-4 px-4 pb-4">
                 {Array.from({ length: 27 }, (_, index) => index + 4).map((index) => (
-                  <div key={index} className="grid gap-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:grid-cols-6">
+                  <div key={index} className="grid gap-3 rounded-2xl border border-line bg-card p-4 shadow-sm sm:grid-cols-6">
                     <label className="field-label sm:col-span-3">
                       {`Partida ${index} — descripción`}
                       <input
@@ -504,7 +504,7 @@ export default async function NewDocumentPage({
           </>
         ) : (
           <section className="card space-y-5 p-6">
-            <h2 className="font-display text-2xl font-semibold tracking-tight text-ink-950">Información del documento</h2>
+            <h2 className="font-display text-2xl font-semibold tracking-tight text-fg">Información del documento</h2>
             <label className="field-label">Título *
               <input name="title" required className={`${fieldClass} mt-2`} placeholder={selectedType === 'letter' ? 'Ej. Carta comercial para cliente' : 'Ej. Reparación y mantenimiento'} />
             </label>
@@ -531,8 +531,8 @@ export default async function NewDocumentPage({
           </section>
         )}
 
-        <div className="flex flex-col gap-3 rounded-2xl border border-stone-200 bg-stone-50 p-5 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-stone-600">
+        <div className="flex flex-col gap-3 rounded-2xl border border-line bg-white/[0.03] p-5 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-slate-400">
             {selectedType === 'quote'
               ? 'La cotización se guardará como borrador para revisarla antes de enviarla al cliente.'
               : 'El documento se guardará en la empresa asociada a tu cuenta.'}

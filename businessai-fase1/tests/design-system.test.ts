@@ -21,26 +21,45 @@ describe('design system', () => {
     const used = new Set<string>()
     for (const file of sources(join(ROOT, 'src'))) {
       const src = readFileSync(file, 'utf8')
-      for (const m of src.matchAll(/(?<![\w-])((?:btn|badge|alert|card|field|table)(?:-[a-z]+)*|eyebrow|page-title|section-title|divider-gold)(?![\w-])/g)) {
+      for (const m of src.matchAll(/(?<![\w-])((?:btn|badge|alert|card|field|table)(?:-[a-z]+)*|eyebrow|page-title|section-title|divider-glow)(?![\w-])/g)) {
         used.add(m[1])
       }
     }
     // Words that only appear in code (identifiers / props), not CSS classes.
-    for (const notCss of ['card-dark', 'field', 'card', 'btn', 'badge', 'alert', 'table']) used.delete(notCss)
+    for (const notCss of ['field', 'card', 'btn', 'badge', 'alert', 'table']) used.delete(notCss)
     const missing = [...used].filter((c) => !new RegExp(`@utility ${c} \\{`).test(css))
     expect(missing).toEqual([])
-    for (const base of ['btn', 'card', 'card-dark', 'field', 'badge', 'alert', 'table-premium']) {
+    for (const base of ['btn', 'card', 'card-hero', 'field', 'badge', 'alert', 'table-premium']) {
       expect(css).toMatch(new RegExp(`@utility ${base} \\{`))
     }
   })
 
-  it('brand tokens: ink (black), gold and the two typefaces', () => {
-    expect(css).toMatch(/--color-ink-950: #0a0a0c/)
-    expect(css).toMatch(/--color-gold-500: #c39a3c/)
-    expect(css).toMatch(/--font-display: var\(--font-playfair\)/)
+  it('brand tokens: Black & Electric Blue palette and the two typefaces', () => {
+    const palette: Record<string, string> = {
+      app: '#070b14', 'app-2': '#0b1220', card: '#111827', elevated: '#172235', brand: '#2563eb', electric: '#3b82f6',
+      accent: '#22d3ee', line: '#263449', fg: '#f8fafc', muted: '#94a3b8', success: '#22c55e', warning: '#f59e0b', danger: '#ef4444',
+    }
+    for (const [name, hex] of Object.entries(palette)) expect(css, name).toMatch(new RegExp(`--color-${name}: ${hex};`))
+    expect(css).toMatch(/--font-display: var\(--font-sora\)/)
     expect(css).toMatch(/--font-sans: var\(--font-manrope\)/)
     // The print rules for documents are preserved.
     expect(css).toMatch(/@media print[\s\S]*article/)
+  })
+})
+
+describe('no gold, yellow-gold, cream or warm tones left (Black & Electric Blue)', () => {
+  const files = [...sources(join(ROOT, 'src')), join(ROOT, 'src/app/globals.css')]
+  // Old identity: gold / stone / ink / canvas scales, cream & warm hexes, warm rgb shadows, Playfair.
+  const banned = /(?<![\w-])(?:[a-z-]+:)*(?:bg|text|border|ring|from|to|via|divide|decoration|shadow|fill|stroke)-(?:gold|stone|ink|canvas)\b|--color-(?:gold|ink|canvas)|#(?:f6f4ef|fbf8ef|c39a3c|d4ad55|a67e2f|e0c47a|0a0a0c|f5f5f4|e7e5e4|78716c)\b|rgb\(\s*(?:195|212)[ _]+(?:154|173)|rgb\(\s*20[ _]+16[ _]+8|Playfair|btn-gold|badge-gold|divider-gold|card-dark/i
+  it('no source file uses the previous palette', () => {
+    const hits = files.flatMap((f) => readFileSync(f, 'utf8').split('\n')
+      .map((line, i) => (banned.test(line) ? `${f.replace(ROOT, '')}:${i + 1}: ${line.trim().slice(0, 90)}` : null))
+      .filter((x): x is string => x !== null))
+    expect(hits).toEqual([])
+  })
+  it('the app shell is dark (no light page background)', () => {
+    expect(css).toMatch(/body \{[\s\S]*?background-color: var\(--color-app\)/)
+    expect(css).toMatch(/color-scheme: dark/)
   })
 })
 

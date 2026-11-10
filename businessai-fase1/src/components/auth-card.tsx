@@ -14,14 +14,14 @@ export function AuthCard({ title, subtitle, children, footer, copy, langHref, la
   copy: AuthCopy; langHref: string; lang?: string
 }) {
   return (
-    <main lang={lang} className="min-h-screen bg-canvas lg:grid lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
+    <main lang={lang} className="min-h-screen bg-app lg:grid lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
       {/* Brand panel */}
-      <section className="card-dark relative flex flex-col rounded-none border-0 px-6 pb-10 pt-6 sm:px-10 lg:min-h-screen lg:px-14 lg:py-12">
+      <section className="card-hero relative flex flex-col rounded-none border-0 px-6 pb-10 pt-6 sm:px-10 lg:min-h-screen lg:px-14 lg:py-12">
         <div aria-hidden="true" className="pointer-events-none absolute inset-0 opacity-[0.07] [background-image:linear-gradient(rgb(255_255_255)_1px,transparent_1px),linear-gradient(90deg,rgb(255_255_255)_1px,transparent_1px)] [background-size:56px_56px] [mask-image:radial-gradient(70%_60%_at_30%_30%,black,transparent)]" />
         <div className="relative flex items-center justify-between gap-4">
           <Brand href={lang === 'en' ? '/?lang=en' : '/'} tone="light" />
           <Link href={langHref} title={copy.switchLabel} aria-label={copy.switchLabel}
-            className="rounded-lg border border-white/15 px-2.5 py-1.5 text-xs font-bold text-white/80 hover:bg-white/10 lg:hidden">
+            className="rounded-lg border border-white/15 px-2.5 py-1.5 text-xs font-bold text-white/80 hover:bg-card/10 lg:hidden">
             {copy.switchTo}
           </Link>
         </div>
@@ -34,7 +34,7 @@ export function AuthCard({ title, subtitle, children, footer, copy, langHref, la
           <ul className="mt-10 hidden space-y-5 lg:block">
             {copy.panel.points.map((p, i) => (
               <li key={p.title} className="flex gap-4">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-gold-400/30 bg-gold-400/10 text-gold-300">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-electric/30 bg-brand/10 text-accent">
                   <Icon name={POINT_ICONS[i % POINT_ICONS.length]} className="h-[18px] w-[18px]" />
                 </span>
                 <span>
@@ -51,22 +51,22 @@ export function AuthCard({ title, subtitle, children, footer, copy, langHref, la
       {/* Form column */}
       <section className="relative flex flex-col px-5 pb-12 sm:px-10 lg:min-h-screen lg:px-16">
         <div className="hidden items-center justify-between py-8 lg:flex">
-          <Link href={lang === 'en' ? '/?lang=en' : '/'} className="inline-flex items-center gap-2 text-sm font-semibold text-stone-500 hover:text-ink-950">
+          <Link href={lang === 'en' ? '/?lang=en' : '/'} className="inline-flex items-center gap-2 text-sm font-semibold text-muted hover:text-fg">
             <Icon name="arrowLeft" className="h-4 w-4" /> {copy.back}
           </Link>
           <Link href={langHref} title={copy.switchLabel} aria-label={copy.switchLabel}
-            className="rounded-lg border border-stone-300 px-2.5 py-1.5 text-xs font-bold text-ink-800 hover:bg-white">
+            className="rounded-lg border border-line px-2.5 py-1.5 text-xs font-bold text-fg hover:bg-card">
             {copy.switchTo}
           </Link>
         </div>
 
         <div className="mx-auto -mt-6 w-full max-w-md lg:my-auto lg:pb-16">
           <div className="card p-7 shadow-lift sm:p-9 lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none">
-            <h1 className="font-display text-3xl font-semibold tracking-tight text-ink-950 sm:text-[34px]">{title}</h1>
-            {subtitle && <p className="mt-2 text-[15px] text-stone-500">{subtitle}</p>}
-            <div className="divider-gold mt-6 opacity-60" />
+            <h1 className="font-display text-3xl font-semibold tracking-tight text-fg sm:text-[34px]">{title}</h1>
+            {subtitle && <p className="mt-2 text-[15px] text-muted">{subtitle}</p>}
+            <div className="divider-glow mt-6 opacity-60" />
             <div className="mt-7">{children}</div>
-            {footer && <div className="mt-8 text-center text-sm text-stone-500">{footer}</div>}
+            {footer && <div className="mt-8 text-center text-sm text-muted">{footer}</div>}
           </div>
         </div>
       </section>

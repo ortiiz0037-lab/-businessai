@@ -3,7 +3,7 @@ import type { IconName } from '@/components/ui/icon'
 /** Document status → Spanish label and badge style (one place for the whole app). */
 const STATUS: Record<string, { label: string; className: string }> = {
   draft: { label: 'Borrador', className: 'badge-neutral' },
-  sent: { label: 'Enviado', className: 'badge-gold' },
+  sent: { label: 'Enviado', className: 'badge-accent' },
   paid: { label: 'Pagado', className: 'badge-success' },
   overdue: { label: 'Vencido', className: 'badge-danger' },
   cancelled: { label: 'Cancelado', className: 'badge-neutral opacity-70' },

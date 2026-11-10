@@ -16,10 +16,10 @@ export function LegalPage({ title, updated, intro, children }: {
         </p>
       </div>
       <p className="eyebrow mt-12">BusinessAI</p>
-      <h1 className="mt-3 font-display text-4xl font-semibold tracking-tight text-ink-950 sm:text-5xl">{title}</h1>
-      <p className="mt-2 text-sm text-stone-500">Última actualización: {updated}</p>
-      <div className="mt-6 text-base leading-7 text-stone-700">{intro}</div>
-      <div className="divider-gold mt-8 opacity-70" />
+      <h1 className="mt-3 font-display text-4xl font-semibold tracking-tight text-fg sm:text-5xl">{title}</h1>
+      <p className="mt-2 text-sm text-muted">Última actualización: {updated}</p>
+      <div className="mt-6 text-base leading-7 text-slate-300">{intro}</div>
+      <div className="divider-glow mt-8 opacity-70" />
       <div className="mt-10 space-y-10">{children}</div>
     </main>
   )
@@ -28,15 +28,15 @@ export function LegalPage({ title, updated, intro, children }: {
 export function Section({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
   return (
     <section aria-labelledby={`s${n}`}>
-      <h2 id={`s${n}`} className="flex items-baseline gap-3 font-display text-2xl font-semibold tracking-tight text-ink-950"><span className="text-base font-sans font-bold text-gold-600 tabular-nums">{String(n).padStart(2, '0')}</span>{title}</h2>
-      <div className="mt-3 space-y-3 text-[15px] leading-7 text-stone-700">{children}</div>
+      <h2 id={`s${n}`} className="flex items-baseline gap-3 font-display text-2xl font-semibold tracking-tight text-fg"><span className="text-base font-sans font-bold text-blue-400 tabular-nums">{String(n).padStart(2, '0')}</span>{title}</h2>
+      <div className="mt-3 space-y-3 text-[15px] leading-7 text-slate-300">{children}</div>
     </section>
   )
 }
 
 export function Pending({ children }: { children: React.ReactNode }) {
   return (
-    <span className="rounded-md bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-900 ring-1 ring-inset ring-amber-200">
+    <span className="rounded-md bg-warning/15 px-1.5 py-0.5 font-semibold text-amber-200 ring-1 ring-inset ring-warning/30">
       [Pendiente: {children}]
     </span>
   )

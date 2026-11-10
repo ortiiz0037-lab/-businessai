@@ -34,9 +34,15 @@ export function formatters(locale: Locale, currency = 'USD', timeZone = 'America
   }
 }
 
+export type TopBarCopy = {
+  search: string; searchPlaceholder: string; searchHint: string; noResults: string; pages: string; actions: string
+  notifications: string; noNotifications: string; profile: string; account: string
+  quick: { invoice: string; quote: string; receipt: string; workOrder: string; client: string; payment: string; paymentHint: string }
+}
+
 export type AppCopy = {
   nav: { dashboard: string; clients: string; documents: string; payments: string; company: string; plan: string; more: string; menu: string; openMenu: string; closeMenu: string; mainMenu: string }
-  shell: { env: (env: string) => string; seePlan: string; terms: string; privacy: string; legal: string; signOut: string; myCompany: string; language: string; languageNames: Record<Locale, string>; company: string; switchCompany: string; current: string; roles: Record<string, string> }
+  shell: { env: (env: string) => string; seePlan: string; terms: string; privacy: string; legal: string; signOut: string; myCompany: string; language: string; languageNames: Record<Locale, string>; company: string; switchCompany: string; current: string; roles: Record<string, string>; top: TopBarCopy }
   docType: Record<string, string>
   docStatus: Record<string, string>
   dashboard: {
@@ -80,6 +86,12 @@ const es: AppCopy = {
     signOut: 'Cerrar sesión', myCompany: 'Mi empresa', language: 'Idioma', languageNames: { es: 'Español', en: 'English' },
     company: 'Empresa', switchCompany: 'Cambiar de empresa', current: 'Actual',
     roles: { owner: 'Propietario', admin: 'Administrador', member: 'Miembro' },
+    top: {
+      search: 'Buscar', searchPlaceholder: 'Buscar secciones y acciones…', searchHint: 'Ir a una sección o crear algo nuevo',
+      noResults: 'Sin resultados', pages: 'Secciones', actions: 'Acciones rápidas',
+      notifications: 'Notificaciones', noNotifications: 'No tienes notificaciones.', profile: 'Perfil', account: 'Cuenta',
+      quick: { invoice: 'Nueva factura', quote: 'Nueva cotización', receipt: 'Nuevo recibo', workOrder: 'Nueva orden de trabajo', client: 'Nuevo cliente', payment: 'Registrar pago', paymentHint: 'Desde una factura' },
+    },
   },
   docType: { invoice: 'Factura', quote: 'Cotización', receipt: 'Recibo', work_order: 'Orden de trabajo', letter: 'Carta', payment_reminder: 'Recordatorio de pago', contract: 'Contrato', report: 'Reporte' },
   docStatus: { draft: 'Borrador', sent: 'Enviado', paid: 'Pagado', overdue: 'Vencido', cancelled: 'Cancelado' },
@@ -135,6 +147,12 @@ const en: AppCopy = {
     signOut: 'Sign out', myCompany: 'My company', language: 'Language', languageNames: { es: 'Español', en: 'English' },
     company: 'Company', switchCompany: 'Switch company', current: 'Current',
     roles: { owner: 'Owner', admin: 'Admin', member: 'Member' },
+    top: {
+      search: 'Search', searchPlaceholder: 'Search sections and actions…', searchHint: 'Go to a section or create something new',
+      noResults: 'No results', pages: 'Sections', actions: 'Quick actions',
+      notifications: 'Notifications', noNotifications: 'You have no notifications.', profile: 'Profile', account: 'Account',
+      quick: { invoice: 'New invoice', quote: 'New quote', receipt: 'New receipt', workOrder: 'New work order', client: 'New client', payment: 'Record payment', paymentHint: 'From an invoice' },
+    },
   },
   docType: { invoice: 'Invoice', quote: 'Quote', receipt: 'Receipt', work_order: 'Work order', letter: 'Letter', payment_reminder: 'Payment reminder', contract: 'Contract', report: 'Report' },
   docStatus: { draft: 'Draft', sent: 'Sent', paid: 'Paid', overdue: 'Overdue', cancelled: 'Cancelled' },

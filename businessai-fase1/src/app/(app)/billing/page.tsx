@@ -88,7 +88,7 @@ export default async function BillingPage({
         </div>
       )}
       {params.checkout === 'cancelled' && (
-        <div role="status" className="alert border-stone-200 bg-white p-4 text-stone-700">
+        <div role="status" className="alert border-line bg-card p-4 text-slate-300">
           No completaste el pago. No se ha guardado ninguna tarjeta ni se ha realizado ningún cargo.
         </div>
       )}
@@ -103,10 +103,10 @@ export default async function BillingPage({
           La facturación todavía no está configurada en este entorno.
         </div>
       ) : (
-        <section className="card-dark p-7 sm:p-9">
+        <section className="card-hero p-7 sm:p-9">
           <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-gold-300">Estado</p>
+              <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-accent">Estado</p>
               <p className="mt-2 font-display text-3xl font-semibold sm:text-4xl">{STATE_LABEL[state.state] ?? state.state}</p>
               <p className="mt-2 text-sm text-white/60">
                 Plan: <span className="font-semibold text-white">{state.plan_name ?? '—'}</span>
@@ -167,27 +167,27 @@ export default async function BillingPage({
       {hasSubscription && usage.length > 0 && (
         <section className="card p-6">
           <p className="eyebrow">Consumo</p>
-          <h2 className="mt-1.5 font-display text-2xl font-semibold tracking-tight text-ink-950">Uso de tu plan</h2>
+          <h2 className="mt-1.5 font-display text-2xl font-semibold tracking-tight text-fg">Uso de tu plan</h2>
           <div className="mt-6 grid gap-6 md:grid-cols-3">
             {usage.map((u: UsageRow) => {
               const notice = usageNotice(u)
               const label = u.metric === 'clients' ? 'Clientes' : u.metric === 'documents' ? 'Documentos en este periodo' : 'Usuarios'
               const bar = u.level === 'blocked' ? 'bg-red-600' : u.level === 'upgrade' ? 'bg-orange-500'
-                : u.level === 'warning' ? 'bg-amber-400' : 'bg-gradient-to-r from-gold-400 to-gold-600'
+                : u.level === 'warning' ? 'bg-warning' : 'bg-gradient-to-r from-blue-500 to-cyan-400'
               return (
                 <div key={u.metric}>
                   <div className="flex justify-between text-sm">
-                    <span className="font-semibold text-ink-900">{label}</span>
-                    <span className="tabular-nums text-stone-500">
+                    <span className="font-semibold text-fg">{label}</span>
+                    <span className="tabular-nums text-muted">
                       {u.used} / {u.max_allowed ?? 'Ilimitado'}{u.percent !== null ? ` (${u.percent} %)` : ''}
                     </span>
                   </div>
                   {u.max_allowed !== null && (
-                    <div className="mt-2.5 h-2 overflow-hidden rounded-full bg-stone-100" role="progressbar" aria-valuenow={u.percent ?? 0} aria-valuemin={0} aria-valuemax={100}>
+                    <div className="mt-2.5 h-2 overflow-hidden rounded-full bg-elevated" role="progressbar" aria-valuenow={u.percent ?? 0} aria-valuemin={0} aria-valuemax={100}>
                       <div className={`h-2 rounded-full ${bar}`} style={{ width: `${u.percent ?? 0}%` }} />
                     </div>
                   )}
-                  {notice && <p className="mt-2 text-xs text-stone-600">{notice.text}</p>}
+                  {notice && <p className="mt-2 text-xs text-slate-400">{notice.text}</p>}
                 </div>
               )
             })}
@@ -204,12 +204,12 @@ export default async function BillingPage({
           return (
             <div key={p.plan} id={`plan-${p.plan}`}
               className={`card flex scroll-mt-28 flex-col p-7 ${
-                current ? 'border-gold-400 ring-1 ring-gold-400/60' : isSelected ? 'border-gold-500 ring-2 ring-gold-400/40' : ''}`}>
-              {current && <p className="badge-gold mb-4 w-fit">Tu plan actual</p>}
-              {isSelected && <p className="badge-gold mb-4 w-fit">Plan elegido</p>}
-              <h2 className="font-display text-2xl font-semibold text-ink-950">{p.name}</h2>
-              <p className={`mt-2 font-bold ${offer ? 'text-2xl tracking-tight text-ink-950' : 'text-sm text-stone-400'}`}>{offer?.headline ?? 'Precio no disponible en este entorno'}</p>
-              <ul className="mt-5 space-y-2 border-t border-stone-100 pt-5 text-sm text-stone-600">
+                current ? 'border-electric/50 ring-1 ring-electric/60' : isSelected ? 'border-electric ring-2 ring-electric/40' : ''}`}>
+              {current && <p className="badge-accent mb-4 w-fit">Tu plan actual</p>}
+              {isSelected && <p className="badge-accent mb-4 w-fit">Plan elegido</p>}
+              <h2 className="font-display text-2xl font-semibold text-fg">{p.name}</h2>
+              <p className={`mt-2 font-bold ${offer ? 'text-2xl tracking-tight text-fg' : 'text-sm text-slate-500'}`}>{offer?.headline ?? 'Precio no disponible en este entorno'}</p>
+              <ul className="mt-5 space-y-2 border-t border-line pt-5 text-sm text-slate-400">
                 <li>Clientes: {limit(p.max_clients)}</li>
                 <li>Documentos al mes: {limit(p.max_documents_per_month)}</li>
                 <li>Usuarios: {limit(p.max_members)}</li>
@@ -223,7 +223,7 @@ export default async function BillingPage({
                     {current ? 'Plan actual' : `Cambiar a ${p.name}`}
                   </button>
                   {!current && (
-                    <p className="mt-2 text-center text-xs text-stone-500">Stripe te mostrará el importe del cambio antes de confirmarlo.</p>
+                    <p className="mt-2 text-center text-xs text-muted">Stripe te mostrará el importe del cambio antes de confirmarlo.</p>
                   )}
                 </form>
               )}
@@ -231,10 +231,10 @@ export default async function BillingPage({
               {company.canManageBilling && !hasSubscription && offer && (
                 <form action="/api/stripe/checkout" method="post" className="mt-auto space-y-3 pt-5">
                   <input type="hidden" name="plan" value={p.plan} />
-                  <p className="rounded-xl border border-stone-200 bg-stone-50 p-3 text-xs leading-5 text-stone-600">
+                  <p className="rounded-xl border border-line bg-white/[0.03] p-3 text-xs leading-5 text-slate-400">
                     {offer.terms}
                   </p>
-                  <label className="flex items-start gap-2 text-xs text-stone-700">
+                  <label className="flex items-start gap-2 text-xs text-slate-300">
                     <input type="checkbox" name="accept_terms" value="yes" required className="mt-0.5 h-4 w-4" />
                     <span>
                       Acepto estas condiciones{trialDays ? ` y el cobro automático el ${formatDate(offer.firstCharge)}` : ''}
@@ -242,7 +242,7 @@ export default async function BillingPage({
                     </span>
                   </label>
                   <button type="submit"
-                    className="btn-gold w-full">
+                    className="btn-accent w-full">
                     {trialDays ? `Empezar prueba de ${trialDays} días con ${p.name}` : `Suscribirme a ${p.name}`}
                   </button>
                 </form>
@@ -253,9 +253,9 @@ export default async function BillingPage({
       </section>
 
       {!company.canManageBilling && (
-        <p className="text-sm text-stone-500">Solo el propietario o un administrador puede cambiar el plan.</p>
+        <p className="text-sm text-muted">Solo el propietario o un administrador puede cambiar el plan.</p>
       )}
-      <p className="text-xs text-stone-400">
+      <p className="text-xs text-slate-500">
         Los pagos se procesan con Stripe; BusinessAI no ve ni guarda los datos de tu tarjeta. Puedes cancelar en
         cualquier momento desde “Administrar suscripción”: durante la prueba no se cobra nada; después, mantienes el
         acceso hasta el final del periodo pagado. <Link href="/precios" className="underline">Precios</Link> ·{' '}

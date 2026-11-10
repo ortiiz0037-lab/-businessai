@@ -20,8 +20,8 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
     <AuthCard title={t.login.title} subtitle={t.login.subtitle} copy={t} lang={locale} langHref={langHref}
       footer={
         <div className="space-y-3">
-          <p>{t.login.noAccount} <Link href={withLang('/signup')} className="font-semibold text-ink-950 underline decoration-gold-400 underline-offset-4">{t.login.signup}</Link></p>
-          <p className="text-xs"><Link href={locale === 'en' ? '/?lang=en#pricing' : '/precios'} className="hover:text-ink-900">{t.login.pricing}</Link></p>
+          <p>{t.login.noAccount} <Link href={withLang('/signup')} className="font-semibold text-fg underline decoration-blue-400 underline-offset-4">{t.login.signup}</Link></p>
+          <p className="text-xs"><Link href={locale === 'en' ? '/?lang=en#pricing' : '/precios'} className="hover:text-fg">{t.login.pricing}</Link></p>
         </div>
       }>
       {error === 'confirm' && (

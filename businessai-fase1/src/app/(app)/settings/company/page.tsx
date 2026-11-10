@@ -121,11 +121,11 @@ export default async function CompanySettingsPage({
             BusinessAI
           </p>
 
-          <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight text-ink-950 sm:text-4xl">
+          <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight text-fg sm:text-4xl">
             Configuración de la empresa
           </h1>
 
-          <p className="mt-2 max-w-2xl text-stone-600">
+          <p className="mt-2 max-w-2xl text-slate-400">
             Configura la información que BusinessAI utilizará para crear
             cotizaciones, facturas, recibos, órdenes de trabajo y documentos
             profesionales con la identidad de tu empresa.
@@ -154,11 +154,11 @@ export default async function CompanySettingsPage({
         <form action={saveCompanyProfile} className="space-y-6">
           <section className="card p-6 sm:p-8">
             <div className="mb-6">
-              <h2 className="font-display text-2xl font-semibold tracking-tight text-ink-950">
+              <h2 className="font-display text-2xl font-semibold tracking-tight text-fg">
                 Información principal
               </h2>
 
-              <p className="mt-1 text-sm text-stone-500">
+              <p className="mt-1 text-sm text-muted">
                 Estos datos aparecerán en tus documentos.
               </p>
             </div>
@@ -223,11 +223,11 @@ export default async function CompanySettingsPage({
 
           <section className="card p-6 sm:p-8">
             <div className="mb-6">
-              <h2 className="font-display text-2xl font-semibold tracking-tight text-ink-950">
+              <h2 className="font-display text-2xl font-semibold tracking-tight text-fg">
                 Dirección
               </h2>
 
-              <p className="mt-1 text-sm text-stone-500">
+              <p className="mt-1 text-sm text-muted">
                 Información utilizada en tus documentos comerciales.
               </p>
             </div>
@@ -288,11 +288,11 @@ export default async function CompanySettingsPage({
 
           <section className="card p-6 sm:p-8">
             <div className="mb-6">
-              <h2 className="font-display text-2xl font-semibold tracking-tight text-ink-950">
+              <h2 className="font-display text-2xl font-semibold tracking-tight text-fg">
                 Identidad visual
               </h2>
 
-              <p className="mt-1 text-sm text-stone-500">
+              <p className="mt-1 text-sm text-muted">
                 Estos colores serán utilizados para darle identidad a tus
                 documentos.
               </p>
@@ -309,13 +309,13 @@ export default async function CompanySettingsPage({
                     name="primary_color"
                     type="color"
                     defaultValue={profile?.primary_color ?? '#2563EB'}
-                    className="h-12 w-16 cursor-pointer rounded-xl border border-stone-300 bg-white p-1 shadow-sm"
+                    className="h-12 w-16 cursor-pointer rounded-xl border border-line bg-card p-1 shadow-sm"
                   />
 
                   <input
                     defaultValue={profile?.primary_color ?? '#2563EB'}
                     readOnly
-                    className="field flex-1 text-stone-600"
+                    className="field flex-1 text-slate-400"
                   />
                 </div>
               </div>
@@ -330,13 +330,13 @@ export default async function CompanySettingsPage({
                     name="secondary_color"
                     type="color"
                     defaultValue={profile?.secondary_color ?? '#0F172A'}
-                    className="h-12 w-16 cursor-pointer rounded-xl border border-stone-300 bg-white p-1 shadow-sm"
+                    className="h-12 w-16 cursor-pointer rounded-xl border border-line bg-card p-1 shadow-sm"
                   />
 
                   <input
                     defaultValue={profile?.secondary_color ?? '#0F172A'}
                     readOnly
-                    className="field flex-1 text-stone-600"
+                    className="field flex-1 text-slate-400"
                   />
                 </div>
               </div>
@@ -345,11 +345,11 @@ export default async function CompanySettingsPage({
 
           <section className="card p-6 sm:p-8">
             <div className="mb-6">
-              <h2 className="font-display text-2xl font-semibold tracking-tight text-ink-950">
+              <h2 className="font-display text-2xl font-semibold tracking-tight text-fg">
                 Información de pago
               </h2>
 
-              <p className="mt-1 text-sm text-stone-500">
+              <p className="mt-1 text-sm text-muted">
                 Información que puede aparecer en facturas y recibos.
               </p>
             </div>
@@ -374,7 +374,7 @@ export default async function CompanySettingsPage({
 <div className="flex justify-end">
             <button
               type="submit"
-              className="btn-gold btn-lg"
+              className="btn-accent btn-lg"
             >
               Guardar cambios
             </button>

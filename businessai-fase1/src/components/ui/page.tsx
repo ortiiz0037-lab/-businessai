@@ -10,7 +10,7 @@ export function PageHeader({ eyebrow, title, description, actions }: {
       <div className="min-w-0">
         {eyebrow && <p className="eyebrow">{eyebrow}</p>}
         <h1 className="page-title mt-2">{title}</h1>
-        {description && <p className="mt-2 max-w-2xl text-[15px] leading-6 text-stone-500">{description}</p>}
+        {description && <p className="mt-2 max-w-2xl text-[15px] leading-6 text-muted">{description}</p>}
       </div>
       {actions && <div className="flex flex-wrap gap-3">{actions}</div>}
     </div>
@@ -22,21 +22,21 @@ export function StatCard({ label, value, hint, icon, tone = 'neutral' }: {
   label: string; value: ReactNode; hint?: string; icon: IconName; tone?: 'neutral' | 'gold' | 'success' | 'warning'
 }) {
   const toneClass = {
-    neutral: 'bg-stone-100 text-ink-700',
-    gold: 'bg-gold-50 text-gold-700 ring-1 ring-inset ring-gold-200',
-    success: 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-100',
-    warning: 'bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-100',
+    neutral: 'bg-elevated text-slate-300',
+    gold: 'bg-electric/10 text-blue-400 ring-1 ring-inset ring-electric/30',
+    success: 'bg-success/10 text-green-300 ring-1 ring-inset ring-success/30',
+    warning: 'bg-warning/10 text-amber-300 ring-1 ring-inset ring-warning/30',
   }[tone]
   return (
     <div className="card p-4 sm:p-6">
       <div className="flex items-center justify-between gap-3">
-        <span className="text-[13px] font-semibold text-stone-500 sm:text-sm">{label}</span>
+        <span className="text-[13px] font-semibold text-muted sm:text-sm">{label}</span>
         <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg sm:h-10 sm:w-10 sm:rounded-xl ${toneClass}`}>
           <Icon name={icon} className="h-4 w-4 sm:h-5 sm:w-5" />
         </span>
       </div>
-      <p className="mt-4 text-xl font-bold tracking-tight text-ink-950 tabular-nums sm:mt-5 sm:text-3xl">{value}</p>
-      {hint && <p className="mt-1.5 text-xs text-stone-500 sm:mt-2">{hint}</p>}
+      <p className="mt-4 text-xl font-bold tracking-tight text-fg tabular-nums sm:mt-5 sm:text-3xl">{value}</p>
+      {hint && <p className="mt-1.5 text-xs text-muted sm:mt-2">{hint}</p>}
     </div>
   )
 }
@@ -47,11 +47,11 @@ export function EmptyState({ icon, title, description, action }: {
 }) {
   return (
     <div className="px-6 py-16 text-center">
-      <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-gold-50 text-gold-700 ring-1 ring-inset ring-gold-200">
+      <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-electric/10 text-blue-400 ring-1 ring-inset ring-electric/30">
         <Icon name={icon} className="h-6 w-6" />
       </span>
-      <h3 className="mt-5 text-base font-bold text-ink-950">{title}</h3>
-      {description && <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-stone-500">{description}</p>}
+      <h3 className="mt-5 text-base font-bold text-fg">{title}</h3>
+      {description && <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted">{description}</p>}
       {action && <div className="mt-6">{action}</div>}
     </div>
   )

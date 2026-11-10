@@ -8,7 +8,7 @@ export function SubmitButton({ children, variant = 'primary', pendingLabel = 'Un
   const { pending } = useFormStatus()
   return (
     <button type="submit" disabled={pending} aria-busy={pending}
-      className={`${variant === 'gold' ? 'btn-gold' : 'btn-primary'} btn-lg ${className}`}>
+      className={`${variant === 'gold' ? 'btn-accent' : 'btn-primary'} btn-lg ${className}`}>
       {pending && <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden="true" />}
       {pending ? pendingLabel : children}
     </button>

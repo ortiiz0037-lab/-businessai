@@ -11,11 +11,11 @@ export default async function OnboardingPage() {
   return (
     <div className="mx-auto max-w-lg py-6 sm:py-12">
       <div className="card overflow-hidden">
-        <div className="card-dark rounded-none border-0 px-7 py-8 shadow-none sm:px-9">
-          <span className="flex h-12 w-12 items-center justify-center rounded-xl border border-gold-400/30 bg-gold-400/10 text-gold-300">
+        <div className="card-hero rounded-none border-0 px-7 py-8 shadow-none sm:px-9">
+          <span className="flex h-12 w-12 items-center justify-center rounded-xl border border-electric/30 bg-brand/10 text-accent">
             <Icon name="building" />
           </span>
-          <p className="mt-6 text-[11px] font-bold uppercase tracking-[0.22em] text-gold-300">Paso 1 de 2</p>
+          <p className="mt-6 text-[11px] font-bold uppercase tracking-[0.22em] text-accent">Paso 1 de 2</p>
           <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight">Crea tu empresa</h1>
           <p className="mt-2 text-sm leading-6 text-white/60">
             Después elegirás tu plan. Podrás completar el logo, los datos y la firma en «Mi empresa».

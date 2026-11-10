@@ -37,6 +37,9 @@ const PATHS = {
   globe: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM3 12h18M12 3c2.5 2.5 3.8 5.5 3.8 9s-1.3 6.5-3.8 9c-2.5-2.5-3.8-5.5-3.8-9S9.5 5.5 12 3Z',
   info: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM12 11v5M12 8h.01',
   alert: 'M12 4 2.5 20h19L12 4ZM12 10v4M12 17h.01',
+  bell: 'M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0',
+  zap: 'M13 2 3 14h9l-1 8 10-12h-9l1-8Z',
+  chevronDown: 'M6 9l6 6 6-6',
 } as const
 
 export type IconName = keyof typeof PATHS

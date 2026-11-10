@@ -22,7 +22,7 @@ export default async function SignUpPage({ searchParams }: { searchParams: Promi
     <AuthCard title={t.signup.title} subtitle={t.signup.subtitle} copy={t} lang={locale} langHref={langHref}
       footer={
         <div className="space-y-3">
-          <p>{t.signup.haveAccount} <Link href={login} className="font-semibold text-ink-950 underline decoration-gold-400 underline-offset-4">{t.signup.login}</Link></p>
+          <p>{t.signup.haveAccount} <Link href={login} className="font-semibold text-fg underline decoration-blue-400 underline-offset-4">{t.signup.login}</Link></p>
           <p className="text-xs">
             {t.signup.legal[0]}<Link href="/terminos" className="underline">{t.signup.legal[1]}</Link>
             {t.signup.legal[2]}<Link href="/privacidad" className="underline">{t.signup.legal[3]}</Link>.
@@ -30,7 +30,7 @@ export default async function SignUpPage({ searchParams }: { searchParams: Promi
         </div>
       }>
       {chosen && chosenName && (
-        <div role="status" className="mb-6 flex items-start justify-between gap-3 rounded-2xl border border-gold-200 bg-gold-50 p-4 text-sm text-gold-900">
+        <div role="status" className="mb-6 flex items-start justify-between gap-3 rounded-2xl border border-electric/30 bg-electric/10 p-4 text-sm text-blue-200">
           <p>{t.signup.chosen(chosenName, TRIAL_DAYS)}</p>
           <Link href={locale === 'en' ? '/?lang=en#pricing' : '/precios'} className="shrink-0 font-semibold underline underline-offset-4">{t.signup.change}</Link>
         </div>

@@ -91,11 +91,11 @@ export default async function DocumentsPage() {
   return (
     <div className="space-y-8">
       {/* HERO */}
-      <section className="card-dark px-6 py-8 sm:px-8 sm:py-10 lg:px-10">
+      <section className="card-hero px-6 py-8 sm:px-8 sm:py-10 lg:px-10">
         <div className="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
           <div className="max-w-2xl">
-            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-gold-400/25 bg-gold-400/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.2em] text-gold-200">
-              <span className="h-1.5 w-1.5 rounded-full bg-gold-300" />
+            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-electric/25 bg-brand/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.2em] text-accent">
+              <span className="h-1.5 w-1.5 rounded-full bg-electric" />
               Documentos inteligentes
             </div>
 
@@ -111,7 +111,7 @@ export default async function DocumentsPage() {
 
           <Link
             href="#crear-documento"
-            className="btn-gold btn-lg"
+            className="btn-accent btn-lg"
           >
             <Icon name="plus" className="h-4 w-4" /> Nuevo documento
           </Link>
@@ -122,11 +122,11 @@ export default async function DocumentsPage() {
       <section id="crear-documento">
         <div className="mb-5">
           <p className="eyebrow">Nuevo</p>
-          <h2 className="mt-1.5 font-display text-2xl font-semibold tracking-tight text-ink-950">
+          <h2 className="mt-1.5 font-display text-2xl font-semibold tracking-tight text-fg">
             Crear un documento
           </h2>
 
-          <p className="mt-1 text-sm text-stone-500">
+          <p className="mt-1 text-sm text-muted">
             Selecciona el tipo de documento que necesitas.
           </p>
         </div>
@@ -139,20 +139,20 @@ export default async function DocumentsPage() {
               className="card-interactive group p-6"
             >
               <div className="flex items-start justify-between">
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-ink-950 text-gold-300 transition group-hover:bg-gold-400 group-hover:text-ink-950">
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-app-2 text-accent transition group-hover:bg-brand group-hover:text-fg">
                   <Icon name={documentIcon(item.type)} />
                 </div>
 
-                <span className="inline-flex items-center gap-1 text-sm font-semibold text-stone-400 transition group-hover:text-gold-700">
+                <span className="inline-flex items-center gap-1 text-sm font-semibold text-slate-500 transition group-hover:text-blue-400">
                   Crear <Icon name="arrowRight" className="h-4 w-4 transition group-hover:translate-x-0.5" />
                 </span>
               </div>
 
-              <h3 className="mt-5 text-lg font-bold text-ink-950">
+              <h3 className="mt-5 text-lg font-bold text-fg">
                 {item.title}
               </h3>
 
-              <p className="mt-2 text-sm leading-6 text-stone-500">
+              <p className="mt-2 text-sm leading-6 text-muted">
                 {item.description}
               </p>
             </Link>
@@ -165,11 +165,11 @@ export default async function DocumentsPage() {
         <div className="mb-4 flex items-end justify-between gap-4">
           <div>
             <p className="eyebrow">Actividad</p>
-            <h2 className="mt-1.5 font-display text-2xl font-semibold tracking-tight text-ink-950">
+            <h2 className="mt-1.5 font-display text-2xl font-semibold tracking-tight text-fg">
               Documentos recientes
             </h2>
 
-            <p className="mt-1 text-sm text-stone-500">
+            <p className="mt-1 text-sm text-muted">
               Los documentos que hayas creado aparecerán aquí.
             </p>
           </div>
@@ -180,16 +180,16 @@ export default async function DocumentsPage() {
         </div>
 
         {documents.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-gold-300/60 bg-gold-50/30 p-10 text-center">
-            <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-gold-50 text-gold-700 ring-1 ring-inset ring-gold-200">
+          <div className="rounded-2xl border border-dashed border-electric/60 bg-electric/30 p-10 text-center">
+            <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-electric/10 text-blue-400 ring-1 ring-inset ring-electric/30">
               <Icon name="file" className="h-6 w-6" />
             </span>
 
-            <h3 className="mt-4 font-semibold text-ink-800">
+            <h3 className="mt-4 font-semibold text-fg">
               Todavía no tienes documentos
             </h3>
 
-            <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-stone-500">
+            <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted">
               Crea tu primera factura, cotización, recibo u otro documento
               comercial utilizando las opciones de arriba.
             </p>
@@ -203,25 +203,25 @@ export default async function DocumentsPage() {
           </div>
         ) : (
           <div className="card overflow-hidden">
-            <div className="divide-y divide-stone-100">
+            <div className="divide-y divide-line">
               {documents.map((document) => (
                 <Link
                   key={document.id}
                   href={`/documents/${document.id}`}
-                  className="group block transition hover:bg-gold-50/40"
+                  className="group block transition hover:bg-electric/40"
                 >
                   <div className="flex items-center justify-between gap-4 p-5">
                     <div className="flex min-w-0 items-center gap-4">
-                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-stone-100 text-ink-700 transition group-hover:bg-ink-950 group-hover:text-gold-300">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-elevated text-slate-300 transition group-hover:bg-app-2 group-hover:text-accent">
                         <Icon name={documentIcon(document.document_type)} />
                       </div>
 
                       <div className="min-w-0">
-                        <p className="truncate font-semibold text-ink-900">
+                        <p className="truncate font-semibold text-fg">
                           {document.title || typeLabel(document.document_type)}
                         </p>
 
-                        <p className="mt-1 text-sm text-stone-500">
+                        <p className="mt-1 text-sm text-muted">
                           {typeLabel(document.document_type)}
                         </p>
                       </div>
@@ -230,7 +230,7 @@ export default async function DocumentsPage() {
                     <div className="flex shrink-0 items-center gap-4">
                       <span className="hidden sm:inline-flex"><StatusBadge status={document.status} /></span>
                       <div className="text-right">
-                        <p className="font-bold tabular-nums text-ink-950">
+                        <p className="font-bold tabular-nums text-fg">
                           {formatMoney(document.total)}
                         </p>
                         <p className="mt-1 sm:hidden"><StatusBadge status={document.status} /></p>
@@ -246,14 +246,14 @@ export default async function DocumentsPage() {
 
       {/* BUSINESSAI */}
       <section className="card overflow-hidden">
-        <div className="card-dark rounded-none border-0 px-6 py-8 shadow-none sm:px-8">
+        <div className="card-hero rounded-none border-0 px-6 py-8 shadow-none sm:px-8">
           <div className="relative">
             <div className="mb-3 flex items-center gap-2">
-              <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-gold-400/30 bg-gold-400/10 text-gold-300">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-electric/30 bg-brand/10 text-accent">
                 <Icon name="sparkle" className="h-4 w-4" />
               </span>
 
-              <span className="text-[11px] font-bold uppercase tracking-[0.22em] text-gold-300">
+              <span className="text-[11px] font-bold uppercase tracking-[0.22em] text-accent">
                 Próximamente
               </span>
             </div>
@@ -267,7 +267,7 @@ export default async function DocumentsPage() {
               documentos utilizando la información de tu empresa y tus clientes.
             </p>
 
-            <div className="mt-6 max-w-2xl rounded-2xl border border-white/10 bg-white/5 p-5">
+            <div className="mt-6 max-w-2xl rounded-2xl border border-white/10 bg-card/5 p-5">
               <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-white/40">
                 Ejemplo
               </p>

@@ -1,9 +1,9 @@
 import type { Metadata, Viewport } from 'next'
-import { Manrope, Playfair_Display } from 'next/font/google'
+import { Manrope, Sora } from 'next/font/google'
 import './globals.css'
 
 const manrope = Manrope({ subsets: ['latin'], variable: '--font-manrope', display: 'swap' })
-const playfair = Playfair_Display({ subsets: ['latin'], variable: '--font-playfair', weight: ['500', '600', '700'], display: 'swap' })
+const sora = Sora({ subsets: ['latin'], variable: '--font-sora', weight: ['500', '600', '700'], display: 'swap' })
 
 export const metadata: Metadata = {
   title: 'BusinessAI',
@@ -11,15 +11,15 @@ export const metadata: Metadata = {
 }
 
 export const viewport: Viewport = {
-  themeColor: '#0a0a0c',
+  themeColor: '#070b14',
   // Full-bleed on iPhone (notch / home indicator handled with safe-area insets).
   viewportFit: 'cover',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="es" className={`${manrope.variable} ${playfair.variable}`}>
-      <body className="bg-canvas font-sans text-ink-900 antialiased">{children}</body>
+    <html lang="es" className={`${manrope.variable} ${sora.variable}`}>
+      <body className="bg-app font-sans text-fg antialiased">{children}</body>
     </html>
   )
 }

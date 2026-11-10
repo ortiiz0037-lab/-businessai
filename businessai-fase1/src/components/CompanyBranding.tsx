@@ -140,8 +140,8 @@ export default function CompanyBranding({
     <section className="card space-y-6 p-6 sm:p-8">
       <div>
         <p className="eyebrow">Marca</p>
-        <h2 className="mt-1.5 font-display text-2xl font-semibold tracking-tight text-ink-950">Imagen de la empresa</h2>
-        <p className="text-sm text-stone-500">
+        <h2 className="mt-1.5 font-display text-2xl font-semibold tracking-tight text-fg">Imagen de la empresa</h2>
+        <p className="text-sm text-muted">
           Sube el logo y la firma que aparecerán en tus documentos (PNG, JPG o WEBP).
         </p>
       </div>
@@ -162,9 +162,9 @@ export default function CompanyBranding({
       )}
 
       <div className="grid gap-5 md:grid-cols-2">
-      <div className="space-y-3 rounded-2xl border border-stone-200 bg-stone-50/60 p-5">
-        <h3 className="font-bold text-ink-950">Logo de la empresa</h3>
-        <p className="text-xs text-stone-500">
+      <div className="space-y-3 rounded-2xl border border-line bg-white/60 p-5">
+        <h3 className="font-bold text-fg">Logo de la empresa</h3>
+        <p className="text-xs text-muted">
           El logo es público: lo verá cualquier persona que reciba tus documentos. Máximo 5 MB.
         </p>
 
@@ -172,7 +172,7 @@ export default function CompanyBranding({
           <img
             src={logo}
             alt="Logo de la empresa"
-            className="max-h-32 max-w-48 rounded-xl border border-stone-200 bg-white object-contain p-2"
+            className="max-h-32 max-w-48 rounded-xl border border-line bg-card object-contain p-2"
           />
         )}
 
@@ -180,16 +180,16 @@ export default function CompanyBranding({
           type="file"
           accept={ACCEPT}
           disabled={loading}
-          className="block w-full text-sm text-stone-600 file:mr-4 file:rounded-xl file:border-0 file:bg-ink-950 file:px-4 file:py-2.5 file:text-sm file:font-semibold file:text-white hover:file:bg-ink-800"
+          className="block w-full text-sm text-slate-400 file:mr-4 file:rounded-xl file:border-0 file:bg-app-2 file:px-4 file:py-2.5 file:text-sm file:font-semibold file:text-white hover:file:bg-elevated"
           onChange={(event) =>
             subirArchivo(event.target.files?.[0], 'logo')
           }
         />
       </div>
 
-      <div className="space-y-3 rounded-2xl border border-stone-200 bg-stone-50/60 p-5">
-        <h3 className="font-bold text-ink-950">Firma para documentos</h3>
-        <p className="text-xs text-stone-500">
+      <div className="space-y-3 rounded-2xl border border-line bg-white/60 p-5">
+        <h3 className="font-bold text-fg">Firma para documentos</h3>
+        <p className="text-xs text-muted">
           La firma se guarda de forma privada y solo se muestra a miembros de tu
           empresa mediante enlaces temporales. Máximo 2 MB.
         </p>
@@ -205,7 +205,7 @@ export default function CompanyBranding({
           <img
             src={signature}
             alt="Firma de la empresa"
-            className="max-h-32 max-w-48 rounded-xl border border-stone-200 bg-white object-contain p-2"
+            className="max-h-32 max-w-48 rounded-xl border border-line bg-card object-contain p-2"
           />
         )}
 
@@ -213,7 +213,7 @@ export default function CompanyBranding({
           type="file"
           accept={ACCEPT}
           disabled={loading}
-          className="block w-full text-sm text-stone-600 file:mr-4 file:rounded-xl file:border-0 file:bg-ink-950 file:px-4 file:py-2.5 file:text-sm file:font-semibold file:text-white hover:file:bg-ink-800"
+          className="block w-full text-sm text-slate-400 file:mr-4 file:rounded-xl file:border-0 file:bg-app-2 file:px-4 file:py-2.5 file:text-sm file:font-semibold file:text-white hover:file:bg-elevated"
           onChange={(event) =>
             subirArchivo(event.target.files?.[0], 'signature')
           }

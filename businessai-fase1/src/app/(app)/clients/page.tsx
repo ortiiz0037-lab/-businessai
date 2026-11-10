@@ -109,10 +109,10 @@ export default async function ClientsPage({
 
   return (
     <div className="space-y-6">
-      <section className="card-dark px-6 py-8 sm:px-10 sm:py-10">
+      <section className="card-hero px-6 py-8 sm:px-10 sm:py-10">
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
-            <p className="text-sm font-medium text-stone-300">
+            <p className="text-sm font-medium text-slate-600">
               Clientes
             </p>
 
@@ -120,15 +120,15 @@ export default async function ClientsPage({
               Tus clientes, organizados en un solo lugar.
             </h1>
 
-            <p className="mt-2 max-w-2xl text-sm text-stone-300">
+            <p className="mt-2 max-w-2xl text-sm text-slate-600">
               Guarda la información de tus clientes y úsala después para
               preparar cotizaciones, facturas, documentos y seguimiento de
               cobros.
             </p>
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-white/[0.06] px-6 py-5">
-            <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-gold-300">
+          <div className="rounded-2xl border border-white/10 bg-card/[0.06] px-6 py-5">
+            <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-accent">
               Clientes registrados
             </p>
             <p className="mt-1 font-display text-4xl font-semibold">
@@ -175,11 +175,11 @@ export default async function ClientsPage({
         <section className="card p-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h2 className="text-lg font-semibold text-ink-900">
+              <h2 className="text-lg font-semibold text-fg">
                 Mis clientes
               </h2>
 
-              <p className="mt-1 text-sm text-stone-500">
+              <p className="mt-1 text-sm text-muted">
                 Busca y administra los clientes de tu empresa.
               </p>
             </div>
@@ -210,24 +210,24 @@ export default async function ClientsPage({
                 No se pudieron cargar los clientes.
               </div>
             ) : clients && clients.length > 0 ? (
-              <div className="min-w-[700px] divide-y divide-stone-100">
+              <div className="min-w-[700px] divide-y divide-line">
                 {clients.map((client) => (
                   <div
                     key={client.id}
                     className="flex items-center justify-between gap-4 py-4"
                   >
                     <div className="min-w-0">
-                      <p className="truncate font-semibold text-ink-900">
+                      <p className="truncate font-semibold text-fg">
                         {client.name}
                       </p>
 
                       {client.business_name && (
-                        <p className="truncate text-sm text-stone-500">
+                        <p className="truncate text-sm text-muted">
                           {client.business_name}
                         </p>
                       )}
 
-                      <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-stone-400">
+                      <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
                         {client.email && <span>{client.email}</span>}
                         {client.phone && <span>{client.phone}</span>}
                         {client.city && <span>{client.city}</span>}
@@ -243,14 +243,14 @@ export default async function ClientsPage({
                 ))}
               </div>
             ) : (
-              <div className="rounded-2xl border border-dashed border-gold-300/60 bg-gold-50/30 px-6 py-12 text-center">
-                <p className="font-semibold text-ink-900">
+              <div className="rounded-2xl border border-dashed border-electric/60 bg-electric/30 px-6 py-12 text-center">
+                <p className="font-semibold text-fg">
                   {query
                     ? 'No encontramos clientes.'
                     : 'Todavía no tienes clientes.'}
                 </p>
 
-                <p className="mt-1 text-sm text-stone-500">
+                <p className="mt-1 text-sm text-muted">
                   {query
                     ? 'Prueba con otro nombre, teléfono o correo.'
                     : 'Agrega tu primer cliente usando el formulario.'}
@@ -260,16 +260,16 @@ export default async function ClientsPage({
           </div>
         </section>
 
-        <section className="card p-6">
+        <section id="nuevo-cliente" className="card scroll-mt-24 p-6">
           <p className="eyebrow">
             Nuevo cliente
           </p>
 
-          <h2 className="mt-1.5 font-display text-2xl font-semibold text-ink-950">
+          <h2 className="mt-1.5 font-display text-2xl font-semibold text-fg">
             Agregar cliente
           </h2>
 
-          <p className="mt-2 text-sm text-stone-500">
+          <p className="mt-2 text-sm text-muted">
             Una vez guardado, BusinessAI podrá reutilizar estos datos en
             documentos y procesos administrativos.
           </p>
