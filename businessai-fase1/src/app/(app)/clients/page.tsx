@@ -3,6 +3,7 @@ import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { BILLING_ERROR_MESSAGE, billingErrorCode } from '@/lib/billing/state'
 import { fetchUsage, isBlocked, usageNotice } from '@/lib/billing/usage'
+import { activeCompanyRow } from '@/lib/active-company'
 
 async function getCompanyId() {
   const supabase = await createClient()
@@ -15,12 +16,7 @@ async function getCompanyId() {
     redirect('/login')
   }
 
-  const { data: membership } = await supabase
-    .from('memberships')
-    .select('company_id')
-    .eq('user_id', user.id)
-    .limit(1)
-    .maybeSingle()
+  const membership = await activeCompanyRow(supabase, user.id)
 
   if (!membership?.company_id) {
     redirect('/onboarding')

@@ -45,19 +45,20 @@ export async function fetchUsage(supabase: RpcClient, companyId: string): Promis
   }
 }
 
-const LABEL: Record<UsageMetric, string> = {
-  clients: 'clientes',
-  documents: 'documentos de este periodo',
-  members: 'usuarios',
+type Locale = 'es' | 'en'
+
+const LABEL: Record<Locale, Record<UsageMetric, string>> = {
+  es: { clients: 'clientes', documents: 'documentos de este periodo', members: 'usuarios' },
+  en: { clients: 'clients', documents: 'documents this period', members: 'users' },
 }
 
 const RANK: Record<UsageLevel, number> = { unlimited: 0, ok: 0, warning: 1, upgrade: 2, blocked: 3 }
 
-function resetText(row: UsageRow) {
+function resetText(row: UsageRow, locale: Locale = 'es') {
   if (!row.resets_at) return ''
-  const d = new Intl.DateTimeFormat('es-PR', { day: 'numeric', month: 'long', timeZone: 'America/Puerto_Rico' })
+  const d = new Intl.DateTimeFormat(locale === 'en' ? 'en-US' : 'es-PR', { day: 'numeric', month: 'long', timeZone: 'America/Puerto_Rico' })
     .format(new Date(row.resets_at))
-  return ` El contador se reinicia el ${d}.`
+  return locale === 'en' ? ` The counter resets on ${d}.` : ` El contador se reinicia el ${d}.`
 }
 
 export type UsageNotice = {
@@ -69,9 +70,25 @@ export type UsageNotice = {
 }
 
 /** Message for one metric, or null when below the first threshold. */
-export function usageNotice(row: UsageRow | undefined): UsageNotice | null {
+export function usageNotice(row: UsageRow | undefined, locale: Locale = 'es'): UsageNotice | null {
   if (!row || row.max_allowed === null) return null
-  const what = LABEL[row.metric]
+  const what = LABEL[locale][row.metric]
+  if (locale === 'en') {
+    const amount = `${row.used} of ${row.max_allowed} ${what}`
+    switch (row.level) {
+      case 'warning':
+        return { level: 'warning', metric: row.metric, offerUpgrade: false,
+                 text: `You have used ${row.percent}% of your plan: ${amount}.${resetText(row, locale)}` }
+      case 'upgrade':
+        return { level: 'upgrade', metric: row.metric, offerUpgrade: true,
+                 text: `You are close to the limit (${row.percent}%): ${amount}. Upgrade your plan to keep growing.${resetText(row, locale)}` }
+      case 'blocked':
+        return { level: 'blocked', metric: row.metric, offerUpgrade: true,
+                 text: `You reached your plan limit: ${amount}. You cannot create more until you upgrade.${row.metric === 'documents' ? resetText(row, locale) : ''} Your data is not changed.` }
+      default:
+        return null
+    }
+  }
   const amount = `${row.used} de ${row.max_allowed} ${what}`
   switch (row.level) {
     case 'warning':
@@ -89,9 +106,9 @@ export function usageNotice(row: UsageRow | undefined): UsageNotice | null {
 }
 
 /** The most severe notice across metrics (for the app-wide banner). */
-export function strongestNotice(rows: UsageRow[]): UsageNotice | null {
+export function strongestNotice(rows: UsageRow[], locale: Locale = 'es'): UsageNotice | null {
   return rows
-    .map(usageNotice)
+    .map((r) => usageNotice(r, locale))
     .filter((n): n is UsageNotice => n !== null)
     .sort((a, b) => RANK[b.level] - RANK[a.level])[0] ?? null
 }

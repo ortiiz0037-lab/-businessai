@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { Icon } from '@/components/ui/icon'
 import { StatusBadge, documentIcon } from '@/components/ui/status'
+import { activeCompanyRow } from '@/lib/active-company'
 
 type DocumentRow = {
   id: string
@@ -68,12 +69,7 @@ export default async function DocumentsPage() {
     return null
   }
 
-  const { data: membership } = await supabase
-    .from('memberships')
-    .select('company_id')
-    .eq('user_id', user.id)
-    .limit(1)
-    .maybeSingle()
+  const membership = await activeCompanyRow(supabase, user.id)
 
   const companyId = membership?.company_id
 

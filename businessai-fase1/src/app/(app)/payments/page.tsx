@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { EmptyState, PageHeader, StatCard } from '@/components/ui/page'
 import { createClient } from '@/lib/supabase/server'
+import { activeCompanyRow } from '@/lib/active-company'
 
 type LinkedDocument = {
   id: string
@@ -31,13 +32,7 @@ export default async function PaymentsPage() {
 
   if (!user) redirect('/login')
 
-  const { data: member } = await supabase
-    .from('memberships')
-    .select('company_id')
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle()
+  const member = await activeCompanyRow(supabase, user.id)
 
   if (!member?.company_id) redirect('/dashboard')
 

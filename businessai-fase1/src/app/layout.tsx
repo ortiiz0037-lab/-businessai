@@ -12,6 +12,8 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: '#0a0a0c',
+  // Full-bleed on iPhone (notch / home indicator handled with safe-area insets).
+  viewportFit: 'cover',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

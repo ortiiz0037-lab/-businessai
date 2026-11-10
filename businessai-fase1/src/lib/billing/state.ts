@@ -97,9 +97,10 @@ export const BILLING_ERROR_MESSAGE: Record<'billing' | 'limit_clients' | 'limit_
 }
 
 /** Banner shown in the app layout, or null when nothing needs attention. */
-export function billingBanner(state: BillingState | null, now: Date = new Date()):
+export function billingBanner(state: BillingState | null, now: Date = new Date(), locale: 'es' | 'en' = 'es'):
   { tone: 'info' | 'warning' | 'danger'; text: string } | null {
   if (!state) return null
+  if (locale === 'en') return billingBannerEn(state, now)
   switch (state.state) {
     case 'none':
       return state.trial_eligible
@@ -121,5 +122,30 @@ export function billingBanner(state: BillingState | null, now: Date = new Date()
         : null
     default:
       return { tone: 'danger', text: 'Modo solo lectura: activa un plan para crear clientes y documentos.' }
+  }
+}
+
+function billingBannerEn(state: BillingState, now: Date): { tone: 'info' | 'warning' | 'danger'; text: string } | null {
+  switch (state.state) {
+    case 'none':
+      return state.trial_eligible
+        ? { tone: 'info', text: `Choose a plan to start your ${state.trial_days ?? 7}-day free trial. A card is required, but nothing is charged during the trial.` }
+        : { tone: 'danger', text: 'Read-only mode: choose a plan to create clients and documents.' }
+    case 'trialing': {
+      const days = daysLeft(state.trial_ends_at, now)
+      if (state.cancel_at_period_end) {
+        return { tone: 'info', text: 'You cancelled during the trial: you will not be charged and access ends when the trial ends.' }
+      }
+      return { tone: days !== null && days <= 2 ? 'warning' : 'info',
+               text: `Free trial: ${days === 1 ? '1 day left' : `${days ?? 0} days left`}. The first charge happens when the trial ends.` }
+    }
+    case 'past_due':
+      return { tone: 'warning', text: 'We could not charge your subscription. Update your payment method to keep access.' }
+    case 'active':
+      return state.cancel_at_period_end
+        ? { tone: 'info', text: 'Your subscription will be cancelled at the end of the current period.' }
+        : null
+    default:
+      return { tone: 'danger', text: 'Read-only mode: activate a plan to create clients and documents.' }
   }
 }

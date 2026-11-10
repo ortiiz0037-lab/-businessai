@@ -2,6 +2,7 @@ import CompanyBranding from '@/components/CompanyBranding'
 import { getSignatureDisplayUrl } from '@/lib/branding-assets'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { activeCompanyRow } from '@/lib/active-company'
 
 /** Texto opcional: vacío → null (la BD exige null o 2–160 caracteres en legal_name). */
 function optionalText(formData: FormData, key: string): string | null {
@@ -35,13 +36,7 @@ export async function saveCompanyProfile(formData: FormData) {
     redirect('/settings/company?error=missing_name')
   }
 
-  const { data: membership } = await supabase
-    .from('memberships')
-    .select('company_id')
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle()
+  const membership = await activeCompanyRow(supabase, user.id)
 
   if (!membership?.company_id) {
     redirect('/onboarding')
@@ -99,13 +94,7 @@ export default async function CompanySettingsPage({
     redirect('/login')
   }
 
-  const { data: membership } = await supabase
-    .from('memberships')
-    .select('company_id')
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle()
+  const membership = await activeCompanyRow(supabase, user.id)
 
   if (!membership?.company_id) {
     redirect('/onboarding')
