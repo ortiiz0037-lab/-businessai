@@ -3,7 +3,8 @@
 -- permission catalog and memberships.status. Emergency use only.
 --
 -- Refuses to run (nothing changed) once E4 is in use: a suspended
--- membership or the invitations table means 0014b has been applied, and
+-- membership or the invitations table means a later team migration has
+-- been applied, and
 -- dropping memberships.status would silently re-activate suspended users.
 -- No business data is touched.
 begin;
@@ -11,7 +12,7 @@ set local lock_timeout = '5s';
 
 do $$ begin
   if to_regclass('public.invitations') is not null then
-    raise exception 'BA0014a rollback: 0014b is applied (public.invitations exists); roll it back first. Nothing was changed.';
+    raise exception 'BA0014a rollback: the team invitations migration is applied (public.invitations exists); roll it back first. Nothing was changed.';
   end if;
   if exists (select 1 from information_schema.columns
              where table_schema = 'public' and table_name = 'memberships' and column_name = 'status')

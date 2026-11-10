@@ -247,10 +247,18 @@ describe('migrations: order, identifiers and transactions (apply-migrations.sh)'
     expect([...order].sort()).toEqual(files)
     expect(new Set(order).size).toBe(order.length)
   })
-  it('0014a_permissions is recognised and runs right after 0011, last', () => {
+  it('0014a_permissions is recognised and runs right after 0011', () => {
     expect(order).toContain('0014a_permissions')
     expect(order.indexOf('0014a_permissions')).toBe(order.indexOf('0011_usage_limits') + 1)
-    expect(order.at(-1)).toBe('0014a_permissions')
+  })
+  it('numbering (docs/MIGRATIONS.md): from 0010 on, ORDER is the file-name order, strictly increasing, appended at the end', () => {
+    const recent = order.slice(order.indexOf('0010_billing'))
+    expect(recent).toEqual([...recent].sort())
+    const nums = recent.map((n) => n.slice(0, 5))
+    expect(new Set(nums).size).toBe(nums.length)
+    // Retired reservations: never reuse a suffix letter after 0014a.
+    for (const name of order.slice(order.indexOf('0014a_permissions') + 1)) expect(name, name).toMatch(/^\d{4}_[a-z0-9_]+$/)
+    expect(order.some((n) => /^(0012|0013|0014b)_/.test(n))).toBe(false)
   })
   it('identifiers are safe to store in ba_meta.applied_migrations', () => {
     for (const name of order) expect(name, name).toMatch(/^\d{4}[a-z]?_[a-z0-9_]+$/)

@@ -19,6 +19,7 @@ seguridad encima de lo que existe.
 | `migrations/0010_billing.sql` | Planes, prueba de 7 días con tarjeta (Stripe), una prueba por empresa, estado de facturación, límites | **No — borrador; primero en staging** |
 | `migrations/0011_usage_limits.sql` | Avisos 80 % / 90 %, bloqueo al 100 %, reinicio mensual, límite de usuarios (requiere 0010) | **No — borrador; primero en staging** |
 | `migrations/0014a_permissions.sql` | Fundación de permisos: catálogo cerrado, matriz por rol idéntica a la actual, `memberships.status`, `has_permission()`, las 24 políticas RLS/Storage reescritas sin cambiar comportamiento (requiere 0011). Reversión: `rollback/0014a_rollback.sql` | **No — borrador; primero en staging** |
+| Numeración | Regla y siguiente número libre (0015): `docs/MIGRATIONS.md` | — |
 | `rollback/00xx_rollback.sql` | Vuelta exacta al estado inspeccionado, por migración | Solo emergencias |
 | `RUNBOOK.md` | Respaldo, orden de ejecución, verificación y recuperación | — |
 | `inspect/verify_after_migrations.sql` | Verificación de solo lectura tras cada paso | — |
