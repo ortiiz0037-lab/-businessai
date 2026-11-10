@@ -112,7 +112,7 @@ export default async function ClientsPage({
       <section className="card-hero px-6 py-8 sm:px-10 sm:py-10">
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
-            <p className="text-sm font-medium text-slate-600">
+            <p className="text-sm font-medium text-muted">
               Clientes
             </p>
 
@@ -120,7 +120,7 @@ export default async function ClientsPage({
               Tus clientes, organizados en un solo lugar.
             </h1>
 
-            <p className="mt-2 max-w-2xl text-sm text-slate-600">
+            <p className="mt-2 max-w-2xl text-sm text-muted">
               Guarda la información de tus clientes y úsala después para
               preparar cotizaciones, facturas, documentos y seguimiento de
               cobros.
@@ -171,8 +171,8 @@ export default async function ClientsPage({
         </div>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
-        <section className="card p-6">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1.4fr_1fr]">
+        <section className="card min-w-0 p-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h2 className="text-lg font-semibold text-fg">
@@ -210,7 +210,7 @@ export default async function ClientsPage({
                 No se pudieron cargar los clientes.
               </div>
             ) : clients && clients.length > 0 ? (
-              <div className="min-w-[700px] divide-y divide-line">
+              <div className="divide-y divide-line">
                 {clients.map((client) => (
                   <div
                     key={client.id}
@@ -243,7 +243,7 @@ export default async function ClientsPage({
                 ))}
               </div>
             ) : (
-              <div className="rounded-2xl border border-dashed border-electric/60 bg-electric/30 px-6 py-12 text-center">
+              <div className="rounded-2xl border border-dashed border-electric/50 bg-electric/10 px-6 py-12 text-center">
                 <p className="font-semibold text-fg">
                   {query
                     ? 'No encontramos clientes.'
@@ -260,7 +260,7 @@ export default async function ClientsPage({
           </div>
         </section>
 
-        <section id="nuevo-cliente" className="card scroll-mt-24 p-6">
+        <section id="nuevo-cliente" className="card min-w-0 scroll-mt-24 p-6">
           <p className="eyebrow">
             Nuevo cliente
           </p>

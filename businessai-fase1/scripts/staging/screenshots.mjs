@@ -91,12 +91,15 @@ async function main() {
         // One page failing is recorded and does not stop the others.
         const shoot = async (path) => {
           errors.length = 0
-          const file = `${slug(path).replace(/_[0-9a-f]{8}_[0-9a-f-]+$/i, '_detail')}-${device}-${locale}.png`
+          const file = `${slug(path).replace(/_[0-9a-f]{8}(_[0-9a-f]{4}){3}_[0-9a-f]{12}$/i, '_detail')}-${device}-${locale}.png`
           const entry = { path: path.replace(/[0-9a-f-]{36}/i, ':id'), device, locale, status: 0, overflowPx: 0, consoleErrors: [], file, error: null }
           try {
             const res = await page.goto(base + path, { waitUntil: 'domcontentloaded', timeout: 60000 })
             await settle()
-            const [inner, scroll] = await page.evaluate(() => [innerWidth, document.documentElement.scrollWidth])
+            // Compare with the device width, not innerWidth: mobile emulation (like Safari) zooms out
+            // and widens the layout viewport when content is too wide, which would hide the overflow.
+            const inner = page.viewportSize()?.width ?? 0
+            const scroll = await page.evaluate(() => Math.max(innerWidth, document.documentElement.scrollWidth))
             await page.screenshot({ path: `${out}/${file}`, fullPage: true })
             Object.assign(entry, { status: res?.status() ?? 0, overflowPx: scroll - inner })
           } catch (e) {

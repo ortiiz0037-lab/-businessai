@@ -13,7 +13,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   const withLang = (href: string) => (locale === 'en' ? `${href}${href.includes('?') ? '&' : '?'}lang=en` : href)
   const params = new URLSearchParams()
   if (next) params.set('next', next)
-  if (locale === 'es') params.set('lang', 'en')
+  params.set('lang', locale === 'es' ? 'en' : 'es')
   const langHref = `/login${params.size ? `?${params}` : ''}`
 
   return (

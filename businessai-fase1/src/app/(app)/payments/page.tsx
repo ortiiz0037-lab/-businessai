@@ -109,12 +109,12 @@ export default async function PaymentsPage() {
             action={<Link className="btn-primary" href="/documents">Ir a documentos</Link>} />
         ) : (
           <div className="overflow-x-auto">
-            <table className="table-premium min-w-[640px]">
+            <table className="table-premium sm:min-w-[640px]">
               <thead>
                 <tr>
                   <th>Fecha</th>
                   <th>Documento</th>
-                  <th>Método</th>
+                  <th className="hidden sm:table-cell">Método</th>
                   <th className="text-right">Importe</th>
                 </tr>
               </thead>
@@ -138,8 +138,9 @@ export default async function PaymentsPage() {
                             {payment.document_id ? 'Documento no disponible' : 'Sin documento vinculado'}
                           </span>
                         )}
+                        <span className="mt-1.5 block sm:hidden"><span className="badge-neutral">{methodLabel(payment.payment_method)}</span></span>
                       </td>
-                      <td><span className="badge-neutral">{methodLabel(payment.payment_method)}</span></td>
+                      <td className="hidden sm:table-cell"><span className="badge-neutral">{methodLabel(payment.payment_method)}</span></td>
                       <td className="text-right font-bold tabular-nums text-fg">{usd(Number(payment.amount ?? 0))}</td>
                     </tr>
                   )

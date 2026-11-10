@@ -14,7 +14,7 @@ export default async function SignUpPage({ searchParams }: { searchParams: Promi
   const chosenName = chosen ? LANDING[locale].pricing.plans[chosen.plan].name : null
   const params = new URLSearchParams()
   if (chosen) params.set('plan', chosen.plan)
-  if (locale === 'es') params.set('lang', 'en')
+  params.set('lang', locale === 'es' ? 'en' : 'es')
   const langHref = `/signup${params.size ? `?${params}` : ''}`
   const login = locale === 'en' ? '/login?lang=en' : '/login'
 

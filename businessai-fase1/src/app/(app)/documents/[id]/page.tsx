@@ -1,3 +1,4 @@
+import { documentStatus } from '@/components/ui/status'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
@@ -495,7 +496,7 @@ export default async function DocumentDetailPage({
           <div className="flex flex-wrap items-center gap-2">
             <PrintButton />
 
-            <span className="badge-warning">
+            <span className={documentStatus(doc.status).className}>
               {statusLabel(doc.status)}
             </span>
 

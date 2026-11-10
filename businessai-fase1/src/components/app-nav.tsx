@@ -341,9 +341,9 @@ export function TopBar(props: ShellProps & { onMenu: () => void; onSearch: () =>
         <button type="button" onClick={props.onMenu} aria-controls="mobile-menu" className={`${iconBtn} lg:hidden`}>
           <Icon name="menu" label={copy.nav.openMenu} />
         </button>
-        <Link href="/dashboard" className="flex min-w-0 items-center gap-2 lg:hidden" aria-label="BusinessAI">
+        <Link href="/dashboard" className="flex shrink-0 items-center gap-2 lg:hidden" aria-label="BusinessAI">
           <BrandMark className="h-9 w-9 shrink-0 text-base" />
-          <span className="hidden truncate text-base font-extrabold tracking-tight text-fg sm:inline">Business<span className="bg-gradient-to-r from-electric to-accent bg-clip-text text-transparent">AI</span></span>
+          <span className="hidden whitespace-nowrap text-base font-extrabold tracking-tight text-fg sm:inline">Business<span className="bg-gradient-to-r from-electric to-accent bg-clip-text text-transparent">AI</span></span>
         </Link>
         <button type="button" onClick={props.onSearch}
           className="ml-auto hidden h-10 w-full max-w-md items-center gap-3 rounded-xl border border-line bg-card/70 px-3.5 text-left text-sm text-slate-500 transition hover:border-slate-500/70 hover:text-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/80 md:flex lg:ml-0">
@@ -405,7 +405,7 @@ export function AppShell(props: ShellProps & { children: React.ReactNode }) {
           </div>
           <div className="divider-glow relative mx-auto w-[calc(100%-3rem)] opacity-50" />
           <nav className="relative flex-1 overflow-y-auto px-4 py-6">
-            <p className="mb-3 px-3.5 text-[10px] font-bold uppercase tracking-[0.24em] text-slate-600">{copy.nav.menu}</p>
+            <p className="mb-3 px-3.5 text-[10px] font-bold uppercase tracking-[0.24em] text-slate-500">{copy.nav.menu}</p>
             <NavLinks items={items} />
           </nav>
           <div className="relative border-t border-line/80 p-4">

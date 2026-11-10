@@ -33,7 +33,7 @@ export default async function HomePage({ searchParams }: Props) {
   const prices = await loadPrices(PLAN_CATALOG.map((p) => p.lookupKey))
   const signedIn = Boolean(user)
   const q = locale === 'en' ? '?lang=en' : ''
-  const links = { signup: `/signup${q}`, login: `/login${q}`, other: locale === 'es' ? '/?lang=en' : '/' }
+  const links = { signup: `/signup${q}`, login: `/login${q}`, other: locale === 'es' ? '/?lang=en' : '/?lang=es' }
 
   return (
     <div lang={copy.htmlLang} className="min-h-screen bg-app text-fg">
@@ -178,7 +178,7 @@ export default async function HomePage({ searchParams }: Props) {
       <footer className="border-t border-line bg-card">
         <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-10 text-sm text-muted sm:px-6 md:flex-row md:items-center md:justify-between">
           <div className="flex items-start gap-4">
-            <Brand href={links.other === '/' ? '/?lang=en' : '/'} />
+            <Brand href={locale === 'en' ? '/?lang=en' : '/'} />
           </div>
           <div className="md:text-right">
             <nav aria-label="Legal" className="flex flex-wrap gap-x-5 gap-y-2 md:justify-end">
@@ -198,11 +198,11 @@ function Header({ copy, signedIn, links }: { copy: LandingCopy; signedIn: boolea
   return (
     <header className="sticky top-0 z-40 border-b border-white/10 bg-app-2/90 text-white backdrop-blur-xl">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3.5 sm:px-6">
-        <Brand href={links.other === '/' ? '/?lang=en' : '/'} tone="light" />
+        <Brand href={links.other === '/?lang=es' ? '/?lang=en' : '/'} tone="light" />
         <nav aria-label={copy.nav.features} className="flex items-center gap-1 text-sm font-semibold">
           <a href="#features" className="hidden rounded-lg px-3 py-2 text-white/65 hover:text-white md:inline">{copy.nav.features}</a>
           <a href="#pricing" className="hidden rounded-lg px-3 py-2 text-white/65 hover:text-white md:inline">{copy.nav.pricing}</a>
-          <Link href={links.other} aria-label={copy.nav.switchLabel} title={copy.nav.switchLabel}
+          <Link href={links.other} prefetch={false} aria-label={copy.nav.switchLabel} title={copy.nav.switchLabel}
             className="rounded-lg border border-white/15 px-2.5 py-1.5 text-xs font-bold text-white/80 hover:bg-card/10">
             {copy.nav.switchTo}
           </Link>

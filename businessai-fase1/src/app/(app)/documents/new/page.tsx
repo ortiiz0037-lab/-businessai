@@ -328,7 +328,7 @@ export default async function NewDocumentPage({
       <header className="card-hero p-7 sm:p-10">
         <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-accent">BUSINESSAI · DOCUMENTOS</p>
         <h1 className="mt-3 font-display text-3xl font-semibold sm:text-4xl">{docTitle(selectedType)}</h1>
-        <p className="mt-2 text-sm text-slate-600">
+        <p className="mt-2 text-sm text-muted">
           {selectedType === 'quote'
             ? 'Prepara una propuesta comercial profesional con partidas y precios detallados.'
             : 'Crea y guarda documentos de tu empresa en un solo lugar.'}
@@ -457,7 +457,7 @@ export default async function NewDocumentPage({
                     </label>
                   </div>
                 ))}
-                <details className="group rounded-2xl border border-dashed border-electric/70 bg-electric/30">
+                <details className="group rounded-2xl border border-dashed border-electric/50 bg-electric/10">
                   <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 text-sm font-semibold text-fg">
                     <span>Añadir más partidas (hasta 30)</span>
                     <span aria-hidden="true" className="flex h-7 w-7 items-center justify-center rounded-full border border-electric/40 text-blue-400 transition group-open:rotate-45">+</span>

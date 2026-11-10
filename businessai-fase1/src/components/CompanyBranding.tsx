@@ -162,7 +162,7 @@ export default function CompanyBranding({
       )}
 
       <div className="grid gap-5 md:grid-cols-2">
-      <div className="space-y-3 rounded-2xl border border-line bg-white/60 p-5">
+      <div className="space-y-3 rounded-2xl border border-line bg-app-2/60 p-5">
         <h3 className="font-bold text-fg">Logo de la empresa</h3>
         <p className="text-xs text-muted">
           El logo es público: lo verá cualquier persona que reciba tus documentos. Máximo 5 MB.
@@ -187,7 +187,7 @@ export default function CompanyBranding({
         />
       </div>
 
-      <div className="space-y-3 rounded-2xl border border-line bg-white/60 p-5">
+      <div className="space-y-3 rounded-2xl border border-line bg-app-2/60 p-5">
         <h3 className="font-bold text-fg">Firma para documentos</h3>
         <p className="text-xs text-muted">
           La firma se guarda de forma privada y solo se muestra a miembros de tu

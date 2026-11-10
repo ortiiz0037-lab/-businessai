@@ -180,7 +180,7 @@ export default async function DocumentsPage() {
         </div>
 
         {documents.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-electric/60 bg-electric/30 p-10 text-center">
+          <div className="rounded-2xl border border-dashed border-electric/50 bg-electric/10 p-10 text-center">
             <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-electric/10 text-blue-400 ring-1 ring-inset ring-electric/30">
               <Icon name="file" className="h-6 w-6" />
             </span>

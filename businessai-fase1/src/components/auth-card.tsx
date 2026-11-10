@@ -20,7 +20,7 @@ export function AuthCard({ title, subtitle, children, footer, copy, langHref, la
         <div aria-hidden="true" className="pointer-events-none absolute inset-0 opacity-[0.07] [background-image:linear-gradient(rgb(255_255_255)_1px,transparent_1px),linear-gradient(90deg,rgb(255_255_255)_1px,transparent_1px)] [background-size:56px_56px] [mask-image:radial-gradient(70%_60%_at_30%_30%,black,transparent)]" />
         <div className="relative flex items-center justify-between gap-4">
           <Brand href={lang === 'en' ? '/?lang=en' : '/'} tone="light" />
-          <Link href={langHref} title={copy.switchLabel} aria-label={copy.switchLabel}
+          <Link href={langHref} prefetch={false} title={copy.switchLabel} aria-label={copy.switchLabel}
             className="rounded-lg border border-white/15 px-2.5 py-1.5 text-xs font-bold text-white/80 hover:bg-card/10 lg:hidden">
             {copy.switchTo}
           </Link>
@@ -54,7 +54,7 @@ export function AuthCard({ title, subtitle, children, footer, copy, langHref, la
           <Link href={lang === 'en' ? '/?lang=en' : '/'} className="inline-flex items-center gap-2 text-sm font-semibold text-muted hover:text-fg">
             <Icon name="arrowLeft" className="h-4 w-4" /> {copy.back}
           </Link>
-          <Link href={langHref} title={copy.switchLabel} aria-label={copy.switchLabel}
+          <Link href={langHref} prefetch={false} title={copy.switchLabel} aria-label={copy.switchLabel}
             className="rounded-lg border border-line px-2.5 py-1.5 text-xs font-bold text-fg hover:bg-card">
             {copy.switchTo}
           </Link>
