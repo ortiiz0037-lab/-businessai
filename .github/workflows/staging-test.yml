@@ -10,7 +10,9 @@ name: Staging tests
 #   2. billing end-to-end (Stripe TEST clocks + staging webhook + staging DB;
 #      throw-away users/companies/customers, removed at the end);
 #   3. RLS tests against staging (tenant isolation, business tables, storage;
-#      throw-away users/companies, removed at the end).
+#      roles owner/admin/member, logos and private signatures by role, E3
+#      permission compatibility; throw-away users/companies, removed at the
+#      end — see tests/staging-helpers.ts).
 # Steps 2 and 3 run even if an earlier test step fails, so every result is
 # visible; the job fails if any of them fails or if the RLS suites are skipped.
 # Never production: refs pinned below, TEST Stripe key only.
@@ -97,7 +99,7 @@ jobs:
         run: |
           set +e
           npx vitest run tests/rls.test.ts tests/rls-business.test.ts \
-            tests/rls-roles.test.ts tests/rls-storage-roles.test.ts \
+            tests/rls-roles.test.ts tests/rls-storage-roles.test.ts tests/e3-compat.test.ts \
             --reporter=verbose --reporter=json --outputFile.json=rls-results.json
           status=$?
           # A suite whose environment is missing is SKIPPED and vitest still
