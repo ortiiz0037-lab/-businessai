@@ -368,6 +368,32 @@ describe('R3: storage.objects policies that could reach the company buckets', ()
   })
 })
 
+describe('read-only Production inspections (0007 preview, migration state, 0010 impact)', () => {
+  const files = ['inspect_0007_preview.sql', 'inspect_migration_state.sql', 'inspect_0010_impact.sql', 'inspect_storage_policies.sql']
+  for (const f of files) {
+    it(`${f} is a single read-only SELECT (no writes, DDL or transaction control)`, () => {
+      const code = readFileSync(new URL(`../supabase/inspect/${f}`, import.meta.url), 'utf8')
+        .replace(/--.*$/gm, '').replace(/'(?:[^']|'')*'/g, "''")
+      expect(code.trim()).toMatch(/^(with|select)\b[\s\S]*;$/i)
+      expect(code.match(/;/g)).toHaveLength(1)
+      expect(code).not.toMatch(/\b(insert|update|delete|merge|truncate|create|alter|drop|grant|revoke|comment|copy|vacuum|analyze|call|do|begin|commit|rollback|set|reset|lock|refresh|nextval|setval|pg_terminate_backend|pg_cancel_backend|pg_sleep|lo_\w+|dblink\w*)\b/i)
+    })
+  }
+  it('the 0007 preview uses 0007\'s own drop and guard conditions', () => {
+    const mig = readFileSync(new URL('../supabase/migrations/0007_storage_company_assets.sql', import.meta.url), 'utf8')
+    const prev = readFileSync(new URL('../supabase/inspect/inspect_0007_preview.sql', import.meta.url), 'utf8')
+    expect(mig).toContain("ilike '%company-assets%'")
+    expect(mig).toContain("not ilike '%bucket_id%'")
+    expect(prev).toContain("not pol.is_ba and pol.cond ilike '%company-assets%' as dropped_by_0007")
+    expect(prev).toContain("pol.is_ba or pol.cond ilike '%bucket_id%' as passes_0007_guard")
+  })
+  it('the impact query returns counts only (no names, emails or amounts)', () => {
+    const imp = readFileSync(new URL('../supabase/inspect/inspect_0010_impact.sql', import.meta.url), 'utf8')
+    const out = imp.slice(imp.lastIndexOf('\nselect\n'))
+    expect(out).not.toMatch(/\b(name|email|total|amount|stripe_customer_id|stripe_subscription_id)\b(?!_)/)
+  })
+})
+
 describe('demo company (staging:demo / staging:demo-remove)', () => {
   const yml = readFileSync(new URL('../../.github/workflows/staging-demo.yml', import.meta.url), 'utf8')
   const ok = {

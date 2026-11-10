@@ -555,6 +555,60 @@ base r3p1; for m in "${ALL_MIGS[@]}"; do psqlq -d r3p1 -f "$MIG/$m.sql" >/dev/nu
 check "$(ro r3p1 "$STOR" | grep -c '|block: ')/$(ro r3p1 "$STOR" | grep -c '|repository|')" "0/5" "production path after 0005…0011: 0 blocked, 5 repository policies"
 psqlq -d r3p1 -f "$MIG/$P14.sql" >/dev/null && check ok ok "production path: 0014a (with the R3 guard) applies"
 
+echo "== Scenario 21: read-only Production inspections — 0007 preview, real migration state, 0010/0011 impact"
+P7="$HERE/../../inspect/inspect_0007_preview.sql"; MS="$HERE/../../inspect/inspect_migration_state.sql"; IMP="$HERE/../../inspect/inspect_0010_impact.sql"
+st() { ro "$1" "$MS" | cut -d'|' -f1,2 | tr '\n' ';'; }
+# Inspected production shape: nothing of 0005…0014a applied; 0007 would drop exactly the 11 policies.
+base i0; fingerprint i0 "$WORK/i0_a.txt"
+o="$(ro i0 "$P7")"
+check "$(grep -c '^summary|totals|.*dropped=11, guard_failures=0, kept_non_ba=0, ba=0, stop=0 ' <<<"$o")" 1 "0007 preview on the inspected shape: dropped=11, guard_failures=0, stop=0"
+check "$(grep -c '^policy|.*|t|t|dropped by 0007$' <<<"$o")/$(grep -c '^bucket|Company-assets|.*ok: the real logo bucket' <<<"$o")" "11/1" "0007 preview: each of the 11 policies 'dropped by 0007'; Company-assets found"
+check "$(st i0)" "0001–0004 base schema|applied;0005_security_baseline|not applied;0006_payments_document_fk|not applied;0007_storage_company_assets|not applied;0008_definer_function_grants|not applied;0009_private_signatures|not applied;0010_billing|not applied;0011_usage_limits|not applied;0014a_permissions|not applied;staging bookkeeping (ba_meta)|absent;" \
+  "migration state on the inspected shape: base applied, 0005…0014a not applied, no ba_meta"
+o="$(ro i0 "$IMP")"; check "$(cut -d'|' -f1-5 <<<"$o")" "0|0|0|0|0" "0010 impact query runs on the inspected shape (no companies in the fixture)"
+fingerprint i0 "$WORK/i0_b.txt"
+check "$(diff -q "$WORK/i0_a.txt" "$WORK/i0_b.txt" >/dev/null && echo same || echo changed)" same "the three inspections changed nothing (read-only transaction)"
+# The 0007 preview's drop condition is 0007's: apply 0007 and compare.
+base i0d; dropped="$(ro i0d "$P7" | grep -c '^policy|.*dropped by 0007$')"
+psqlq -d i0d -f "$MIG/0007_storage_company_assets.sql" >/dev/null
+check "$dropped/$(count i0d "select count(*) from pg_policies where schemaname = 'storage' and policyname not like 'ba\_%'")/$(count i0d "select count(*) from pg_policies where schemaname = 'storage' and policyname like 'ba\_company\_assets\_%'")" "11/0/2" \
+  "preview = reality: the 11 previewed policies are exactly the ones 0007 dropped; 2 ba_ created"
+# STOP cases the preview must show.
+base i0s; psqlq -d i0s -c "insert into storage.buckets (id, name, public) values ('company-assets', 'company-assets', false)" \
+  -c "create policy everything on storage.objects for select to authenticated using (true)" >/dev/null
+o="$(ro i0s "$P7")"
+check "$(grep -c '^bucket|company-assets|.*STOP: same name as Company-assets in another case' <<<"$o")/$(grep -c '^policy|everything|SELECT|.*STOP: no bucket_id, 0007 aborts' <<<"$o")/$(grep -c 'stop=2 ' <<<"$o")" "1/1/1" \
+  "0007 preview: STOP on a 'company-assets' bucket and on a policy without bucket_id"
+# Full production path (0005…0011 + 0014a): everything applied.
+base i1; for m in "${ALL_MIGS[@]}" "$P14"; do psqlq -d i1 -f "$MIG/$m.sql" >/dev/null; done
+check "$(st i1)" "0001–0004 base schema|applied;0005_security_baseline|applied;0006_payments_document_fk|applied;0007_storage_company_assets|applied;0008_definer_function_grants|applied;0009_private_signatures|applied;0010_billing|applied;0011_usage_limits|applied;0014a_permissions|applied;staging bookkeeping (ba_meta)|absent;" \
+  "migration state after the full production path: every migration 'applied'"
+check "$(ro i1 "$P7" | grep -c 'dropped=0, guard_failures=0, kept_non_ba=0, ba=5, stop=0 ')" 1 "0007 preview after everything: nothing left to drop, 5 ba_ policies"
+# Partial states are reported, not guessed.
+base i2; psqlq -d i2 -f "$MIG/0010_billing.sql" >/dev/null
+check "$(ro i2 "$MS" | grep -c '^0010_billing|applied|')/$(ro i2 "$MS" | grep -c '^0011_usage_limits|not applied|')" "1/1" "migration state: 0010 alone → 0010 applied, 0011 not applied"
+psqlq -d i2 -c "drop trigger ba_enforce_billing_documents on public.documents" >/dev/null
+check "$(ro i2 "$MS" | grep -c '^0010_billing|PARTIAL — review|.*triggers=2/3')" 1 "migration state: a missing 0010 trigger shows PARTIAL — review"
+# 0010/0011 impact on existing companies (counts only).
+base i3
+psqlq -d i3 -c "insert into auth.users (id) select ('4a000000-0000-4000-8000-00000000000' || g)::uuid from generate_series(1, 6) g;
+  insert into public.companies (id, name, created_by) values
+    ('4c000000-0000-4000-8000-000000000001', 'Sin suscripción', '4a000000-0000-4000-8000-000000000001'),
+    ('4c000000-0000-4000-8000-000000000002', 'Pro activa', '4a000000-0000-4000-8000-000000000002'),
+    ('4c000000-0000-4000-8000-000000000003', 'Cancelada', '4a000000-0000-4000-8000-000000000003');
+  insert into public.memberships (company_id, user_id, role) values
+    ('4c000000-0000-4000-8000-000000000001', '4a000000-0000-4000-8000-000000000001', 'owner'),
+    ('4c000000-0000-4000-8000-000000000002', '4a000000-0000-4000-8000-000000000002', 'owner'),
+    ('4c000000-0000-4000-8000-000000000002', '4a000000-0000-4000-8000-000000000004', 'admin'),
+    ('4c000000-0000-4000-8000-000000000002', '4a000000-0000-4000-8000-000000000005', 'member'),
+    ('4c000000-0000-4000-8000-000000000002', '4a000000-0000-4000-8000-000000000006', 'member'),
+    ('4c000000-0000-4000-8000-000000000003', '4a000000-0000-4000-8000-000000000003', 'owner');
+  insert into public.company_subscriptions (company_id, stripe_customer_id, stripe_subscription_id, plan, status) values
+    ('4c000000-0000-4000-8000-000000000002', 'cus_i3b', 'sub_i3b', 'pro', 'active'),
+    ('4c000000-0000-4000-8000-000000000003', 'cus_i3c', 'sub_i3c', 'basic', 'canceled');" >/dev/null
+check "$(ro i3 "$IMP")" "3|1|2|1|1|active:1, canceled:1, no row:1|basic:1, no row:1, pro:1|0|0|0|1|1" \
+  "0010 impact: 3 companies, 1 can create, 2 blocked (1 without Stripe subscription, 1 canceled); 1 over the Pro member limit"
+
 echo "== Scenario 9: a busy table makes 0005 fail fast (lock_timeout) with zero changes"
 base s9
 "${RUNAS[@]}" psql -X -q -h "$WORK" -p "$PORT" -U postgres -d s9 \

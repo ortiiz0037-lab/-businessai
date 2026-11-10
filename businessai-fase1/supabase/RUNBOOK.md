@@ -1,4 +1,4 @@
-# Runbook · Respaldo, ejecución y recuperación (0005–0009, y R3 de 0014a)
+# Runbook · Respaldo, ejecución y recuperación (0005–0011 y 0014a)
 
 Proyecto: **businessai-dev** (única rama, marcada **PRODUCTION**). Ningún paso de
 este documento lo ejecuta Claude: lo ejecuta el propietario, en este orden.
@@ -28,6 +28,12 @@ Guarda `data.sql` cifrado y **fuera del repositorio**.
 
 ## 2. Comprobaciones previas (solo lectura)
 
+- [ ] `inspect/inspect_migration_state.sql` → qué migraciones están aplicadas de
+      verdad (§8). **Ninguna fila `PARTIAL — review`.**
+- [ ] `inspect/inspect_0007_preview.sql` → fila `summary`: `dropped=11,
+      guard_failures=0, kept_non_ba=0, ba=0, stop=0` (§3 paso 2).
+- [ ] `inspect/inspect_storage_policies.sql` → exporta el resultado a CSV
+      (columnas `qual` / `with_check`) y guárdalo con el respaldo (§10).
 - [ ] `inspect/inspect_relationship_integrity.sql` → todo `0` en las 4 primeras
       columnas (ver §5). Si no, **para** y revisa antes de seguir.
 - [ ] (Para 0008, opcional) `inspect/inspect_definer_functions.sql` → guarda el
@@ -48,7 +54,7 @@ anon_can_edit_fn; vacío = NULL).
 |---|---|---|---|---|
 | 0 | **Línea base** (antes de nada) | `0,12,4,2,t,12,11,0,,,f,t` | — | Si difiere, la BD cambió desde la inspección: **no sigas**; vuelve a inspeccionar |
 | 1 | `0005_security_baseline.sql` | `10,0,2,0,f,0,11,0,,,f,t` | Login · Clientes: listar, buscar, crear · Documentos: crear factura y carta, abrir, "Marcar como enviada", "Marcar como pagada" · Pagos: aparece el pago y su enlace abre la factura · Borrar la carta (sin pagos) · Mi empresa: guardar con nombre legal vacío | `rollback/0005_rollback.sql` |
-| 2 | `0007_storage_company_assets.sql` | `10,0,2,0,f,0,2,0,,,f,t` | Mi empresa: subir logo PNG → se ve en un documento | `rollback/0007_rollback.sql` |
+| 2 | `0007_storage_company_assets.sql` — **antes**: `inspect_0007_preview.sql` sin `STOP` y con `dropped=11`; **después**: aviso `BA0007: 11 storage policies dropped` | `10,0,2,0,f,0,2,0,,,f,t` | Mi empresa: subir logo PNG → se ve en un documento | `rollback/0007_rollback.sql` (ver §10: no recrea las 9 políticas sin efecto) |
 | 3 | `0009_private_signatures.sql` | `10,0,2,0,f,0,2,3,t,t,f,t` | (código antiguo) subir logo PNG sigue funcionando · subir un SVG como logo → Storage lo rechaza | `rollback/0009_rollback.sql` |
 | 4 | **Desplegar el código de PR #1** (merge → producción en Vercel) | igual que el paso 3 | §6.1 y §6.2: firma privada (URL `/object/sign/…`, `/object/public/…` falla, caduca a los 5 min), documentos e impresión con logo y firma | Revertir el despliegue en Vercel (la BD no cambia) |
 | 5 | `0006_payments_document_fk.sql` | `10,0,2,0,f,0,2,3,t,t,t,t` | Borrar una factura **con** pago → "tiene pagos registrados"; el pago sigue en Pagos · borrar un documento sin pagos funciona | `rollback/0006_rollback.sql` |
@@ -208,6 +214,186 @@ Repite 7.1 hasta que no quede ninguna fila `block`. Solo entonces aplica 0014a.
   política de Storage con su veredicto (`storage_policy: …`).
 - Rollback: `rollback/0014a_rollback.sql` (no toca las políticas de otros buckets).
 
-> Este documento cubre 0005–0009 y la comprobación R3 de 0014a. El orden y las
-> pruebas de 0010, 0011 y 0014a en Production se prepararán por separado antes de
-> su ejecución.
+> 0010 y 0011: §9. Estado real antes de decidir el orden: §8. Cobertura de
+> rollbacks y respaldos: §10. Bucket público `Company-assets`: §11.
+
+## 8. Estado real de las migraciones en Production (antes de decidir el orden)
+
+En Production las migraciones se pegan a mano en el SQL Editor: **no existe**
+`ba_meta.applied_migrations` (esa tabla solo la crea `staging:migrate`). El estado
+se deduce de lo que cada migración deja en el catálogo.
+
+1. SQL Editor → `inspect/inspect_migration_state.sql` → Run (solo lectura).
+   Devuelve una fila por migración: `status` (`applied` · `not applied` ·
+   `PARTIAL — review` · `n/a`), `evidence` (lo medido) y `applied_when` (la regla).
+2. Resultado esperado según la inspección del 2026-11-08: `0001–0004` →
+   `applied`; `0005` … `0014a` → `not applied`; `staging bookkeeping` → `absent`.
+3. Cómo decidir:
+
+   | Resultado | Qué hacer |
+   |---|---|
+   | Todo `not applied` (lo esperado) | Empezar en §3 paso 0 (línea base `0,12,4,2,t,12,11,0,,,f,t`) |
+   | Algunas `applied` | Continuar desde la primera `not applied` del orden de §3/§9; `verify_after_migrations.sql` debe coincidir con la fila del último paso aplicado |
+   | Cualquier `PARTIAL — review` | **Parar.** Alguien cambió el esquema a mano o una migración se aplicó a medias (no debería: cada archivo es una transacción). Revisar la columna `evidence` antes de nada |
+   | `staging bookkeeping` = `present` | **Parar**: esa base es Staging, no Production |
+   | `0008` = `n/a` | La función `can_edit_company_profile` no existe; 0008 no hace nada (es normal en Staging) |
+
+4. Guarda la salida (CSV) junto al respaldo: es la foto del "antes".
+
+Validación local (escenario 21 de `tests/local/run.sh`): sobre la forma
+inspeccionada da todo `not applied`; tras el camino completo, todo `applied`;
+con 0010 sola, `0010 applied` y `0011 not applied`; sin un trigger de 0010,
+`PARTIAL — review`.
+
+## 9. 0010 (facturación) y 0011 (límites de uso) en Production
+
+### 9.0 Decisión previa obligatoria (negocio)
+
+**0010 cambia el comportamiento para las empresas que ya existen.** Añade
+triggers `BEFORE INSERT` en `clients` y `documents`: un usuario solo puede crear
+clientes o documentos si su empresa tiene una suscripción de Stripe en estado
+`trialing`, `active` o `past_due`, y dentro de los límites del plan
+(Básico 50 clientes / 40 documentos al mes / 1 usuario; Pro 500 / 300 / 3;
+Premium sin límite / sin límite / 10). 0011 aplica lo mismo a los miembros nuevos.
+
+- **Una empresa sin suscripción de Stripe queda sin poder crear clientes ni
+  documentos** (`BILLING_INACTIVE`). Puede seguir leyendo, editando, imprimiendo
+  y registrando pagos: nada se borra ni se modifica.
+- Para que una empresa pueda suscribirse en Production hace falta Stripe **LIVE**
+  configurado (productos, precios, webhook, Checkout). Eso **no está hecho** y
+  requiere una autorización independiente.
+- Antes de autorizar 0010 hay que decidir qué pasa con las empresas que hoy no
+  tienen suscripción. Opciones (ninguna está preparada; cada una necesita su
+  propia revisión): **(a)** aplicar 0010/0011 solo cuando Stripe LIVE y el alta de
+  suscripciones estén listos y comunicados; **(b)** dar a las empresas existentes
+  una suscripción o un periodo de gracia mediante una migración de datos revisada;
+  **(c)** posponer 0010/0011 (el código de la PR #1 funciona sin ellas, pero sin
+  aplicar planes ni límites: riesgo R1).
+
+### 9.1 Requisitos técnicos
+
+- 0001–0004 aplicadas e `is_company_member(uuid)` presente (0010 aborta si no).
+- 0011 exige 0010 (aborta si no).
+- 0010 no depende de 0005–0009, pero el único orden probado de principio a fin
+  sobre la forma de Production es `0005 → 0007 → 0009 → 0006 → 0008 → 0010 →
+  0011 → 0014a` (escenarios 18, 20 y 21).
+
+### 9.2 Comprobaciones previas (solo lectura)
+
+1. `inspect/inspect_migration_state.sql`: 0010 y 0011 `not applied`; ninguna
+   `PARTIAL — review` (§8).
+2. `inspect/inspect_0010_impact.sql` (solo recuentos, sin nombres ni importes):
+
+   | Columna | Significado | Condición para seguir |
+   |---|---|---|
+   | `companies` | empresas existentes | — |
+   | `BLOCKED_after_0010` | no podrán crear clientes/documentos | **Debe estar cubierto por la decisión de 9.0** |
+   | `blocked_no_stripe_subscription` / `blocked_by_status` | por qué | — |
+   | `by_status`, `by_plan` | reparto actual | — |
+   | `plans_breaking_0010_fk` | filas con un plan fuera de basic/pro/premium | **0** (si no, 0010 falla y no cambia nada) |
+   | `at_client_limit`, `at_document_limit_this_month` | ya en el límite: no podrán crear más | Revisar |
+   | `over_member_limit_0011`, `cannot_add_members_0011` | por encima / en el límite de usuarios | Revisar (los existentes se conservan) |
+
+3. `inspect/verify_after_migrations.sql`: anota la fila; 0010/0011 no la cambian.
+
+### 9.3 Respaldo
+
+Igual que §1 (copia de la plataforma o PITR + volcado lógico). Además, el
+rollback de 0010 **borra columnas y tablas** (ver §10): cualquier dato escrito en
+ellas después de aplicar 0010 se pierde si se revierte.
+
+### 9.4 Ejecución de 0010
+
+1. SQL Editor → `migrations/0010_billing.sql` completo → Run. Una transacción;
+   aborta a los 5 s si una tabla está ocupada; autocomprobación final. Si da
+   error, no cambió nada: guarda el mensaje y para.
+2. Comprobaciones (solo lectura):
+   ```sql
+   select plan, max_clients, max_documents_per_month, max_members
+     from public.billing_plans order by sort_order;          -- 3 filas: basic 50/40/1, pro 500/300/3, premium -/-/10
+   select trial_days from public.billing_config;             -- 7
+   select tgname from pg_trigger where not tgisinternal and tgname like 'ba\_%' order by 1;
+     -- ba_enforce_billing_clients, ba_enforce_billing_documents, ba_keep_trial_consumed
+   select has_table_privilege('authenticated', 'public.company_subscriptions', 'INSERT,UPDATE,DELETE'), -- false
+          has_function_privilege('anon', 'public.company_billing_state(uuid)', 'EXECUTE');          -- false
+   ```
+   `inspect_migration_state.sql` → `0010_billing` = `applied`.
+3. Pruebas en la app (empresa de prueba propia, borrarla al terminar): con
+   suscripción activa crea un cliente y un documento; sin suscripción aparece
+   el bloqueo; leer, editar, imprimir y registrar un pago siguen funcionando.
+
+### 9.5 Ejecución de 0011
+
+1. SQL Editor → `migrations/0011_usage_limits.sql` → Run.
+2. Comprobaciones (solo lectura):
+   ```sql
+   select usage_warning_percent, usage_upgrade_percent from public.billing_config;  -- 80, 90
+   select has_function_privilege('anon', 'public.company_usage(uuid)', 'EXECUTE'),          -- false
+          has_function_privilege('authenticated', 'public.company_usage_window(uuid)', 'EXECUTE'); -- false
+   select count(*) from pg_trigger where not tgisinternal and tgname = 'ba_enforce_member_limit'; -- 1
+   ```
+   `inspect_migration_state.sql` → `0011_usage_limits` = `applied`.
+3. Pruebas en la app: el panel muestra los avisos de uso al 80 / 90 / 100 %.
+
+### 9.6 Si algo falla después
+
+Revertir en orden inverso: `rollback/0011_rollback.sql` y luego
+`rollback/0010_rollback.sql` (consecuencias en §10). Stripe conserva las
+suscripciones: se pueden volver a sincronizar.
+
+## 10. Cobertura de rollbacks y respaldos
+
+| Paso | Rollback | Qué restaura exactamente | **No se restaura automáticamente** | Cómo cubrirlo |
+|---|---|---|---|---|
+| 0005 | `0005_rollback.sql` | Las 12 políticas antiguas y las 2 duplicadas de auditoría, con su texto inspeccionado; UPDATE/DELETE en pagos; TRUNCATE inspeccionado | `ALTER DEFAULT PRIVILEGES` (TRUNCATE en tablas futuras): no estaba en la inspección | Sin efecto en tablas existentes. Volcado de roles (§1b) |
+| 0007 | `0007_rollback.sql` | Las 2 políticas que funcionaban (`company_assets_read` / `_upload`) | **Las 9 políticas sin efecto** (`company-assets` / `COMPANY-ASSETS`), incluidas las de nombre con caracteres invisibles | CSV de `inspect_storage_policies.sql` (`qual` / `with_check`) guardado antes: permite recrearlas a mano. No tenían efecto sobre el bucket real |
+| 0009 | `0009_rollback.sql` | Quita las 3 políticas de firmas; `Company-assets` vuelve a admitir cualquier tipo (`allowed_mime_types = NULL`, lo inspeccionado) | **El bucket `Company-signatures` y sus archivos** (no se borra a propósito) | Sin políticas, solo `service_role` accede. Borrarlo (si está vacío) es un paso manual del Dashboard |
+| 0006 | `0006_rollback.sql` | `ON DELETE CASCADE` exacto | — | — |
+| 0008 | `0008_rollback.sql` | `EXECUTE` de `anon` en `can_edit_company_profile` | — | — |
+| 0010 | `0010_rollback.sql` | Quita triggers, funciones, FK, tablas `billing_plans` / `billing_config` y las 9 columnas nuevas | **Datos escritos en esas columnas/tablas** tras aplicar (fechas de Stripe, `trial_consumed_at` = una prueba por empresa, cambios de límites). Los `revoke` sobre `company_subscriptions` no se deshacen, pero con los privilegios inspeccionados (authenticated: solo SELECT; TRUNCATE ya quitado por 0005) no cambian nada | Volcado de datos antes (§1b). Stripe conserva las suscripciones (re-sincronizables) |
+| 0011 | `0011_rollback.sql` | Quita uso, límite de miembros, umbrales; restaura `company_billing_state` de 0010 | Cambios hechos a los umbrales | Volcado de datos |
+| 0014a | `0014a_rollback.sql` | Catálogo idéntico al anterior (probado con huella del catálogo, incluso tras aplicar dos veces) | Se niega si hay membresías suspendidas o la tabla de invitaciones (E4) | No hay suspensiones hasta E4 |
+| Despliegue | Revertir el despliegue en Vercel | Código anterior | — | La base de datos no cambia |
+
+Respaldo (§1), puntos a tener en cuenta:
+- **Ninguna migración mueve ni borra archivos de Storage**, y los volcados de base
+  de datos no contienen archivos.
+- Comprueba con `supabase db dump --help` qué esquemas incluye el volcado: los
+  esquemas gestionados por Supabase (como `storage`) pueden quedar fuera. Por eso
+  el CSV de `inspect_storage_policies.sql` es parte obligatoria del respaldo.
+- La copia de la plataforma o PITR depende del plan: anota qué ofrece el tuyo y
+  la hora de la última copia antes de empezar.
+
+## 11. Bucket público `Company-assets` (decisión independiente)
+
+**Situación (inspección + código):** bucket público, 5 MB, cualquier tipo de
+archivo hasta 0009. Las políticas solo controlan **listar y subir** por la API
+(owner/admin de su empresa; nadie lista sin sesión). **Descargar no pasa por
+RLS**: cualquiera con la URL `/storage/v1/object/public/Company-assets/<ruta>`
+obtiene el archivo. Ninguna migración cambia esto.
+
+| Riesgo | Gravedad | Detalle |
+|---|---|---|
+| **Firmas antiguas públicas** | **Alta** | El código de `main` guarda la firma en este bucket público como `<empresa>/signature-<marca de tiempo>.<ext>`, y su URL va dentro de cada documento enviado. Quien reciba un documento puede reutilizar la imagen de la firma. 0009 + la PR #1 llevan las firmas **nuevas** a un bucket privado, pero las existentes siguen públicas hasta borrarlas (§6.3) |
+| Archivos activos (HTML/SVG) | Media hasta 0009 | Sin límite de tipos, un owner/admin podría alojar HTML/SVG en el dominio de Storage del proyecto. 0009 limita a PNG/JPEG/WEBP |
+| Logos | Baja | Son públicos por naturaleza: aparecen en los documentos que se envían a clientes |
+| Rutas adivinables | Baja | `main` usa `<empresa>/<tipo>-<milisegundos>`; la PR #1 usa un UUID aleatorio. Listar sigue prohibido sin sesión |
+
+Recuento de solo lectura (sin nombres de archivo):
+```sql
+select count(*) filter (where name ~ '/signature-') as firmas_publicas,
+       count(*) filter (where name ~ '/logo-')      as logos,
+       count(*)                                     as total
+from storage.objects where bucket_id = 'Company-assets';
+```
+
+**Recomendación** (independiente de 0010/0011/0014a):
+1. **Mantener `Company-assets` público solo para logos.** Hacerlo privado exigiría
+   URLs firmadas en documentos, impresión, PDF y correos (caducan), un cambio de
+   producto que hoy no compensa para imágenes que ya se muestran a clientes.
+2. **Prioridad: retirar las firmas públicas.** Tras 0009 y el despliegue de la
+   PR #1, cada empresa vuelve a subir su firma (queda en el bucket privado);
+   después se borran los `signature-*` de `Company-assets` (§6.3). Borrar
+   archivos es una acción aparte, con su propia autorización.
+3. **Aplicar 0009** para limitar los tipos de archivo.
+4. Revisar de nuevo si en el futuro los logos pasan a considerarse confidenciales.
