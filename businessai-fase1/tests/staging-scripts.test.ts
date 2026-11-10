@@ -362,3 +362,22 @@ describe('demo company (staging:demo / staging:demo-remove)', () => {
     expect(src).not.toMatch(/console\.log\([^)]*(SERVICE_ROLE|password)/i)
   })
 })
+
+describe('real Preview screenshots (staging:test step 4)', () => {
+  const yml = readFileSync(new URL('../../.github/workflows/staging-test.yml', import.meta.url), 'utf8')
+  const src = readFileSync(new URL('../scripts/staging/screenshots.mjs', import.meta.url), 'utf8')
+  it('runs inside staging:test with a pinned Playwright and uploads the captures', () => {
+    expect(yml).toContain('npm install --no-save --no-audit --no-fund playwright@1.63.0')
+    expect(yml).toContain('node scripts/staging/screenshots.mjs')
+    expect(yml).toMatch(/uses: actions\/upload-artifact@v4[\s\S]*name: preview-screenshots/)
+  })
+  it('guards the staging target and always removes its temporary user', () => {
+    expect(src).toMatch(/const problem = checkTarget\(env\)/)
+    expect(src).toMatch(/finally \{[\s\S]*deleteUser\(userId\)/)
+    expect(src).toMatch(/e3-shots-\$\{Date\.now\(\)\}@example\.test/)
+    // Only the demo company (by exact name AND demo owner), only as admin.
+    expect(src).toMatch(/\.eq\('name', DEMO_COMPANY_NAME\)\.eq\('created_by', owner\.id\)/)
+    expect(src).toMatch(/role: 'admin'/)
+    expect(src).not.toMatch(/console\.log\([^)]*password/)
+  })
+})

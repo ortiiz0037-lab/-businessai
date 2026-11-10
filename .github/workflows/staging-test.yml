@@ -13,6 +13,9 @@ name: Staging tests
 #      roles owner/admin/member, logos and private signatures by role, E3
 #      permission compatibility; throw-away users/companies, removed at the
 #      end — see tests/staging-helpers.ts).
+#   4. real screenshots of every screen on iPhone, iPad and desktop
+#      (scripts/staging/screenshots.mjs; temporary user, removed; uploaded as
+#      the "preview-screenshots" artifact).
 # Steps 2 and 3 run even if an earlier test step fails, so every result is
 # visible; the job fails if any of them fails or if the RLS suites are skipped.
 # Never production: refs pinned below, TEST Stripe key only.
@@ -111,6 +114,27 @@ jobs:
           ' || status=1
           exit $status
 
+      - name: 4. Real screenshots of the Preview (iPhone, iPad, desktop; temporary user, removed)
+        id: shots
+        if: ${{ !cancelled() && steps.guard.outcome == 'success' }}
+        env:
+          STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          SCREENSHOT_DIR: ${{ github.workspace }}/screenshots
+        run: |
+          npm install --no-save --no-audit --no-fund playwright@1.63.0
+          npx playwright install --with-deps chromium
+          node scripts/staging/screenshots.mjs
+
+      - name: Upload screenshots
+        if: ${{ !cancelled() && steps.guard.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: preview-screenshots
+          path: screenshots
+          retention-days: 14
+          if-no-files-found: warn
+
       - name: Summary
         if: ${{ !cancelled() }}
         run: |
@@ -118,3 +142,4 @@ jobs:
           echo "smoke:   ${{ steps.smoke.outcome }}"
           echo "billing: ${{ steps.billing.outcome }}"
           echo "rls:     ${{ steps.rls.outcome }}"
+          echo "shots:   ${{ steps.shots.outcome }}"
