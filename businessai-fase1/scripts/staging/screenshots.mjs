@@ -17,6 +17,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { randomBytes } from 'node:crypto'
 import { mkdirSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { checkTarget, DEMO_OWNER_EMAIL } from './demo-company.mjs'
 import { DEMO_COMPANY_NAME } from './demo-data.mjs'
 
@@ -38,7 +39,8 @@ async function main() {
   const out = env.SCREENSHOT_DIR
   mkdirSync(out, { recursive: true })
 
-  const { chromium, devices } = await import('playwright')
+  // require(): resolves a project install (CI: npm install --no-save) or a global one.
+  const { chromium, devices } = createRequire(import.meta.url)('playwright')
   const admin = createClient(env.STAGING_SUPABASE_URL, env.STAGING_SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false, autoRefreshToken: false } })
 
   // Demo company (owned by the dedicated demo account).
@@ -54,7 +56,8 @@ async function main() {
   const password = randomBytes(18).toString('base64url')
   const report = []
   const browser = await chromium.launch()
-  const headers = { 'x-vercel-protection-bypass': env.VERCEL_AUTOMATION_BYPASS_SECRET ?? '', 'x-vercel-set-bypass-cookie': 'true' }
+  // The Vercel toolbar keeps a connection open (the page never goes "network idle"): skip it while capturing.
+  const headers = { 'x-vercel-protection-bypass': env.VERCEL_AUTOMATION_BYPASS_SECRET ?? '', 'x-vercel-set-bypass-cookie': 'true', 'x-vercel-skip-toolbar': '1' }
   const targets = { iphone: devices['iPhone 15 Pro'], ipad: devices['iPad Pro 11'], desktop: { viewport: { width: 1440, height: 900 } } }
 
   try {
@@ -80,18 +83,33 @@ async function main() {
         const page = await ctx.newPage()
         const errors = []
         page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text().slice(0, 200)) })
+        const settle = async () => {
+          await page.waitForLoadState('load', { timeout: 60000 })
+          await page.evaluate(() => document.fonts?.ready).catch(() => {})
+          await page.waitForTimeout(800)
+        }
+        // One page failing is recorded and does not stop the others.
         const shoot = async (path) => {
           errors.length = 0
-          const res = await page.goto(base + path, { waitUntil: 'networkidle', timeout: 60000 })
-          const [inner, scroll] = await page.evaluate(() => [innerWidth, document.documentElement.scrollWidth])
           const file = `${slug(path).replace(/_[0-9a-f]{8}_[0-9a-f-]+$/i, '_detail')}-${device}-${locale}.png`
-          await page.screenshot({ path: `${out}/${file}`, fullPage: true })
-          report.push({ path: path.replace(/[0-9a-f-]{36}/i, ':id'), device, locale, status: res?.status() ?? 0, overflowPx: scroll - inner, consoleErrors: [...errors], file })
+          const entry = { path: path.replace(/[0-9a-f-]{36}/i, ':id'), device, locale, status: 0, overflowPx: 0, consoleErrors: [], file, error: null }
+          try {
+            const res = await page.goto(base + path, { waitUntil: 'domcontentloaded', timeout: 60000 })
+            await settle()
+            const [inner, scroll] = await page.evaluate(() => [innerWidth, document.documentElement.scrollWidth])
+            await page.screenshot({ path: `${out}/${file}`, fullPage: true })
+            Object.assign(entry, { status: res?.status() ?? 0, overflowPx: scroll - inner })
+          } catch (e) {
+            entry.error = String(e?.message ?? e).split('\n')[0].slice(0, 200)
+          }
+          entry.consoleErrors = [...errors]
+          report.push(entry)
         }
         // Public pages only in Spanish on every device, plus the home page in English.
         if (locale === 'es' || device === 'desktop') for (const p of PUBLIC_PAGES) await shoot(locale === 'en' ? `${p}?lang=en` : p)
         if (companyId) {
-          await page.goto(`${base}/login`, { waitUntil: 'networkidle' })
+          await page.goto(`${base}/login`, { waitUntil: 'domcontentloaded', timeout: 60000 })
+          await settle()
           await page.fill('input[name="email"]', email)
           await page.fill('input[name="password"]', password)
           await Promise.all([page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 60000 }), page.locator('form button[type="submit"]').first().click()])
@@ -111,9 +129,9 @@ async function main() {
     writeFileSync(`${out}/report.json`, JSON.stringify(report, null, 1))
   }
 
-  const bad = report.filter((r) => r.status >= 400 || r.overflowPx > 0)
+  const bad = report.filter((r) => r.error || r.status === 0 || r.status >= 400 || r.overflowPx > 0)
   console.log(`Screenshots: ${report.length} captures (${new Set(report.map((r) => r.path)).size} pages × devices × languages).`)
-  for (const r of bad) console.log(`PROBLEM ${r.path} ${r.device} ${r.locale}: status ${r.status}, overflow ${r.overflowPx}px`)
+  for (const r of bad) console.log(`PROBLEM ${r.path} ${r.device} ${r.locale}: status ${r.status}, overflow ${r.overflowPx}px${r.error ? `, ${r.error}` : ''}`)
   const withErrors = report.filter((r) => r.consoleErrors.length)
   for (const r of withErrors) console.log(`CONSOLE ${r.path} ${r.device} ${r.locale}: ${r.consoleErrors[0]}`)
   if (bad.length) process.exit(1)
