@@ -446,6 +446,37 @@ kill $holder 2>/dev/null || true; wait $holder 2>/dev/null || true
 fingerprint e18l "$WORK/fp_l2.txt"
 check "$(diff -q "$WORK/fp_l1.txt" "$WORK/fp_l2.txt" >/dev/null && echo same || echo changed)" same "mid-migration failure: nothing changed (no partial policies, no status column)"
 
+echo "== Scenario 19: demo company data (staging:demo) fits the real schema; removal leaves nothing"
+stg_db e19; psqlq -d e19 -f "$MIG/$P14.sql" >/dev/null   # like staging today: 0001–0011 + 0014a
+psqlq -d e19 -c "insert into auth.users (id, email) values ('e1900000-0000-4000-8000-000000000001', 'other@local.test');
+  insert into public.companies (id, name, created_by) values ('e1900000-0000-4000-8000-0000000000c1', 'Otra empresa', 'e1900000-0000-4000-8000-000000000001');
+  insert into public.memberships (company_id, user_id, role) values ('e1900000-0000-4000-8000-0000000000c1', 'e1900000-0000-4000-8000-000000000001', 'owner');" >/dev/null
+node "$HERE/demo_seed_sql.mjs" > "$WORK/demo_seed.sql"
+counts="$(tail -1 "$WORK/demo_seed.sql" | sed 's/^-- counts: //')"
+psqlq -d e19 -f "$WORK/demo_seed.sql" >/dev/null && check ok ok "demo seed inserts into the real schema (constraints, triggers, FKs)"
+check "$(count e19 "select (select count(*) from public.clients where company_id = 'd2000000-0000-4000-8000-000000000001') || ' ' || (select count(*) from public.documents where company_id = 'd2000000-0000-4000-8000-000000000001') || ' ' || (select count(*) from public.payments where company_id = 'd2000000-0000-4000-8000-000000000001')")" "$counts" \
+  "demo seed: every generated client, document and payment stored ($counts)"
+check "$(count e19 "select count(*) from public.clients where company_id = 'd2000000-0000-4000-8000-000000000001' and name not like 'Demo · %'")/$(count e19 "select count(*) from public.documents where company_id = 'd2000000-0000-4000-8000-000000000001' and (document_number not like 'DEMO-%' or metadata->>'source' <> 'businessai-demo-qa')")" "0/0" \
+  "demo seed: every row is identified as demo"
+cat > "$WORK/demo_rls.sql" <<'SQL'
+begin;
+select set_config('request.jwt.claims', '{"sub":"d1000000-0000-4000-8000-000000000002","role":"authenticated"}', true) \gset ignored_
+set local role authenticated;
+select (select count(*) from public.documents) || '/' || (select count(*) from public.companies) || '/' ||
+       public.has_permission('d2000000-0000-4000-8000-000000000001', 'payments.view');
+rollback;
+SQL
+check "$("${RUNAS[@]}" psql -X -q -tA -v ON_ERROR_STOP=1 -h "$WORK" -p "$PORT" -U postgres -d e19 -f - < "$WORK/demo_rls.sql" 2>&1 | grep -E '^[0-9]+/[0-9]+/(true|false)$')" "$(echo "$counts" | cut -d' ' -f2)/1/true" \
+  "demo seed: the tester (admin) sees exactly the demo company and its documents through RLS"
+# Removal: the same order as demo-company.mjs "remove".
+for t in payments document_deletion_audit documents clients company_profiles company_subscriptions memberships; do
+  psqlq -d e19 -c "delete from public.$t where company_id = 'd2000000-0000-4000-8000-000000000001'" >/dev/null
+done
+psqlq -d e19 -c "delete from public.companies where id = 'd2000000-0000-4000-8000-000000000001' and name = 'BusinessAI Demo (QA)'" \
+  -c "delete from auth.users where id = 'd1000000-0000-4000-8000-000000000001'" >/dev/null && check ok ok "demo removal runs in the script's order"
+check "$(count e19 "select (select count(*) from public.companies where name = 'BusinessAI Demo (QA)') + (select count(*) from public.clients where name like 'Demo · %') + (select count(*) from public.documents where document_number like 'DEMO-%') + (select count(*) from public.payments where reference like 'DEMO-%')")/$(count e19 "select count(*) from public.companies where id = 'e1900000-0000-4000-8000-0000000000c1'")" "0/1" \
+  "demo removal leaves no demo row and does not touch other companies"
+
 echo "== Scenario 9: a busy table makes 0005 fail fast (lock_timeout) with zero changes"
 base s9
 "${RUNAS[@]}" psql -X -q -h "$WORK" -p "$PORT" -U postgres -d s9 \

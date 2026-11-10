@@ -331,3 +331,34 @@ describe('verify_0014a.sql: strictly read-only 0014a verification', () => {
     expect(staging.match(/VERIFY_0014A=1/g)).toHaveLength(2)
   })
 })
+
+describe('demo company (staging:demo / staging:demo-remove)', () => {
+  const yml = readFileSync(new URL('../../.github/workflows/staging-demo.yml', import.meta.url), 'utf8')
+  const ok = {
+    STAGING_PROJECT_REF: 'wbfpvxptoujgvflljasc', PINNED_STAGING_REF: 'wbfpvxptoujgvflljasc',
+    PRODUCTION_PROJECT_REF: 'rugqcumiuqrjbfwpuslm', STAGING_SUPABASE_URL: 'https://wbfpvxptoujgvflljasc.supabase.co',
+    STAGING_SUPABASE_SERVICE_ROLE_KEY: 'service_placeholder',
+  }
+  it('runs only for its two labels, from this repository, staging refs pinned, no Stripe', () => {
+    expect(yml).toContain("github.event.label.name == 'staging:demo' || github.event.label.name == 'staging:demo-remove'")
+    expect(yml).toContain('github.event.pull_request.head.repo.full_name == github.repository')
+    expect(yml).toContain('PINNED_STAGING_REF: wbfpvxptoujgvflljasc')
+    expect(yml).toContain('PINNED_PRODUCTION_REF: rugqcumiuqrjbfwpuslm')
+    expect(yml).not.toMatch(/STRIPE|VERCEL|STAGING_DB_URL|apply-migrations/)
+  })
+  it('the script refuses anything but the pinned staging project', async () => {
+    const { checkTarget, maskEmail } = await import('../scripts/staging/demo-company.mjs')
+    expect(checkTarget(ok)).toBeNull()
+    expect(checkTarget({ ...ok, STAGING_PROJECT_REF: 'otherref' })).toMatch(/pinned/)
+    expect(checkTarget({ ...ok, STAGING_PROJECT_REF: 'rugqcumiuqrjbfwpuslm', PINNED_STAGING_REF: 'rugqcumiuqrjbfwpuslm' })).toMatch(/production/)
+    expect(checkTarget({ ...ok, STAGING_SUPABASE_URL: 'https://rugqcumiuqrjbfwpuslm.supabase.co' })).toMatch(/not the staging project/)
+    expect(checkTarget({ ...ok, STAGING_SUPABASE_SERVICE_ROLE_KEY: '' })).toMatch(/missing/)
+    expect(maskEmail('jane.doe@gmail.com')).toBe('j***@g***.com')
+  })
+  it('only ever deletes the demo company by exact name AND demo owner', () => {
+    const src = readFileSync(new URL('../scripts/staging/demo-company.mjs', import.meta.url), 'utf8')
+    expect(src).toMatch(/\.eq\('name', DEMO_COMPANY_NAME\)\.eq\('created_by', owner\.id\)/)
+    expect(src).toMatch(/\.delete\(\)\.eq\('id', id\)\.eq\('name', DEMO_COMPANY_NAME\)/)
+    expect(src).not.toMatch(/console\.log\([^)]*(SERVICE_ROLE|password)/i)
+  })
+})

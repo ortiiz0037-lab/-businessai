@@ -1,0 +1,54 @@
+name: Staging demo company
+
+# "BusinessAI Demo (QA)" in STAGING — fictitious, clearly identified data to
+# try the dashboard from a phone or tablet (scripts/staging/demo-company.mjs).
+#   * label `staging:demo`        → (re)creates the demo company
+#   * label `staging:demo-remove` → deletes it completely
+# Staging only (refs pinned below), no Stripe, no migrations, no Vercel.
+
+on:
+  pull_request:
+    types: [labeled]
+
+concurrency: staging
+
+permissions:
+  contents: read
+
+jobs:
+  demo:
+    if: >-
+      (github.event.label.name == 'staging:demo' || github.event.label.name == 'staging:demo-remove') &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: businessai-fase1
+    env:
+      PINNED_STAGING_REF: wbfpvxptoujgvflljasc
+      PINNED_PRODUCTION_REF: rugqcumiuqrjbfwpuslm
+      STAGING_PROJECT_REF: ${{ vars.STAGING_PROJECT_REF }}
+      PRODUCTION_PROJECT_REF: ${{ vars.PRODUCTION_PROJECT_REF }}
+      STAGING_SUPABASE_URL: https://${{ vars.STAGING_PROJECT_REF }}.supabase.co
+      MODE: ${{ github.event.label.name == 'staging:demo-remove' && 'remove' || 'create' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: businessai-fase1/package-lock.json
+      - run: npm ci
+
+      - name: Guard (staging only; names only, never values)
+        run: |
+          [ "$STAGING_PROJECT_REF" = "$PINNED_STAGING_REF" ] || { echo "ERROR: not the pinned staging project"; exit 1; }
+          [ "$PRODUCTION_PROJECT_REF" = "$PINNED_PRODUCTION_REF" ] || { echo "ERROR: production ref variable changed"; exit 1; }
+          [ "$STAGING_PROJECT_REF" != "$PINNED_PRODUCTION_REF" ] || { echo "ERROR: staging equals production"; exit 1; }
+          echo "Guard OK: staging $PINNED_STAGING_REF, production $PINNED_PRODUCTION_REF refused. Mode: $MODE"
+
+      - name: Demo company (${{ env.MODE }})
+        env:
+          STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          STAGING_DEMO_MEMBER_EMAIL: ${{ vars.STAGING_DEMO_MEMBER_EMAIL }}
+        run: node scripts/staging/demo-company.mjs "$MODE"
