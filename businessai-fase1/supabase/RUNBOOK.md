@@ -1,4 +1,4 @@
-# Runbook · Respaldo, ejecución y recuperación (0005–0009)
+# Runbook · Respaldo, ejecución y recuperación (0005–0009, y R3 de 0014a)
 
 Proyecto: **businessai-dev** (única rama, marcada **PRODUCTION**). Ningún paso de
 este documento lo ejecuta Claude: lo ejecuta el propietario, en este orden.
@@ -152,3 +152,62 @@ las firmas antiguas del bucket público.**
 - Tras re-subirla: Storage → `Company-assets` → carpeta de la empresa → borra los
   archivos `signature-*` (Dashboard; las políticas no permiten borrar desde la app).
   Comprueba con el `curl` de 6.1.7 (sobre `Company-assets`) que devuelve 400/404.
+
+## 7. 0014a (permisos) — comprobación previa de Storage (R3)
+
+`storage.objects` es una sola tabla para **todos** los buckets, y en PostgreSQL
+las políticas permisivas se suman (OR). Una política que no sea del repositorio
+y no esté limitada a otro bucket seguiría dando acceso a `Company-assets` o a
+las firmas privadas de `Company-signatures` por fuera de `has_permission()`.
+
+**0014a se detiene sin cambiar nada** si encuentra una así, y la nombra
+(`BA0014a: storage.objects policies that could reach the company buckets…`).
+La comprobación se repite justo antes del `commit`. **Ni 0014a ni ningún script
+borra políticas para R3**: cada hallazgo lo revisa el propietario.
+
+### 7.1 Antes de aplicar 0014a (solo lectura)
+
+1. SQL Editor → pega `inspect/inspect_storage_policies.sql` → Run. Devuelve una
+   fila por política de `storage.objects`:
+   | verdict | Significado | ¿Bloquea 0014a? |
+   |---|---|---|
+   | `repository` | una de las 5 políticas `ba_` (0007/0009/0014a) | No |
+   | `allowed: limited to bucket …` | limitada a otros buckets; 0014a la conserva igual y la lista en un aviso | No |
+   | `block: mentions Company-assets or Company-signatures` | otra política sobre los buckets de la empresa (cualquier mayúscula/minúscula) | **Sí** |
+   | `block: no condition …` | sin condición: vale para todos los buckets | **Sí** |
+   | `block: not limited by bucket …` | `true`, `OR`, `<>`, `lower(bucket_id)`, `with check (true)`… | **Sí** |
+2. Si 0007 y 0009 aún no están aplicadas, las 11 políticas antiguas de logos
+   salen como `block`: es lo esperado, **0007 las elimina** (revisado en §3,
+   paso 2). Vuelve a ejecutar la inspección después de 0009.
+3. La regla es conservadora: lo que no puede demostrar limitado a otro bucket lo
+   bloquea. Solo se acepta `bucket_id = '…'` (o `bucket_id = ANY (ARRAY[…])`)
+   sola o como una de las condiciones unidas con `AND`, en cada `USING` y
+   `WITH CHECK`.
+
+### 7.2 Qué hacer con una fila `block`
+
+Decide tú, política por política, con las columnas `qual` / `with_check`:
+
+- **Pertenece a otra función de la app/otro bucket** → reescríbela para que
+  empiece por `bucket_id = '<bucket>' AND …` (Dashboard → Storage → Policies) y
+  vuelve a ejecutar la inspección.
+- **Es antigua o de pruebas** → bórrala tú en el Dashboard tras confirmarlo
+  (anota su definición antes: `qual` / `with_check`).
+- **Debe mantenerse tal cual** → no apliques 0014a; habría que llevarla al
+  repositorio en una migración nueva y revisarla.
+
+Repite 7.1 hasta que no quede ninguna fila `block`. Solo entonces aplica 0014a.
+
+### 7.3 Después de aplicar 0014a
+
+- `inspect/verify_0014a.sql` → debe devolver `OK`. Además de la matriz y las
+  funciones, ahora informa de cualquier política de `storage.objects` que se
+  bloquearía (p. ej. añadida después en el Dashboard) y de cualquier política
+  desconocida en las 8 tablas de empresa.
+- En Staging lo hace `staging:check` (solo lectura), que además lista cada
+  política de Storage con su veredicto (`storage_policy: …`).
+- Rollback: `rollback/0014a_rollback.sql` (no toca las políticas de otros buckets).
+
+> Este documento cubre 0005–0009 y la comprobación R3 de 0014a. El orden y las
+> pruebas de 0010, 0011 y 0014a en Production se prepararán por separado antes de
+> su ejecución.

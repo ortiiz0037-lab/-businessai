@@ -332,6 +332,42 @@ describe('verify_0014a.sql: strictly read-only 0014a verification', () => {
   })
 })
 
+describe('R3: storage.objects policies that could reach the company buckets', () => {
+  const read = (f: string) => readFileSync(new URL(f, import.meta.url), 'utf8')
+  const mig = read('../supabase/migrations/0014a_permissions.sql')
+  const verify = read('../supabase/inspect/verify_0014a.sql')
+  const inspect = read('../supabase/inspect/inspect_storage_policies.sql')
+  const script = read('../scripts/staging/apply-migrations.sh')
+  const classifier = (src: string) => [...src.matchAll(/-- BEGIN storage\.objects policy classifier \(R3\)[\s\S]*?-- END storage\.objects policy classifier \(R3\)/g)]
+    .map((m) => m[0].split('\n').map((l) => l.trim()).join('\n'))
+  it('the same classifier is used by 0014a (guard, warning, final check), verify_0014a and the inspection', () => {
+    const all = [...classifier(mig), ...classifier(verify), ...classifier(inspect)]
+    expect(classifier(mig)).toHaveLength(3)
+    expect(all).toHaveLength(5)
+    expect(new Set(all).size).toBe(1)
+  })
+  it('0014a stops (exception) on blocked policies, before any change and again before commit', () => {
+    const guards = mig.slice(0, mig.indexOf('-- ------------------------------------------- 1. catalog'))
+    expect(guards).toMatch(/where c\.verdict like 'block:%';\n\s+if unknown is not null then\n\s+raise exception E'BA0014a: storage\.objects policies that could reach the company buckets were found; nothing was changed/)
+    expect(mig.slice(mig.indexOf('6. verification before commit'))).toMatch(/where c\.verdict like 'block:%';\n\s+if bad is not null then raise exception/)
+  })
+  it('0014a never drops or alters a storage policy other than its own 5 ba_ policies', () => {
+    const stmts = [...mig.matchAll(/\b(drop|alter) policy (?:if exists )?(\w+) on storage\.objects/gi)].map((m) => m[2])
+    expect(stmts.length).toBeGreaterThan(0)
+    for (const n of stmts) expect(n).toMatch(/^ba_company_(assets_(select|insert)|signatures_(select|insert|delete))$/)
+  })
+  it('the inspection is a single read-only SELECT', () => {
+    const code = inspect.replace(/--.*$/gm, '').replace(/'(?:[^']|'')*'/g, "''")
+    expect(code.trim()).toMatch(/^select\b[\s\S]*;$/i)
+    expect(code.match(/;/g)).toHaveLength(1)
+    expect(code).not.toMatch(/\b(insert|update|delete|merge|truncate|create|alter|drop|grant|revoke|comment|copy|vacuum|analyze|call|do|begin|commit|rollback|set|reset|lock|refresh|nextval|setval|pg_terminate_backend|pg_cancel_backend|lo_\w+|dblink\w*)\b/i)
+  })
+  it('staging:check lists the verdicts in a read-only transaction', () => {
+    expect(script).toContain('STORAGE_POLICIES="$ROOT/supabase/inspect/inspect_storage_policies.sql"')
+    expect(script).toMatch(/PGOPTIONS="-c default_transaction_read_only=on" psqlx -tA -F' \| ' \\\n\s+-c "begin transaction read only" \\\n\s+-c "select 'storage_policy: ' \|\| policyname[^\n]*"\$STORAGE_POLICIES"[^\n]*\\\n\s+-c "rollback"/)
+  })
+})
+
 describe('demo company (staging:demo / staging:demo-remove)', () => {
   const yml = readFileSync(new URL('../../.github/workflows/staging-demo.yml', import.meta.url), 'utf8')
   const ok = {

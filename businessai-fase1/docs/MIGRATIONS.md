@@ -23,7 +23,7 @@ Las pruebas de `tests/staging-scripts.test.ts` hacen cumplir 3 y 4.
 | Número | Archivo | Estado |
 |---|---|---|
 | 0001–0011 | ver `supabase/README.md` | Aplicadas en Staging |
-| 0014a | `0014a_permissions.sql` | Aplicada en Staging |
+| 0014a | `0014a_permissions.sql` | Aplicada en Staging (versión anterior a R3). La versión con la comprobación de Storage (R3) está **pendiente** de `staging:migrate` autorizado |
 | **0015** | — | **Siguiente número libre** |
 
 Los números 0012, 0013 y 0014b se habían reservado en la planificación

@@ -313,6 +313,8 @@ check "$(psqlq -d mig -tA -c "select count(*) from ba_meta.applied_migrations")/
 fp_mig() { "${RUNAS[@]}" psql -X -q -tA -h "$WORK" -p "$PORT" -U postgres -d mig -f "$HERE/catalog_fingerprint.sql" -c "select count(*) from public.role_permissions" -c "select count(*) from ba_meta.applied_migrations"; }
 fp_mig > "$WORK/v_before.txt"
 o="$(mig "$MURL" DRY_RUN=1 EXPECT_NONE=1 STATUS=1 VERIFY_0014A=1)"; check "$(grep -c '^verify_0014a: OK$' <<<"$o")" 1 "verify_0014a: OK on the migrated database"
+check "$(grep -c '^storage_policy: ba_company_[a-z_]* | [A-Z]* | authenticated | repository$' <<<"$o")/$(grep -c '^storage_policy: ' <<<"$o")" "5/5" \
+  "staging:check lists every storage.objects policy with its R3 verdict (5 repository policies)"
 fp_mig > "$WORK/v_after.txt"
 check "$(diff -q "$WORK/v_before.txt" "$WORK/v_after.txt" >/dev/null && echo same || echo changed)" same "verify_0014a: catalog, matrix and record unchanged (read-only)"
 check "$(PGOPTIONS="-c default_transaction_read_only=on" "${RUNAS[@]}" psql -X -q -h "$WORK" -p "$PORT" -U postgres -d mig -c "begin transaction read only" -c "create table public.v_probe(i int)" 2>&1 | grep -c 'read-only transaction')" 1 \
@@ -476,6 +478,82 @@ psqlq -d e19 -c "delete from public.companies where id = 'd2000000-0000-4000-800
   -c "delete from auth.users where id = 'd1000000-0000-4000-8000-000000000001'" >/dev/null && check ok ok "demo removal runs in the script's order"
 check "$(count e19 "select (select count(*) from public.companies where name = 'BusinessAI Demo (QA)') + (select count(*) from public.clients where name like 'Demo · %') + (select count(*) from public.documents where document_number like 'DEMO-%') + (select count(*) from public.payments where reference like 'DEMO-%')")/$(count e19 "select count(*) from public.companies where id = 'e1900000-0000-4000-8000-0000000000c1'")" "0/1" \
   "demo removal leaves no demo row and does not touch other companies"
+
+echo "== Scenario 20: R3 — 0014a stops on storage.objects policies that could reach the company buckets"
+STOR="$HERE/../../inspect/inspect_storage_policies.sql"
+VER="$HERE/../../inspect/verify_0014a.sql"
+ro() { PGOPTIONS="-c default_transaction_read_only=on" "${RUNAS[@]}" psql -X -q -tA -v ON_ERROR_STOP=1 -h "$WORK" -p "$PORT" -U postgres -d "$1" \
+  -c "begin transaction read only" -f "$2" -c "rollback"; }
+r3_stop() { # $1 db, $2 policy, $3 create statement, $4 expected verdict, $5 label
+  stg_db "$1"; psqlq -d "$1" -c "$3" >/dev/null
+  check "$(ro "$1" "$STOR" | grep -c "^$2|.*|$4")" 1 "$5: the read-only inspection marks it '$4'"
+  fingerprint "$1" "$WORK/$1_a.txt"
+  if psqlq -d "$1" -f "$MIG/$P14.sql" >"$WORK/$1.out" 2>&1; then check applied stopped "$5: 0014a stops"; else
+    grep -q 'storage.objects policies that could reach the company buckets were found; nothing was changed' "$WORK/$1.out" \
+      && grep -qF "$2 [" "$WORK/$1.out" && check stopped stopped "$5: 0014a stops and names $2"; fi
+  fingerprint "$1" "$WORK/$1_b.txt"
+  check "$(diff -q "$WORK/$1_a.txt" "$WORK/$1_b.txt" >/dev/null && echo same || echo changed)/$(count "$1" "select count(*) from pg_policies where schemaname = 'storage' and policyname = '$2'")" "same/1" \
+    "$5: nothing changed and the policy was NOT dropped"
+}
+r3_stop r3a sig_read_all "create policy sig_read_all on storage.objects for select to authenticated using (bucket_id = 'Company-signatures')" \
+  'block: mentions Company-assets or Company-signatures' "another policy on Company-signatures"
+r3_stop r3b assets_lower "create policy assets_lower on storage.objects for select to authenticated using (lower(bucket_id) = 'company-assets')" \
+  'block: mentions Company-assets or Company-signatures' "a policy on Company-assets written in another case"
+r3_stop r3c read_everything "create policy read_everything on storage.objects for select to authenticated using (true)" \
+  'block: not limited by bucket' "using (true) for authenticated (every bucket)"
+r3_stop r3d upload_anything "create policy upload_anything on storage.objects for insert to authenticated with check (auth.uid() is not null)" \
+  'block: not limited by bucket' "an INSERT policy that does not filter by bucket"
+r3_stop r3e avatars_or_all "create policy avatars_or_all on storage.objects for select to anon using (bucket_id = 'avatars' or true)" \
+  'block: not limited by bucket' "a bucket filter defeated by OR"
+r3_stop r3f not_x "create policy not_x on storage.objects for select to authenticated using (bucket_id <> 'avatars')" \
+  'block: not limited by bucket' "bucket_id <> 'avatars' (every other bucket)"
+r3_stop r3g insert_no_check "create policy insert_no_check on storage.objects for insert to authenticated" \
+  'block: no condition' "an INSERT policy with no condition"
+r3_stop r3h avatars_move "create policy avatars_move on storage.objects for update to authenticated using (bucket_id = 'avatars') with check (true)" \
+  'block: not limited by bucket' "an UPDATE that may move a file into any bucket (with check true)"
+r3_stop r3i restrictive_all "create policy restrictive_all on storage.objects as restrictive for select to authenticated using (owner is not null)" \
+  'block: not limited by bucket' "a RESTRICTIVE policy on every bucket (would change company-bucket behaviour)"
+# Policies limited to other buckets: 0014a applies, keeps them unchanged and lists them.
+stg_db r3ok
+psqlq -d r3ok -c "create policy avatars_read on storage.objects for select to authenticated using (bucket_id = 'avatars' and name like 'public/%')" \
+  -c "create policy media_upload on storage.objects for insert to authenticated with check (bucket_id in ('media', 'docs') and owner = auth.uid())" \
+  -c "create policy avatars_mine on storage.objects for update to authenticated using (owner = auth.uid() and bucket_id = 'avatars')" >/dev/null
+before_q="$(count r3ok "select string_agg(policyname || coalesce(qual, '') || coalesce(with_check, ''), '|' order by policyname) from pg_policies where schemaname = 'storage' and policyname in ('avatars_read', 'media_upload', 'avatars_mine')")"
+check "$(ro r3ok "$STOR" | grep -c '|allowed: limited to bucket ')" 3 "other buckets: the inspection marks the 3 policies 'allowed'"
+if PGOPTIONS="-c client_min_messages=warning" "${RUNAS[@]}" psql -X -q -v ON_ERROR_STOP=1 -h "$WORK" -p "$PORT" -U postgres -d r3ok -f "$MIG/$P14.sql" >"$WORK/r3ok.out" 2>&1; then
+  check ok ok "other buckets: 0014a applies"; else head -5 "$WORK/r3ok.out"; check failed ok "other buckets: 0014a applies"; fi
+check "$(grep -c 'storage.objects policies of other buckets kept unchanged: avatars_mine (allowed: limited to bucket avatars), avatars_read (allowed: limited to bucket avatars), media_upload (allowed: limited to bucket docs, media)' "$WORK/r3ok.out")" 1 \
+  "other buckets: 0014a lists them in a warning"
+check "$(count r3ok "select string_agg(policyname || coalesce(qual, '') || coalesce(with_check, ''), '|' order by policyname) from pg_policies where schemaname = 'storage' and policyname in ('avatars_read', 'media_upload', 'avatars_mine')")" "$before_q" \
+  "other buckets: the 3 policies are unchanged"
+check "$(ro r3ok "$VER")" OK "other buckets: verify_0014a answers OK"
+matrix r3ok "$WORK/m_r3ok.txt"; same_matrix "$WORK/m_r3ok.txt" "other buckets: behaviour matrix identical to before 0014a"
+o="$(ro r3ok "$STOR")"; check "$(grep -c '|repository|' <<<"$o")/$(grep -c '|allowed: ' <<<"$o")/$(grep -c '|block: ' <<<"$o")" "5/3/0" \
+  "inspection after 0014a: 5 repository, 3 allowed, 0 blocked"
+# Detected AFTER 0014a (e.g. a policy added later in the Dashboard): verify_0014a fails, read-only.
+psqlq -d r3ok -c "create policy late_all on storage.objects for select to authenticated using (true)" \
+  -c "create policy late_sig on storage.objects for delete to authenticated using (bucket_id = 'Company-signatures')" \
+  -c "create policy clients_late on public.clients for select to authenticated using (true)" >/dev/null
+fingerprint r3ok "$WORK/r3v_a.txt"
+v="$(ro r3ok "$VER")"
+check "$(grep -o 'storage.objects policy late_all \[PERMISSIVE SELECT to authenticated\] block: not limited by bucket\|storage.objects policy late_sig \[PERMISSIVE DELETE to authenticated\] block: mentions Company-assets or Company-signatures\|tenant table: public.clients:clients_late' <<<"$v" | sort -u | wc -l)" 3 \
+  "verify_0014a detects later storage policies (every bucket / Company-signatures) and an unknown tenant policy"
+fingerprint r3ok "$WORK/r3v_b.txt"
+check "$(diff -q "$WORK/r3v_a.txt" "$WORK/r3v_b.txt" >/dev/null && echo same || echo changed)" same "verify_0014a and the inspection changed nothing (read-only)"
+# Re-applying 0014a now stops (the late policies) — still nothing dropped.
+if psqlq -d r3ok -f "$MIG/$P14.sql" >"$WORK/r3re.out" 2>&1; then check applied stopped "re-apply with late policies"; else
+  grep -q 'public.clients:clients_late' "$WORK/r3re.out" && check stopped stopped "re-apply with an unknown policy stops (tenant guard first)"; fi
+psqlq -d r3ok -c "drop policy clients_late on public.clients" >/dev/null
+if psqlq -d r3ok -f "$MIG/$P14.sql" >"$WORK/r3re2.out" 2>&1; then check applied stopped "re-apply with late storage policies"; else
+  grep -qF 'late_all [' "$WORK/r3re2.out" && grep -qF 'late_sig [' "$WORK/r3re2.out" && check stopped stopped "re-apply with late storage policies stops and names both"; fi
+check "$(count r3ok "select count(*) from pg_policies where schemaname = 'storage' and policyname in ('late_all', 'late_sig')")" 2 "re-apply: the late policies were not dropped"
+# Production path: the inspected database (before any migration) and after 0005…0011.
+base r3p0
+o="$(ro r3p0 "$STOR")"; check "$(grep -c '|block: ' <<<"$o")/$(grep -c '|allowed: \||repository|' <<<"$o")" "11/0" \
+  "production shape BEFORE 0007: the inspection blocks all 11 old storage policies (0007 removes them)"
+base r3p1; for m in "${ALL_MIGS[@]}"; do psqlq -d r3p1 -f "$MIG/$m.sql" >/dev/null; done
+check "$(ro r3p1 "$STOR" | grep -c '|block: ')/$(ro r3p1 "$STOR" | grep -c '|repository|')" "0/5" "production path after 0005…0011: 0 blocked, 5 repository policies"
+psqlq -d r3p1 -f "$MIG/$P14.sql" >/dev/null && check ok ok "production path: 0014a (with the R3 guard) applies"
 
 echo "== Scenario 9: a busy table makes 0005 fail fast (lock_timeout) with zero changes"
 base s9

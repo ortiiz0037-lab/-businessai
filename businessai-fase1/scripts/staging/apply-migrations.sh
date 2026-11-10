@@ -18,6 +18,9 @@
 #   VERIFY_0014A=1          (with DRY_RUN=1) run supabase/inspect/verify_0014a.sql
 #                           in a READ-ONLY transaction when 0014a is recorded;
 #                           fail unless it answers OK.
+#                           Also lists every storage.objects policy with its R3
+#                           verdict (supabase/inspect/inspect_storage_policies.sql,
+#                           read-only), whether or not 0014a is recorded.
 #   EXPECT_STAGING_REF      If set, STAGING_PROJECT_REF must equal it (a ref
 #                           pinned in the workflow, so a changed repository
 #                           variable cannot redirect the run).
@@ -48,6 +51,7 @@ ROOT="$(cd "$HERE/../.." && pwd)"
 MIG="$ROOT/supabase/migrations"
 VERIFY="$ROOT/supabase/inspect/verify_after_migrations.sql"
 VERIFY_E3="$ROOT/supabase/inspect/verify_0014a.sql"
+STORAGE_POLICIES="$ROOT/supabase/inspect/inspect_storage_policies.sql"
 
 # Order for a NEW environment (docs/ENVIRONMENTS.md).
 ORDER=(
@@ -163,6 +167,12 @@ if [[ "${DRY_RUN:-0}" == "1" ]]; then
     [[ "$result" == "$EXPECTED_VERIFY" ]] || die "verification differs from the expected $EXPECTED_VERIFY"
   fi
   if [[ "${VERIFY_0014A:-0}" == "1" ]]; then
+    # R3: every storage.objects policy with its verdict (names and verdicts
+    # only; read-only like the verification below). Listed before and after 0014a.
+    PGOPTIONS="-c default_transaction_read_only=on" psqlx -tA -F' | ' \
+      -c "begin transaction read only" \
+      -c "select 'storage_policy: ' || policyname, cmd, roles, verdict from ($(sed -e 's/--.*$//' -e '/^order by/d' -e 's/;$//' "$STORAGE_POLICIES")) s order by 1" \
+      -c "rollback"
     recorded_0014a=""
     if [[ "$has_record" == "t" ]]; then
       recorded_0014a="$(psqlx -tA -c "select sha256 from ba_meta.applied_migrations where name = '0014a_permissions'")"
