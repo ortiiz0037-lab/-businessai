@@ -15,6 +15,7 @@
 // policies for owner/admin only, no update/delete).
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { stagingEnv } from './staging-helpers'
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? ''
@@ -23,7 +24,8 @@ const devRef = process.env.RLS_TEST_PROJECT_REF ?? ''
 const urlRef = (() => {
   try { return new URL(url).hostname.split('.')[0] } catch { return '' }
 })()
-const enabled = Boolean(url && anonKey && serviceKey && devRef && devRef === urlRef)
+// Same decision as the other staging suites (also refuses the production ref).
+const enabled = Boolean(url && anonKey && serviceKey && devRef && devRef === urlRef) && stagingEnv.enabled
 
 const opts = { auth: { persistSession: false, autoRefreshToken: false } }
 const admin = enabled ? createClient(url, serviceKey, opts) : (null as unknown as SupabaseClient)

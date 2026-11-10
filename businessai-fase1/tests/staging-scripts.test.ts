@@ -283,3 +283,18 @@ describe('migrations: order, identifiers and transactions (apply-migrations.sh)'
     expect(existsSync(new URL('../supabase/rollback/0014a_rollback.sql', import.meta.url))).toBe(true)
   })
 })
+
+describe('staging suites: guarded and listed in staging:test', () => {
+  const workflow = readFileSync(new URL('../../.github/workflows/staging-test.yml', import.meta.url), 'utf8')
+  const run = workflow.slice(workflow.indexOf('npx vitest run'), workflow.indexOf('--reporter=verbose'))
+  const suites = readdirSync(new URL('./', import.meta.url))
+    .filter((f) => f.endsWith('.test.ts') && f !== 'staging-helpers.test.ts')
+    .filter((f) => /from '\.\/staging-helpers'/.test(readFileSync(new URL(f, import.meta.url), 'utf8')))
+  it('every suite using the staging helpers runs in staging:test (and is never silently left out)', () => {
+    expect(suites.length).toBeGreaterThan(0)
+    for (const f of suites) expect(run, f).toContain(`tests/${f}`)
+  })
+  it('every staging suite gates on stagingEnv (ref = URL, never production)', () => {
+    for (const f of suites) expect(readFileSync(new URL(f, import.meta.url), 'utf8'), f).toMatch(/stagingEnv\.enabled/)
+  })
+})
