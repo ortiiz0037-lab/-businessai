@@ -298,6 +298,7 @@ o="$(mig "postgresql://postgres.$MREF@/mig?host=$WORK&port=$PORT&x=prodreftest00
 o="$(mig "postgresql://postgres@/mig?host=$WORK&port=$PORT&a=$MREF" DRY_RUN=1 || true)"; check "$(grep -c 'user/host is not the staging project' <<<"$o")" 1 "migrate: a user without the staging ref is refused"
 o="$(mig "$MURL" DRY_RUN=1)"; check "$(grep -c 'Pending: 0001_multitenant_core.* 0011_usage_limits 0014a_permissions$' <<<"$o")" 1 "migrate plan: lists 0001…0011 then 0014a_permissions (last), writes nothing"
 check "$(psqlq -d mig -tA -c "select count(*) from pg_tables where schemaname='public'")" 0 "migrate plan: no table created"
+o="$(mig "$MURL" DRY_RUN=1 VERIFY_0014A=1)"; check "$(grep -c 'verify_0014a: 0014a_permissions not recorded yet' <<<"$o")" 1 "verify_0014a: skipped while 0014a is not recorded"
 o="$(mig "$MURL")"; check "$(grep -c 'Staging database is up to date and verified' <<<"$o")" 1 "migrate apply: 12 migrations applied and verified"
 check "$(grep -oE 'applying [0-9a-z_]+' <<<"$o" | tail -2 | tr '\n' ' ')" "applying 0011_usage_limits applying 0014a_permissions " "migrate apply: 0014a_permissions runs after 0011"
 o="$(mig "$MURL" DRY_RUN=1 EXPECT_NONE=1 STATUS=1)"; check "$(grep -c '✓' <<<"$o")/$(grep -c 'No pending migrations' <<<"$o")" "12/1" "migrate confirm: nothing pending, 12 recorded"
@@ -308,6 +309,20 @@ psqlq -d mig -c "delete from ba_meta.applied_migrations where name = '0014a_perm
 o="$(mig "$MURL" DRY_RUN=1)"; check "$(grep -c 'Pending: 0014a_permissions$' <<<"$o")" 1 "lost record: 0014a_permissions shows as pending"
 o="$(mig "$MURL")"; check "$(grep -c 'Staging database is up to date and verified' <<<"$o")" 1 "lost record: re-run re-applies 0014a idempotently and verifies"
 check "$(psqlq -d mig -tA -c "select count(*) from ba_meta.applied_migrations")/$(psqlq -d mig -tA -c "select count(*) from public.role_permissions")" "12/49" "lost record: 12 recorded again, matrix still 49 rows"
+# T5: read-only SQL verification of 0014a (staging:check and the migrate confirmation).
+fp_mig() { "${RUNAS[@]}" psql -X -q -tA -h "$WORK" -p "$PORT" -U postgres -d mig -f "$HERE/catalog_fingerprint.sql" -c "select count(*) from public.role_permissions" -c "select count(*) from ba_meta.applied_migrations"; }
+fp_mig > "$WORK/v_before.txt"
+o="$(mig "$MURL" DRY_RUN=1 EXPECT_NONE=1 STATUS=1 VERIFY_0014A=1)"; check "$(grep -c '^verify_0014a: OK$' <<<"$o")" 1 "verify_0014a: OK on the migrated database"
+fp_mig > "$WORK/v_after.txt"
+check "$(diff -q "$WORK/v_before.txt" "$WORK/v_after.txt" >/dev/null && echo same || echo changed)" same "verify_0014a: catalog, matrix and record unchanged (read-only)"
+check "$(PGOPTIONS="-c default_transaction_read_only=on" "${RUNAS[@]}" psql -X -q -h "$WORK" -p "$PORT" -U postgres -d mig -c "begin transaction read only" -c "create table public.v_probe(i int)" 2>&1 | grep -c 'read-only transaction')" 1 \
+  "verify_0014a: its session refuses any write (read-only transaction)"
+psqlq -d mig -c "delete from public.role_permissions where role = 'member' and permission_key = 'clients.view'" \
+  -c "grant execute on function public.has_permission(uuid, text) to anon" \
+  -c "alter policy ba_clients_select on public.clients using (public.is_company_member(company_id))" >/dev/null
+o="$(mig "$MURL" DRY_RUN=1 VERIFY_0014A=1 || true)"
+check "$(grep -c '0014a verification failed' <<<"$o")/$(grep -o 'member:clients.view missing\|has_permission(uuid,text) grants wrong\|public.clients:ba_clients_select' <<<"$o" | sort -u | wc -l)" "1/3" \
+  "verify_0014a: detects a changed matrix, an anon grant and an old-style policy, and fails"
 psqlq -d prodlike -c "create table public.companies(id int); insert into public.companies values (1)" >/dev/null
 o="$(mig "postgresql://postgres.$MREF@/prodlike?host=$WORK&port=$PORT" DRY_RUN=1 || true)"; check "$(grep -c 'production?' <<<"$o")" 1 "migrate: unmarked database with data is refused"
 
@@ -368,6 +383,8 @@ check "$(grep -c . <<<"$prod_diff")/$(grep -v -e '|delete deletion audit A|error
   "production path before 0014a: same as staging except the deletion-audit grants revoked in production (DELETE ×6 actors, anon SELECT)"
 base p18b; for m in "${ALL_MIGS[@]}"; do psqlq -d p18b -f "$MIG/$m.sql" >/dev/null; done
 psqlq -d p18b -f "$MIG/$P14.sql" >/dev/null && check ok ok "production path: 0014a applies on the inspected database"
+check "$(PGOPTIONS="-c default_transaction_read_only=on" "${RUNAS[@]}" psql -X -q -tA -h "$WORK" -p "$PORT" -U postgres -d p18b -c "begin transaction read only" -f "$HERE/../../inspect/verify_0014a.sql" -c "rollback")" OK \
+  "production path: verify_0014a.sql answers OK (read-only)"
 matrix p18b "$WORK/m_prod_after.txt"
 if diff -u "$WORK/m_prod_before.txt" "$WORK/m_prod_after.txt" > "$WORK/prod.diff"; then check ok ok "production path: matrix after 0014a is IDENTICAL to before"
 else head -20 "$WORK/prod.diff"; check different ok "production path: matrix after 0014a is IDENTICAL to before"; fi

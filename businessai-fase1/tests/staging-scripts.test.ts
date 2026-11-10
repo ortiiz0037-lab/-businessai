@@ -173,7 +173,7 @@ describe('staging.yml: what each label runs', () => {
     expect(yml).toMatch(/PINNED_STAGING_REF: wbfpvxptoujgvflljasc/)
     expect(yml).toMatch(/PINNED_PRODUCTION_REF: rugqcumiuqrjbfwpuslm/)
     expect(yml).toMatch(/EXPECT_STAGING_REF: \$\{\{ env\.MODE == 'migrate' && env\.PINNED_STAGING_REF/)
-    expect(yml).toMatch(/DRY_RUN=1 EXPECT_NONE=1 STATUS=1 bash scripts\/staging\/apply-migrations\.sh/)
+    expect(yml).toMatch(/DRY_RUN=1 EXPECT_NONE=1 STATUS=1 (VERIFY_0014A=1 )?bash scripts\/staging\/apply-migrations\.sh/)
     // Every step that writes to Stripe or Vercel is gated by a flag that is false in migrate mode.
     for (const step of ['2a. Stripe TEST', '2b. Stripe TEST', '3. Vercel', '4a. Smoke', '4b. Billing', '4c. RLS']) {
       const start = yml.indexOf(`      - name: ${step}`)
@@ -296,5 +296,30 @@ describe('staging suites: guarded and listed in staging:test', () => {
   })
   it('every staging suite gates on stagingEnv (ref = URL, never production)', () => {
     for (const f of suites) expect(readFileSync(new URL(f, import.meta.url), 'utf8'), f).toMatch(/stagingEnv\.enabled/)
+  })
+})
+
+describe('verify_0014a.sql: strictly read-only 0014a verification', () => {
+  const file = readFileSync(new URL('../supabase/inspect/verify_0014a.sql', import.meta.url), 'utf8')
+  const code = file.replace(/--.*$/gm, '').replace(/'[^']*'/g, "''")
+  const script = readFileSync(new URL('../scripts/staging/apply-migrations.sh', import.meta.url), 'utf8')
+  const staging = readFileSync(new URL('../../.github/workflows/staging.yml', import.meta.url), 'utf8')
+  it('is a single SELECT with no writes, DDL or transaction control', () => {
+    expect(code.trim()).toMatch(/^with\b[\s\S]*\bselect\b[\s\S]*;$/i)
+    expect(code.match(/;/g)).toHaveLength(1)
+    expect(code).not.toMatch(/\b(insert|update|delete|merge|truncate|create|alter|drop|grant|revoke|comment|copy|vacuum|analyze|call|do|begin|commit|rollback|set|reset|lock|refresh|nextval|setval|pg_terminate_backend|pg_cancel_backend|lo_\w+|dblink\w*)\b/i)
+  })
+  it('apply-migrations.sh runs it only in DRY_RUN, read-only, and only when 0014a is recorded', () => {
+    const dry = script.slice(script.indexOf('if [[ "${DRY_RUN:-0}" == "1" ]]; then\n  if [[ "${STATUS'), script.indexOf('DRY_RUN=1: nothing applied.'))
+    expect(dry).toContain('-f "$VERIFY_E3"')
+    expect(dry).toMatch(/PGOPTIONS="-c default_transaction_read_only=on" psqlx -tA \\\n\s+-c "begin transaction read only" -f "\$VERIFY_E3" -c "rollback"/)
+    expect(dry).toMatch(/where name = '0014a_permissions'/)
+    expect(dry).toMatch(/\[\[ "\$e3" == "OK" \]\] \|\| die/)
+    expect(script.match(/VERIFY_E3"/g)).toHaveLength(1)
+  })
+  it('staging:check and the migrate confirmation run it; nothing else does', () => {
+    expect(staging).toContain('if [ "$MODE" = check ]; then DRY_RUN=1 VERIFY_0014A=1 bash scripts/staging/apply-migrations.sh; exit; fi')
+    expect(staging).toContain('run: DRY_RUN=1 EXPECT_NONE=1 STATUS=1 VERIFY_0014A=1 bash scripts/staging/apply-migrations.sh')
+    expect(staging.match(/VERIFY_0014A=1/g)).toHaveLength(2)
   })
 })

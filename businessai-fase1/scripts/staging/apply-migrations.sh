@@ -15,6 +15,9 @@
 #                           — used to confirm a run.
 #   STATUS=1                (with DRY_RUN=1) also list the applied migrations
 #                           recorded in ba_meta.applied_migrations.
+#   VERIFY_0014A=1          (with DRY_RUN=1) run supabase/inspect/verify_0014a.sql
+#                           in a READ-ONLY transaction when 0014a is recorded;
+#                           fail unless it answers OK.
 #   EXPECT_STAGING_REF      If set, STAGING_PROJECT_REF must equal it (a ref
 #                           pinned in the workflow, so a changed repository
 #                           variable cannot redirect the run).
@@ -44,6 +47,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 MIG="$ROOT/supabase/migrations"
 VERIFY="$ROOT/supabase/inspect/verify_after_migrations.sql"
+VERIFY_E3="$ROOT/supabase/inspect/verify_0014a.sql"
 
 # Order for a NEW environment (docs/ENVIRONMENTS.md).
 ORDER=(
@@ -157,6 +161,22 @@ if [[ "${DRY_RUN:-0}" == "1" ]]; then
     result="$(psqlx -tA -F, -f "$VERIFY")"
     echo "verify_after_migrations: $result"
     [[ "$result" == "$EXPECTED_VERIFY" ]] || die "verification differs from the expected $EXPECTED_VERIFY"
+  fi
+  if [[ "${VERIFY_0014A:-0}" == "1" ]]; then
+    recorded_0014a=""
+    if [[ "$has_record" == "t" ]]; then
+      recorded_0014a="$(psqlx -tA -c "select sha256 from ba_meta.applied_migrations where name = '0014a_permissions'")"
+    fi
+    if [[ -z "$recorded_0014a" ]]; then
+      echo "verify_0014a: 0014a_permissions not recorded yet — skipped"
+    else
+      # Strictly read-only: read-only session default AND an explicit
+      # read-only transaction that is rolled back.
+      e3="$(PGOPTIONS="-c default_transaction_read_only=on" psqlx -tA \
+              -c "begin transaction read only" -f "$VERIFY_E3" -c "rollback")"
+      echo "verify_0014a: $e3"
+      [[ "$e3" == "OK" ]] || die "0014a verification failed: $e3"
+    fi
   fi
   if [[ "${EXPECT_NONE:-0}" == "1" && ${#pending[@]} -gt 0 ]]; then die "migrations still pending after the run: ${pending[*]}"; fi
   echo "DRY_RUN=1: nothing applied."

@@ -7,7 +7,8 @@ name: Staging
 #
 # How to start it:
 #   * label `staging:check` on the pull request → READ-ONLY check: preflight,
-#     staging DB guards + pending migrations (dry run), and the Stripe and
+#     staging DB guards + pending migrations (dry run), the read-only 0014a
+#     verification (supabase/inspect/verify_0014a.sql), and the Stripe and
 #     Vercel plans. Writes nothing anywhere.
 #   * label `staging:preview` → ONLY the Supabase variables of the Preview
 #     environment: compares the names the code reads with Vercel Preview,
@@ -192,7 +193,7 @@ jobs:
           STAGING_DB_URL: ${{ secrets.STAGING_DB_URL }}
           EXPECT_STAGING_REF: ${{ env.MODE == 'migrate' && env.PINNED_STAGING_REF || '' }}
         run: |
-          if [ "$MODE" = check ]; then DRY_RUN=1 bash scripts/staging/apply-migrations.sh; exit; fi
+          if [ "$MODE" = check ]; then DRY_RUN=1 VERIFY_0014A=1 bash scripts/staging/apply-migrations.sh; exit; fi
           echo "== Plan (dry run: guards + pending migrations, nothing written)"
           DRY_RUN=1 bash scripts/staging/apply-migrations.sh
           echo "== Apply"
@@ -203,7 +204,7 @@ jobs:
         env:
           STAGING_DB_URL: ${{ secrets.STAGING_DB_URL }}
           EXPECT_STAGING_REF: ${{ env.MODE == 'migrate' && env.PINNED_STAGING_REF || '' }}
-        run: DRY_RUN=1 EXPECT_NONE=1 STATUS=1 bash scripts/staging/apply-migrations.sh
+        run: DRY_RUN=1 EXPECT_NONE=1 STATUS=1 VERIFY_0014A=1 bash scripts/staging/apply-migrations.sh
 
       - name: 2a. Stripe TEST → products, prices, Customer Portal
         if: env.DO_STRIPE == 'true'
