@@ -97,6 +97,7 @@ jobs:
         run: |
           set +e
           npx vitest run tests/rls.test.ts tests/rls-business.test.ts \
+            tests/rls-roles.test.ts \
             --reporter=verbose --reporter=json --outputFile.json=rls-results.json
           status=$?
           # A suite whose environment is missing is SKIPPED and vitest still
