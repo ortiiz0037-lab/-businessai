@@ -380,6 +380,27 @@ psqlq -d e18r -f "$HERE/../../rollback/0014a_rollback.sql" >/dev/null && check o
 fingerprint e18r "$WORK/fp_after.txt"
 if diff -u "$WORK/fp_before.txt" "$WORK/fp_after.txt" > "$WORK/fp.diff"; then check ok ok "after rollback the catalog is identical to before 0014a"; else head -20 "$WORK/fp.diff"; check different ok "rollback restores the catalog"; fi
 matrix e18r "$WORK/m_rb.txt"; same_matrix "$WORK/m_rb.txt" "after rollback the matrix is still the expected one"
+# Rollback after applying 0014a TWICE: the second run converges to the same
+# catalog as the first, and the rollback still restores the initial one.
+stg_db e18t; fingerprint e18t "$WORK/fp2_initial.txt"
+psqlq -d e18t -f "$MIG/$P14.sql" >/dev/null && check ok ok "double apply: first 0014a run"
+fingerprint e18t "$WORK/fp2_first.txt"
+psqlq -d e18t -f "$MIG/$P14.sql" >/dev/null && check ok ok "double apply: second 0014a run"
+fingerprint e18t "$WORK/fp2_second.txt"
+if diff -u "$WORK/fp2_first.txt" "$WORK/fp2_second.txt" > "$WORK/fp2_12.diff"; then check ok ok "double apply: catalog after the 2nd run IDENTICAL to after the 1st"
+else head -20 "$WORK/fp2_12.diff"; check different ok "double apply: catalog after the 2nd run IDENTICAL to after the 1st"; fi
+check "$(count e18t "select (select count(*) from public.permissions) || '/' || (select count(*) from public.role_permissions)")" "18/49" \
+  "double apply: catalog still 18 permissions and 49 matrix rows"
+psqlq -d e18t -f "$HERE/../../rollback/0014a_rollback.sql" >/dev/null && check ok ok "double apply: 0014a rollback runs"
+fingerprint e18t "$WORK/fp2_final.txt"
+if diff -u "$WORK/fp2_initial.txt" "$WORK/fp2_final.txt" > "$WORK/fp2_rb.diff"; then check ok ok "double apply + rollback: catalog IDENTICAL to the initial one (policies, functions, grants, tables, columns)"
+else head -20 "$WORK/fp2_rb.diff"; check different ok "double apply + rollback: catalog IDENTICAL to the initial one"; fi
+check "$(grep -cE '^policy\|(public\.(companies|memberships|company_profiles|company_subscriptions|document_deletion_audit|clients|documents|payments)|storage\.objects\|ba_company_(assets|signatures)_)' "$WORK/fp2_final.txt")/$(grep -c 'has_permission' "$WORK/fp2_final.txt")" "24/0" \
+  "double apply + rollback: the 24 tenant policies are back and none uses has_permission"
+check "$(grep -cE '^function\|(is_company_member\(uuid\)|has_company_role\(uuid,text\[\]\))\|' "$WORK/fp2_final.txt")/$(grep -cE '^(function\|has_permission\(|table\|(permissions|role_permissions)\||column\|memberships\.status\||constraint\|memberships\|memberships_status_check)' "$WORK/fp2_final.txt")" "2/0" \
+  "double apply + rollback: original helpers present; has_permission, catalog tables, status column and constraint gone"
+matrix e18t "$WORK/m_rb2.txt"; same_matrix "$WORK/m_rb2.txt" "double apply + rollback: behaviour matrix is the expected one"
+if [ -n "${FP_OUT:-}" ]; then mkdir -p "$FP_OUT"; cp "$WORK"/fp2_*.txt "$FP_OUT"/; fi
 stg_db e18s; psqlq -d e18s -f "$MIG/$P14.sql" >/dev/null
 psqlq -d e18s -c "insert into auth.users (id) values ('3a000000-0000-4000-8000-000000000001');
   insert into public.companies (id, name, created_by) values ('3c000000-0000-4000-8000-000000000001', 'Suspendida', '3a000000-0000-4000-8000-000000000001');
