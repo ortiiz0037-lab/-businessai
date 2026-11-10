@@ -112,7 +112,7 @@ const es: AppCopy = {
     activity: {
       title: 'Actividad reciente', empty: 'Todavía no hay actividad.', seeAll: 'Ver documentos',
       client: (name) => `Nuevo cliente: ${name}`,
-      document: (type, number) => `${type} ${number} creada`,
+      document: (type, number) => `Nuevo: ${type} ${number}`,
       payment: (amount, number) => (number ? `Pago de ${amount} · ${number}` : `Pago de ${amount}`),
     },
     alerts: {
