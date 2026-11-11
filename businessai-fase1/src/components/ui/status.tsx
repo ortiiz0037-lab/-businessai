@@ -1,28 +1,47 @@
 import type { IconName } from '@/components/ui/icon'
+import type { Locale } from '@/lib/i18n/app'
 
 /**
- * Document status → Spanish label and badge style (one place for the whole
- * app). Includes the statuses derived from payments (partial) and the quote
- * answers (accepted / rejected); cancelled documents are shown as voided.
+ * Document status → label (Spanish / English) and badge style (one place for
+ * the whole app). Includes the statuses derived from payments (partial) and
+ * the quote answers (accepted / rejected); cancelled documents are voided.
  */
-const STATUS: Record<string, { label: string; className: string }> = {
-  draft: { label: 'Borrador', className: 'badge-neutral' },
-  sent: { label: 'Enviado', className: 'badge-accent' },
-  partial: { label: 'Pago parcial', className: 'badge-warning' },
-  paid: { label: 'Pagado', className: 'badge-success' },
-  overdue: { label: 'Vencido', className: 'badge-danger' },
-  accepted: { label: 'Aceptada', className: 'badge-success' },
-  rejected: { label: 'Rechazada', className: 'badge-danger' },
-  cancelled: { label: 'Anulado', className: 'badge-neutral opacity-70' },
+const STATUS: Record<string, { es: string; en: string; className: string }> = {
+  draft: { es: 'Borrador', en: 'Draft', className: 'badge-neutral' },
+  sent: { es: 'Enviado', en: 'Sent', className: 'badge-accent' },
+  partial: { es: 'Pago parcial', en: 'Partly paid', className: 'badge-warning' },
+  paid: { es: 'Pagado', en: 'Paid', className: 'badge-success' },
+  overdue: { es: 'Vencido', en: 'Overdue', className: 'badge-danger' },
+  accepted: { es: 'Aceptada', en: 'Accepted', className: 'badge-success' },
+  rejected: { es: 'Rechazada', en: 'Rejected', className: 'badge-danger' },
+  cancelled: { es: 'Anulado', en: 'Voided', className: 'badge-neutral opacity-70' },
 }
 
-export function documentStatus(status: string | null | undefined) {
-  return STATUS[status ?? ''] ?? { label: status || 'Pendiente', className: 'badge-warning' }
+export function documentStatus(status: string | null | undefined, locale: Locale = 'es') {
+  const s = STATUS[status ?? '']
+  if (!s) return { label: status || (locale === 'en' ? 'Pending' : 'Pendiente'), className: 'badge-warning' }
+  return { label: s[locale], className: s.className }
 }
 
-export function StatusBadge({ status }: { status: string | null | undefined }) {
-  const s = documentStatus(status)
+export function StatusBadge({ status, locale = 'es' }: { status: string | null | undefined; locale?: Locale }) {
+  const s = documentStatus(status, locale)
   return <span className={s.className}>{s.label}</span>
+}
+
+/** Document type names. */
+const TYPE_NAME: Record<string, { es: string; en: string }> = {
+  invoice: { es: 'Factura', en: 'Invoice' },
+  quote: { es: 'Cotización', en: 'Quote' },
+  receipt: { es: 'Recibo', en: 'Receipt' },
+  work_order: { es: 'Orden de trabajo', en: 'Work order' },
+  letter: { es: 'Carta', en: 'Letter' },
+  payment_reminder: { es: 'Recordatorio de pago', en: 'Payment reminder' },
+  contract: { es: 'Contrato', en: 'Contract' },
+  report: { es: 'Informe', en: 'Report' },
+}
+
+export function documentTypeName(type: string | null | undefined, locale: Locale = 'es'): string {
+  return TYPE_NAME[type ?? '']?.[locale] ?? (locale === 'en' ? 'Document' : 'Documento')
 }
 
 /** Icon for each document type. */

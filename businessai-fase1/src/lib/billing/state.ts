@@ -71,6 +71,18 @@ export const STATE_LABEL: Record<BillingStateName, string> = {
   paused: 'Pausada',
 }
 
+export const STATE_LABEL_EN: Record<BillingStateName, string> = {
+  none: 'No plan',
+  trialing: 'Free trial',
+  active: 'Active',
+  past_due: 'Payment due',
+  canceled: 'Canceled',
+  unpaid: 'Unpaid',
+  incomplete: 'Payment incomplete',
+  incomplete_expired: 'Payment not completed',
+  paused: 'Paused',
+}
+
 export function daysLeft(until: string | null, now: Date = new Date()): number | null {
   if (!until) return null
   const ms = new Date(until).getTime() - now.getTime()
@@ -94,6 +106,19 @@ export const BILLING_ERROR_MESSAGE: Record<'billing' | 'limit_clients' | 'limit_
   limit_clients: 'Has alcanzado el máximo de clientes de tu plan. Mejora tu plan para añadir más.',
   limit_documents: 'Has alcanzado el máximo de documentos de este periodo en tu plan. Mejora tu plan para crear más.',
   limit_members: 'Has alcanzado el máximo de usuarios de tu plan. Mejora tu plan para añadir más.',
+}
+
+export const BILLING_ERROR_MESSAGE_EN: Record<'billing' | 'limit_clients' | 'limit_documents' | 'limit_members', string> = {
+  billing: 'You need a free trial or an active subscription to create clients and documents. You can still view and print what you have.',
+  limit_clients: 'You reached your plan\'s client limit. Upgrade your plan to add more.',
+  limit_documents: 'You reached your plan\'s document limit for this period. Upgrade your plan to create more.',
+  limit_members: 'You reached your plan\'s user limit. Upgrade your plan to add more.',
+}
+
+/** Billing error message in the user's language (null for other codes). */
+export function billingErrorMessage(code: string, locale: 'es' | 'en' = 'es'): string | null {
+  const table: Record<string, string> = locale === 'en' ? BILLING_ERROR_MESSAGE_EN : BILLING_ERROR_MESSAGE
+  return table[code] ?? null
 }
 
 /** Banner shown in the app layout, or null when nothing needs attention. */

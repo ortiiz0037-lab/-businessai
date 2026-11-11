@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { HtmlLang } from '@/components/html-lang'
 import { signOut } from '@/app/actions/auth'
 import { setActiveCompany, setLocale } from '@/app/actions/preferences'
 import { createClient } from '@/lib/supabase/server'
@@ -75,6 +76,7 @@ export default async function AppLayout({
   const { env, banner, notices, companies, activeCompanyId, email } = await loadChrome(locale)
   return (
     <div lang={locale} className="min-h-screen text-fg">
+      <HtmlLang locale={locale} />
       <AppShell items={navigation(locale)} copy={shellLabels(copy)} locale={locale} companies={companies} activeCompanyId={activeCompanyId}
         email={email} notices={notices} signOut={signOut} setLocale={setLocale} setActiveCompany={setActiveCompany}>
         {env !== 'production' && (

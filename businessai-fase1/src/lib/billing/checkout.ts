@@ -4,7 +4,8 @@ import type Stripe from 'stripe'
  * Trial model: 7-day free trial WITH a card collected by Stripe Checkout.
  * Nothing is charged during the trial; Stripe charges the plan price
  * automatically when it ends; cancelling before that means no charge.
- * One trial per company (company_subscriptions.trial_consumed_at).
+ * One trial per company and per person (company_subscriptions.trial_consumed_at;
+ * trial_claims from migration 0016). Texts in Spanish or English.
  */
 
 export type PriceInfo = {
@@ -13,8 +14,13 @@ export type PriceInfo = {
   interval: 'day' | 'week' | 'month' | 'year'
 }
 
+type Lang = 'es' | 'en'
+
 const INTERVAL: Record<PriceInfo['interval'], string> = {
   day: 'día', week: 'semana', month: 'mes', year: 'año',
+}
+const INTERVAL_EN: Record<PriceInfo['interval'], string> = {
+  day: 'day', week: 'week', month: 'month', year: 'year',
 }
 
 /** Stripe price → PriceInfo, or null for anything we cannot describe exactly. */
@@ -33,18 +39,20 @@ export function formatAmount(price: PriceInfo): string {
     .format(price.unitAmount / 100)
 }
 
-export function formatPrice(price: PriceInfo): string {
-  return `${formatAmount(price)} / ${INTERVAL[price.interval]}`
+export function formatPrice(price: PriceInfo, lang: Lang = 'es'): string {
+  return `${formatAmount(price)} / ${(lang === 'en' ? INTERVAL_EN : INTERVAL)[price.interval]}`
 }
 
-/** "$39.00 y, después, $39.00 cada mes" */
-function recurringText(price: PriceInfo): string {
+/** "$39.00 y, después, $39.00 cada mes" / "$39.00 and then $39.00 every month" */
+function recurringText(price: PriceInfo, lang: Lang): string {
   const amount = formatAmount(price)
-  return `${amount} y, después, ${amount} cada ${INTERVAL[price.interval]}`
+  return lang === 'en'
+    ? `${amount} and then ${amount} every ${INTERVAL_EN[price.interval]}`
+    : `${amount} y, después, ${amount} cada ${INTERVAL[price.interval]}`
 }
 
-export function formatDate(date: Date): string {
-  return new Intl.DateTimeFormat('es-PR', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'America/Puerto_Rico' })
+export function formatDate(date: Date, lang: Lang = 'es'): string {
+  return new Intl.DateTimeFormat(lang === 'en' ? 'en-US' : 'es-PR', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'America/Puerto_Rico' })
     .format(date)
 }
 
@@ -62,15 +70,36 @@ export function chargeTerms(input: {
   price: PriceInfo
   trialDays: number | null
   now: Date
+  lang?: Lang
 }): { headline: string; terms: string; firstCharge: Date } {
-  const price = formatPrice(input.price)
+  const lang = input.lang ?? 'es'
+  const price = formatPrice(input.price, lang)
   const first = firstChargeAt(input.trialDays, input.now)
+  if (lang === 'en') {
+    return input.trialDays
+      ? {
+          headline: `${input.trialDays} days free, then ${price}`,
+          terms:
+            `Nothing is charged today. Your card is saved for the ${input.planName} plan subscription. ` +
+            `Unless you cancel first, on ${formatDate(first, 'en')} you will be charged ${recurringText(input.price, 'en')} ` +
+            `automatically. If you cancel during the trial nothing is charged. ` +
+            `You can cancel at any time from "Manage subscription".`,
+          firstCharge: first,
+        }
+      : {
+          headline: `${price}`,
+          terms:
+            `The free trial was already used (one per company and per person). Today you will be charged ${recurringText(input.price, 'en')} ` +
+            `for the ${input.planName} plan. You can cancel at any time; you keep access until the end of the paid period.`,
+          firstCharge: first,
+        }
+  }
   if (input.trialDays) {
     return {
       headline: `${input.trialDays} días gratis, luego ${price}`,
       terms:
         `Hoy no se cobra nada. Tu tarjeta se guarda para la suscripción al plan ${input.planName}. ` +
-        `Si no cancelas antes, el ${formatDate(first)} se cobrarán ${recurringText(input.price)} ` +
+        `Si no cancelas antes, el ${formatDate(first)} se cobrarán ${recurringText(input.price, 'es')} ` +
         `automáticamente. Si cancelas durante la prueba no se realizará ningún cobro. ` +
         `Puedes cancelar en cualquier momento desde "Administrar suscripción".`,
       firstCharge: first,
@@ -79,7 +108,7 @@ export function chargeTerms(input: {
   return {
     headline: `${price}`,
     terms:
-      `Tu empresa ya usó su prueba gratuita. Hoy se cobrarán ${recurringText(input.price)} ` +
+      `La prueba gratuita ya se usó: tu empresa ya usó su prueba gratuita o ya la usaste en otra empresa (es una por empresa y por persona). Hoy se cobrarán ${recurringText(input.price, 'es')} ` +
       `por el plan ${input.planName}. Puedes cancelar en cualquier momento; mantendrás el acceso hasta el final del periodo pagado.`,
     firstCharge: first,
   }
@@ -92,13 +121,15 @@ export function buildCheckoutSessionParams(input: {
   appUrl: string
   /** Trial length if the company has not used its trial yet, else null. */
   trialDays: number | null
+  /** Checkout page language (default Spanish). */
+  lang?: 'es' | 'en'
   /** Conditions text shown above the confirm button (chargeTerms().terms). */
   terms: string
 }): Stripe.Checkout.SessionCreateParams {
   const metadata = { company_id: input.companyId }
   return {
     mode: 'subscription',
-    locale: 'es',
+    locale: input.lang ?? 'es',
     customer: input.customerId,
     client_reference_id: input.companyId,
     line_items: [{ price: input.priceId, quantity: 1 }],

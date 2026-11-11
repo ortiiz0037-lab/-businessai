@@ -2,7 +2,7 @@
 import { useFormStatus } from 'react-dom'
 
 /** Submit button with pending state. `variant` picks the design-system button. */
-export function SubmitButton({ children, variant = 'primary', pendingLabel = 'Un momento…', className = 'w-full' }: {
+export function SubmitButton({ children, variant = 'primary', pendingLabel = '…', className = 'w-full' }: {
   children: React.ReactNode; variant?: 'primary' | 'gold'; pendingLabel?: string; className?: string
 }) {
   const { pending } = useFormStatus()

@@ -7,6 +7,7 @@ import { buildCheckoutSessionParams, chargeTerms, toPriceInfo } from '@/lib/bill
 import { hasLiveStripeSubscription } from '@/lib/billing/sync'
 import { ConfigError } from '@/lib/env'
 import { personTrialAvailable } from '@/lib/billing/trial'
+import { getLocale } from '@/lib/i18n/server'
 
 export const runtime = 'nodejs'
 
@@ -99,7 +100,8 @@ export async function POST(request: NextRequest) {
     const trialDays = !current?.trial_consumed_at && await personTrialAvailable(admin, company.companyId, user.id, true)
       ? (config?.trial_days ?? 7)
       : null
-    const { terms } = chargeTerms({ planName: plan.name, price: priceInfo, trialDays, now: new Date() })
+    const lang = await getLocale()
+    const { terms } = chargeTerms({ planName: plan.name, price: priceInfo, trialDays, now: new Date(), lang })
 
     const session = await stripe.checkout.sessions.create(
       buildCheckoutSessionParams({
@@ -109,6 +111,7 @@ export async function POST(request: NextRequest) {
         appUrl,
         trialDays,
         terms,
+        lang,
       })
     )
     if (!session.url) throw new Error('Checkout session without URL')

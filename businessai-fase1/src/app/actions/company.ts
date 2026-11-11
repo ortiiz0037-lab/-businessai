@@ -1,5 +1,6 @@
 'use server'
 import { cookies } from 'next/headers'
+import { getLocale } from '@/lib/i18n/server'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { SELECTED_PLAN_COOKIE, isPlanKey } from '@/lib/billing/catalog'
@@ -15,7 +16,9 @@ export async function createCompany(_: FormState, formData: FormData): Promise<F
   // An account can own several companies; each one has its own data,
   // members and subscription (create_company makes the user its owner).
   const { data: companyId, error } = await supabase.rpc('create_company', { company_name: parsed.data.name })
-  if (error || typeof companyId !== 'string') return { error: 'No se pudo crear la empresa. Inténtalo de nuevo.' }
+  if (error || typeof companyId !== 'string') {
+    return { error: (await getLocale()) === 'en' ? 'The company could not be created. Please try again.' : 'No se pudo crear la empresa. Inténtalo de nuevo.' }
+  }
   const store = await cookies()
   // The new company becomes the active one (the cookie is re-validated
   // against the memberships on every request, lib/active-company.ts).

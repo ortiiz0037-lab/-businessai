@@ -1,65 +1,38 @@
 import Link from 'next/link'
-import { searchTerm } from '@/lib/search'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
+import { searchTerm } from '@/lib/search'
 import { createClient } from '@/lib/supabase/server'
-import { BILLING_ERROR_MESSAGE, billingErrorCode } from '@/lib/billing/state'
+import { billingErrorCode, billingErrorMessage } from '@/lib/billing/state'
 import { fetchUsage, isBlocked, usageNotice } from '@/lib/billing/usage'
 import { activeCompanyRow } from '@/lib/active-company'
+import { parseClientInput } from '@/lib/clients'
+import { getLocale } from '@/lib/i18n/server'
+import { translator } from '@/lib/i18n/t'
+import { SubmitButton } from '@/components/submit-button'
+
+const PAGE_SIZE = 25
 
 async function getCompanyId() {
   const supabase = await createClient()
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
-    redirect('/login')
-  }
-
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
   const membership = await activeCompanyRow(supabase, user.id)
-
-  if (!membership?.company_id) {
-    redirect('/onboarding')
-  }
-
-  return {
-    supabase,
-    companyId: membership.company_id,
-  }
+  if (!membership?.company_id) redirect('/onboarding')
+  return { supabase, companyId: membership.company_id as string }
 }
 
 async function createClientAction(formData: FormData) {
   'use server'
-
-  const name = String(formData.get('name') ?? '').trim()
-
-  if (!name) {
-    redirect('/clients?error=missing_name')
-  }
+  // Same validation as editing a client (lib/clients): required name, lengths, email.
+  const parsed = parseClientInput((key) => (key === 'status' ? 'active' : String(formData.get(key) ?? '')))
+  if (!parsed.ok) redirect(`/clients?error=${parsed.error}#nuevo-cliente`)
 
   const { supabase, companyId } = await getCompanyId()
-
   // Server-side check before inserting (the database enforces it too).
-  if (isBlocked(await fetchUsage(supabase, companyId), 'clients')) {
-    redirect('/clients?error=limit_clients')
-  }
+  if (isBlocked(await fetchUsage(supabase, companyId), 'clients')) redirect('/clients?error=limit_clients')
 
-  const { error } = await supabase.from('clients').insert({
-    company_id: companyId,
-    name,
-    business_name: String(formData.get('business_name') ?? '').trim() || null,
-    email: String(formData.get('email') ?? '').trim() || null,
-    phone: String(formData.get('phone') ?? '').trim() || null,
-    address: String(formData.get('address') ?? '').trim() || null,
-    city: String(formData.get('city') ?? '').trim() || null,
-    state: String(formData.get('state') ?? '').trim() || null,
-    postal_code: String(formData.get('postal_code') ?? '').trim() || null,
-    notes: String(formData.get('notes') ?? '').trim() || null,
-    status: 'active',
-  })
-
+  const { error } = await supabase.from('clients').insert({ company_id: companyId, ...parsed.value, status: 'active' })
   if (error) {
     // Subscription inactive or plan limit (enforced in the database, 0010).
     const billing = billingErrorCode(error)
@@ -67,76 +40,86 @@ async function createClientAction(formData: FormData) {
     console.error('CLIENT_SAVE_ERROR:', { code: error.code, message: error.message })
     redirect('/clients?error=save')
   }
-
   revalidatePath('/clients')
   revalidatePath('/dashboard')
-
   redirect('/clients?success=created')
 }
 
 export default async function ClientsPage({
   searchParams,
 }: {
-  searchParams: Promise<{
-    q?: string
-    success?: string
-    error?: string
-  }>
+  searchParams: Promise<{ q?: string; success?: string; error?: string; page?: string }>
 }) {
   const params = await searchParams
+  const locale = await getLocale()
+  const tr = translator(locale)
   const query = (params.q ?? '').trim()
-
+  const term = searchTerm(query)
+  const page = Math.max(1, Math.min(10_000, Number.parseInt(params.page ?? '1', 10) || 1))
   const { supabase, companyId } = await getCompanyId()
 
-  let clientsQuery = supabase
-    .from('clients')
-    .select(
-      'id, name, business_name, email, phone, address, city, state, postal_code, notes, status, created_at'
-    )
-    .eq('company_id', companyId)
-    .order('created_at', { ascending: false })
-
-  const term = searchTerm(query)
-  if (term) {
-    clientsQuery = clientsQuery.or(
-      `name.ilike.%${term}%,business_name.ilike.%${term}%,email.ilike.%${term}%,phone.ilike.%${term}%`
-    )
+  const listQuery = (head: boolean) => {
+    let q = supabase
+      .from('clients')
+      .select('id, name, business_name, email, phone, city, status, created_at', { count: 'exact', head })
+      .eq('company_id', companyId)
+    if (term) q = q.or(`name.ilike.%${term}%,business_name.ilike.%${term}%,email.ilike.%${term}%,phone.ilike.%${term}%`)
+    return q
   }
+  const href = (n: number) => {
+    const sp = new URLSearchParams()
+    if (query) sp.set('q', query)
+    if (n > 1) sp.set('page', String(n))
+    const qs = sp.toString()
+    return `/clients${qs ? `?${qs}` : ''}`
+  }
+  const from = (page - 1) * PAGE_SIZE
+  const { data: clients, count, error } = await listQuery(false)
+    .order('created_at', { ascending: false }).order('id').range(from, from + PAGE_SIZE - 1)
+  if (page > 1 && (error || !(clients ?? []).length)) {
+    const { count: all } = await listQuery(true)
+    const last = Math.max(1, Math.ceil((all ?? 0) / PAGE_SIZE))
+    if (last < page) redirect(href(last))
+  }
+  const total = count ?? clients?.length ?? 0
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
-  const { data: clients, error } = await clientsQuery
   const usage = await fetchUsage(supabase, companyId)
-  const clientNotice = usageNotice(usage.find((u) => u.metric === 'clients'))
+  const clientNotice = usageNotice(usage.find((u) => u.metric === 'clients'), locale)
   const clientsBlocked = clientNotice?.level === 'blocked'
 
-  const totalClients = clients?.length ?? 0
+  const formError: Record<string, string> = {
+    missing_name: tr('El nombre del cliente es obligatorio.', 'The client name is required.'),
+    too_long: tr('Uno de los campos es demasiado largo.', 'One of the fields is too long.'),
+    email: tr('Escribe un correo válido o déjalo vacío.', 'Enter a valid email or leave it empty.'),
+    not_found: tr('No encontramos ese cliente en tu empresa.', 'We could not find that client in your company.'),
+    save: tr('No se pudo guardar el cliente. Inténtalo nuevamente.', 'The client could not be saved. Please try again.'),
+  }
+  const billingText = params.error ? billingErrorMessage(params.error, locale) : null
+
+  const input = (name: string, label: string, placeholder: string, props: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
+    <label className="field-label">{label}
+      <input name={name} placeholder={placeholder} className="field mt-2" {...props} />
+    </label>
+  )
 
   return (
     <div className="space-y-6">
       <section className="card-hero px-6 py-8 sm:px-10 sm:py-10">
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
-            <p className="text-sm font-medium text-muted">
-              Clientes
-            </p>
-
+            <p className="text-sm font-medium text-muted">{tr('Clientes', 'Clients')}</p>
             <h1 className="mt-3 font-display text-3xl font-semibold tracking-tight sm:text-4xl">
-              Tus clientes, organizados en un solo lugar.
+              {tr('Tus clientes, organizados en un solo lugar.', 'Your clients, organized in one place.')}
             </h1>
-
             <p className="mt-2 max-w-2xl text-sm text-muted">
-              Guarda la información de tus clientes y úsala después para
-              preparar cotizaciones, facturas, documentos y seguimiento de
-              cobros.
+              {tr('Guarda la información de tus clientes y úsala después para preparar cotizaciones, facturas, documentos y seguimiento de cobros.',
+                'Keep your clients\' details and reuse them for quotes, invoices, documents and collections.')}
             </p>
           </div>
-
           <div className="rounded-2xl border border-white/10 bg-card/[0.06] px-6 py-5">
-            <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-accent">
-              Clientes registrados
-            </p>
-            <p className="mt-1 font-display text-4xl font-semibold">
-              {totalClients}
-            </p>
+            <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-accent">{term ? tr('Resultados', 'Results') : tr('Clientes registrados', 'Clients')}</p>
+            <p className="mt-1 font-display text-4xl font-semibold">{total}</p>
           </div>
         </div>
       </section>
@@ -145,110 +128,60 @@ export default async function ClientsPage({
         <div role={clientNotice.level === 'warning' ? 'status' : 'alert'}
           className={`font-medium ${clientNotice.level === 'warning' ? 'alert-warning' : 'alert-danger'}`}>
           {clientNotice.text}{' '}
-          {clientNotice.offerUpgrade && <a href="/billing" className="underline">Mejorar plan</a>}
+          {clientNotice.offerUpgrade && <a href="/billing" className="underline">{tr('Mejorar plan', 'Upgrade plan')}</a>}
         </div>
       )}
 
       {(params.success === 'created' || params.success === 'updated') && (
         <div role="status" className="alert-success font-medium">
-          {params.success === 'updated' ? 'Cliente actualizado correctamente.' : 'Cliente guardado correctamente.'}
+          {params.success === 'updated' ? tr('Cliente actualizado correctamente.', 'Client updated.') : tr('Cliente guardado correctamente.', 'Client saved.')}
         </div>
       )}
-
-      {params.error === 'not_found' && (
-        <div role="alert" className="alert-danger font-medium">
-          No encontramos ese cliente en tu empresa.
-        </div>
-      )}
-
-      {params.error === 'missing_name' && (
-        <div className="alert-danger font-medium">
-          El nombre del cliente es obligatorio.
-        </div>
-      )}
-
-      {(params.error === 'billing' || params.error === 'limit_clients') && (
+      {params.error && billingText && (
         <div role="alert" className="alert-warning font-medium">
-          {BILLING_ERROR_MESSAGE[params.error]}{' '}
-          <a href="/billing" className="underline">Ver planes</a>
+          {billingText}{' '}<a href="/billing" className="underline">{tr('Ver planes', 'See plans')}</a>
         </div>
       )}
-
-      {params.error === 'save' && (
-        <div className="alert-danger font-medium">
-          No se pudo guardar el cliente. Inténtalo nuevamente.
-        </div>
+      {params.error && !billingText && (
+        <div role="alert" className="alert-danger font-medium">{formError[params.error] ?? formError.save}</div>
       )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1.4fr_1fr]">
         <section className="card min-w-0 p-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h2 className="text-lg font-semibold text-fg">
-                Mis clientes
-              </h2>
-
-              <p className="mt-1 text-sm text-muted">
-                Busca y administra los clientes de tu empresa.
-              </p>
+              <h2 className="text-lg font-semibold text-fg">{tr('Mis clientes', 'My clients')}</h2>
+              <p className="mt-1 text-sm text-muted">{tr('Busca y administra los clientes de tu empresa.', 'Search and manage your company\'s clients.')}</p>
             </div>
-
-            <form
-              method="get"
-              className="flex w-full gap-2 sm:w-auto"
-            >
-              <input
-                name="q"
-                defaultValue={query}
-                placeholder="Buscar cliente..."
-                className="field min-w-0 flex-1 py-2.5 sm:w-64"
-              />
-
-              <button
-                type="submit"
-                className="btn-primary py-2.5"
-              >
-                Buscar
-              </button>
+            <form method="get" className="flex w-full gap-2 sm:w-auto" role="search">
+              <input name="q" defaultValue={query} maxLength={60} aria-label={tr('Buscar cliente', 'Search client')}
+                placeholder={tr('Buscar cliente...', 'Search client...')} className="field min-w-0 flex-1 py-2.5 sm:w-64" />
+              <button type="submit" className="btn-primary py-2.5">{tr('Buscar', 'Search')}</button>
             </form>
           </div>
 
           <div className="mt-6 overflow-x-auto">
             {error ? (
-              <div className="alert-danger py-4">
-                No se pudieron cargar los clientes.
-              </div>
+              <div className="alert-danger py-4">{tr('No se pudieron cargar los clientes.', 'Clients could not be loaded.')}</div>
             ) : clients && clients.length > 0 ? (
               <div className="divide-y divide-line">
                 {clients.map((client) => (
-                  <div
-                    key={client.id}
-                    className="flex items-center justify-between gap-4 py-4"
-                  >
+                  <div key={client.id} className="flex items-center justify-between gap-4 py-4">
                     <div className="min-w-0">
-                      <p className="truncate font-semibold text-fg">
-                        {client.name}
-                      </p>
-
-                      {client.business_name && (
-                        <p className="truncate text-sm text-muted">
-                          {client.business_name}
-                        </p>
-                      )}
-
+                      <p className="truncate font-semibold text-fg">{client.name}</p>
+                      {client.business_name && <p className="truncate text-sm text-muted">{client.business_name}</p>}
                       <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
                         {client.email && <span>{client.email}</span>}
                         {client.phone && <span>{client.phone}</span>}
                         {client.city && <span>{client.city}</span>}
                       </div>
                     </div>
-
                     <div className="flex shrink-0 items-center gap-3">
                       <span className={client.status === 'inactive' ? 'badge-neutral' : 'badge-success'}>
-                        {client.status === 'inactive' ? 'Inactivo' : 'Activo'}
+                        {client.status === 'inactive' ? tr('Inactivo', 'Inactive') : tr('Activo', 'Active')}
                       </span>
-                      <Link href={`/clients/${client.id}`} className="btn-secondary btn-sm" aria-label={`Editar ${client.name}`}>
-                        Editar
+                      <Link href={`/clients/${client.id}`} className="btn-secondary btn-sm" aria-label={`${tr('Editar', 'Edit')} ${client.name}`}>
+                        {tr('Editar', 'Edit')}
                       </Link>
                     </div>
                   </div>
@@ -256,159 +189,50 @@ export default async function ClientsPage({
               </div>
             ) : (
               <div className="rounded-2xl border border-dashed border-electric/50 bg-electric/10 px-6 py-12 text-center">
-                <p className="font-semibold text-fg">
-                  {query
-                    ? 'No encontramos clientes.'
-                    : 'Todavía no tienes clientes.'}
-                </p>
-
+                <p className="font-semibold text-fg">{query ? tr('No encontramos clientes.', 'No clients found.') : tr('Todavía no tienes clientes.', 'You have no clients yet.')}</p>
                 <p className="mt-1 text-sm text-muted">
-                  {query
-                    ? 'Prueba con otro nombre, teléfono o correo.'
-                    : 'Agrega tu primer cliente usando el formulario.'}
+                  {query ? tr('Prueba con otro nombre, teléfono o correo.', 'Try another name, phone or email.') : tr('Agrega tu primer cliente usando el formulario.', 'Add your first client with the form.')}
                 </p>
               </div>
             )}
           </div>
+          {pages > 1 && (
+            <nav aria-label={tr('Páginas', 'Pages')} className="mt-4 flex items-center justify-between gap-3 border-t border-line pt-4 text-sm">
+              {page > 1 ? <Link className="btn-secondary btn-sm" href={href(page - 1)}>{tr('← Anterior', '← Previous')}</Link> : <span />}
+              <span className="text-muted">{tr(`Página ${page} de ${pages}`, `Page ${page} of ${pages}`)}</span>
+              {page < pages ? <Link className="btn-secondary btn-sm" href={href(page + 1)}>{tr('Siguiente →', 'Next →')}</Link> : <span />}
+            </nav>
+          )}
         </section>
 
         <section id="nuevo-cliente" className="card min-w-0 scroll-mt-24 p-6">
-          <p className="eyebrow">
-            Nuevo cliente
-          </p>
-
-          <h2 className="mt-1.5 font-display text-2xl font-semibold text-fg">
-            Agregar cliente
-          </h2>
-
+          <p className="eyebrow">{tr('Nuevo cliente', 'New client')}</p>
+          <h2 className="mt-1.5 font-display text-2xl font-semibold text-fg">{tr('Agregar cliente', 'Add client')}</h2>
           <p className="mt-2 text-sm text-muted">
-            Una vez guardado, BusinessAI podrá reutilizar estos datos en
-            documentos y procesos administrativos.
+            {tr('Una vez guardado, podrás reutilizar estos datos en documentos y procesos administrativos.',
+              'Once saved, you can reuse these details in documents and administrative work.')}
           </p>
-
           <form action={createClientAction} className="mt-6 space-y-4">
-            <div>
-              <label className="field-label">
-                Nombre *
-              </label>
-
-              <input
-                name="name"
-                required
-                placeholder="Ej. Juan Pérez"
-                className="field"
-              />
-            </div>
-
-            <div>
-              <label className="field-label">
-                Empresa
-              </label>
-
-              <input
-                name="business_name"
-                placeholder="Nombre del negocio"
-                className="field"
-              />
-            </div>
-
+            {input('name', tr('Nombre *', 'Name *'), tr('Ej. Juan Pérez', 'e.g. John Smith'), { required: true, maxLength: 160 })}
+            {input('business_name', tr('Empresa', 'Company'), tr('Nombre del negocio', 'Business name'), { maxLength: 160 })}
             <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className="field-label">
-                  Correo
-                </label>
-
-                <input
-                  name="email"
-                  type="email"
-                  placeholder="cliente@email.com"
-                  className="field"
-                />
-              </div>
-
-              <div>
-                <label className="field-label">
-                  Teléfono
-                </label>
-
-                <input
-                  name="phone"
-                  placeholder="787-000-0000"
-                  className="field"
-                />
-              </div>
+              {input('email', tr('Correo', 'Email'), 'cliente@email.com', { type: 'email', maxLength: 160 })}
+              {input('phone', tr('Teléfono', 'Phone'), '787-000-0000', { maxLength: 40 })}
             </div>
-
-            <div>
-              <label className="field-label">
-                Dirección
-              </label>
-
-              <input
-                name="address"
-                placeholder="Dirección física o postal"
-                className="field"
-              />
-            </div>
-
+            {input('address', tr('Dirección', 'Address'), tr('Dirección física o postal', 'Street or mailing address'), { maxLength: 240 })}
             <div className="grid gap-4 sm:grid-cols-3">
-              <div>
-                <label className="field-label">
-                  Ciudad
-                </label>
-
-                <input
-                  name="city"
-                  placeholder="Ponce"
-                  className="field"
-                />
-              </div>
-
-              <div>
-                <label className="field-label">
-                  Estado
-                </label>
-
-                <input
-                  name="state"
-                  placeholder="PR"
-                  className="field"
-                />
-              </div>
-
-              <div>
-                <label className="field-label">
-                  ZIP
-                </label>
-
-                <input
-                  name="postal_code"
-                  placeholder="00730"
-                  className="field"
-                />
-              </div>
+              {input('city', tr('Ciudad', 'City'), 'Ponce', { maxLength: 80 })}
+              {input('state', tr('Estado', 'State'), 'PR', { maxLength: 80 })}
+              {input('postal_code', 'ZIP', '00730', { maxLength: 20 })}
             </div>
-
-            <div>
-              <label className="field-label">
-                Notas
-              </label>
-
-              <textarea
-                name="notes"
-                rows={3}
-                placeholder="Información adicional del cliente..."
-                className="field resize-none"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={clientsBlocked}
-              className="btn-primary btn-lg w-full"
-            >
-              {clientsBlocked ? 'Límite del plan alcanzado' : 'Guardar cliente'}
-            </button>
+            <label className="field-label">{tr('Notas', 'Notes')}
+              <textarea name="notes" rows={3} maxLength={2000} placeholder={tr('Información adicional del cliente...', 'Additional client information...')} className="field mt-2 resize-none" />
+            </label>
+            {clientsBlocked ? (
+              <button type="button" disabled className="btn-primary btn-lg w-full">{tr('Límite del plan alcanzado', 'Plan limit reached')}</button>
+            ) : (
+              <SubmitButton pendingLabel={tr('Guardando…', 'Saving…')}>{tr('Guardar cliente', 'Save client')}</SubmitButton>
+            )}
           </form>
         </section>
       </div>

@@ -3,20 +3,20 @@
 export const PAYMENT_METHODS = ['cash', 'check', 'card', 'transfer', 'ath_movil', 'other'] as const
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number]
 
-const LABELS: Record<string, string> = {
-  cash: 'Efectivo',
-  check: 'Cheque',
-  card: 'Tarjeta',
-  transfer: 'Transferencia',
-  ath_movil: 'ATH Móvil',
-  other: 'Otro',
-  manual: 'Registro manual',
-  stripe: 'Stripe',
+const LABELS: Record<string, { es: string; en: string }> = {
+  cash: { es: 'Efectivo', en: 'Cash' },
+  check: { es: 'Cheque', en: 'Check' },
+  card: { es: 'Tarjeta', en: 'Card' },
+  transfer: { es: 'Transferencia', en: 'Bank transfer' },
+  ath_movil: { es: 'ATH Móvil', en: 'ATH Móvil' },
+  other: { es: 'Otro', en: 'Other' },
+  manual: { es: 'Registro manual', en: 'Manual entry' },
+  stripe: { es: 'Stripe', en: 'Stripe' },
 }
 
-export function paymentMethodLabel(method: string | null | undefined): string {
-  if (!method) return 'Sin método'
-  return LABELS[method] ?? method
+export function paymentMethodLabel(method: string | null | undefined, locale: 'es' | 'en' = 'es'): string {
+  if (!method) return locale === 'en' ? 'No method' : 'Sin método'
+  return LABELS[method]?.[locale] ?? method
 }
 
 export type PaymentInput =
@@ -70,4 +70,26 @@ export const PAYMENT_ERROR_MESSAGE: Record<string, string> = {
   not_found: 'No encontramos esa factura en tu empresa.',
   forbidden: 'Tu rol no permite registrar pagos.',
   save: 'No se pudo registrar el pago. Inténtalo nuevamente.',
+}
+
+export const PAYMENT_ERROR_MESSAGE_EN: Record<string, string> = {
+  amount: 'Enter a valid amount greater than zero (for example 125.50).',
+  over_balance: 'The amount is more than the invoice\'s open balance.',
+  method: 'Choose the payment method.',
+  date: 'The payment date cannot be later than today.',
+  before_issue: 'The payment date cannot be earlier than the invoice\'s issue date.',
+  payment_date_invalid: 'The payment date must be between the invoice\'s issue date and today.',
+  payment_retry: 'Another payment was recorded on this invoice at the same time. Check the balance and try again.',
+  reference: 'The reference cannot be longer than 120 characters.',
+  payment_not_allowed: 'This invoice does not accept payments (it is a draft, voided or already paid).',
+  payment_exceeds_balance: 'The amount is more than the invoice\'s open balance.',
+  not_found: 'We could not find that invoice in your company.',
+  forbidden: 'Your role cannot record payments.',
+  save: 'The payment could not be recorded. Please try again.',
+}
+
+/** Message for a payment error code in the user's language. */
+export function paymentErrorMessage(code: string, locale: 'es' | 'en' = 'es'): string | null {
+  const table = locale === 'en' ? PAYMENT_ERROR_MESSAGE_EN : PAYMENT_ERROR_MESSAGE
+  return table[code] ?? null
 }
