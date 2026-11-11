@@ -6,6 +6,9 @@ import { Icon } from '@/components/ui/icon'
 import { StatusBadge, documentIcon } from '@/components/ui/status'
 import { activeCompanyRow } from '@/lib/active-company'
 import { effectiveStatus, isDocumentType, todayIn } from '@/lib/documents/lifecycle'
+import { formatters } from '@/lib/i18n/app'
+import { getLocale } from '@/lib/i18n/server'
+import { translator, type Tr } from '@/lib/i18n/t'
 
 type DocumentRow = {
   id: string
@@ -21,63 +24,28 @@ type DocumentRow = {
 
 const PAGE_SIZE = 20
 
-const STATUS_FILTERS: { value: string; label: string }[] = [
-  { value: '', label: 'Todos los estados' },
-  { value: 'draft', label: 'Borradores' },
-  { value: 'pending', label: 'Facturas por cobrar' },
-  { value: 'overdue', label: 'Facturas vencidas' },
-  { value: 'paid', label: 'Pagados' },
-  { value: 'sent', label: 'Enviados (sin vencer)' },
-  { value: 'accepted', label: 'Cotizaciones aceptadas' },
-  { value: 'rejected', label: 'Cotizaciones rechazadas' },
-  { value: 'cancelled', label: 'Anulados' },
+const STATUS_VALUES = ['', 'draft', 'pending', 'overdue', 'paid', 'sent', 'accepted', 'rejected', 'cancelled'] as const
+
+const statusFilters = (tr: Tr): { value: string; label: string }[] => [
+  { value: '', label: tr('Todos los estados', 'All statuses') },
+  { value: 'draft', label: tr('Borradores', 'Drafts') },
+  { value: 'pending', label: tr('Facturas por cobrar', 'Invoices to collect') },
+  { value: 'overdue', label: tr('Facturas vencidas', 'Overdue invoices') },
+  { value: 'paid', label: tr('Pagados', 'Paid') },
+  { value: 'sent', label: tr('Enviados (sin vencer)', 'Sent (not overdue)') },
+  { value: 'accepted', label: tr('Cotizaciones aceptadas', 'Accepted quotes') },
+  { value: 'rejected', label: tr('Cotizaciones rechazadas', 'Rejected quotes') },
+  { value: 'cancelled', label: tr('Anulados', 'Voided') },
 ]
 
-
-const documentTypes = [
-  {
-    type: 'quote',
-    title: 'Cotización',
-    description: 'Crea una cotización profesional para tus clientes.',
-  },
-  {
-    type: 'invoice',
-    title: 'Factura',
-    description: 'Crea facturas y lleva control de tus cuentas por cobrar.',
-  },
-  {
-    type: 'receipt',
-    title: 'Recibo',
-    description: 'Registra pagos recibidos de tus clientes.',
-  },
-  {
-    type: 'work_order',
-    title: 'Orden de trabajo',
-    description: 'Organiza servicios, trabajos y órdenes pendientes.',
-  },
-  {
-    type: 'letter',
-    title: 'Carta comercial',
-    description: 'Genera cartas y comunicaciones profesionales.',
-  },
-  {
-    type: 'payment_reminder',
-    title: 'Recordatorio de pago',
-    description: 'Prepara recordatorios para cuentas pendientes.',
-  },
+const documentTypesFor = (tr: Tr) => [
+  { type: 'quote', title: tr('Cotización', 'Quote'), description: tr('Crea una cotización profesional para tus clientes.', 'Create a professional quote for your clients.') },
+  { type: 'invoice', title: tr('Factura', 'Invoice'), description: tr('Crea facturas y lleva control de tus cuentas por cobrar.', 'Create invoices and track your receivables.') },
+  { type: 'receipt', title: tr('Recibo', 'Receipt'), description: tr('Emite el recibo de un pago registrado.', 'Issue the receipt of a recorded payment.') },
+  { type: 'work_order', title: tr('Orden de trabajo', 'Work order'), description: tr('Organiza servicios, trabajos y órdenes pendientes.', 'Organize services, jobs and pending orders.') },
+  { type: 'letter', title: tr('Carta comercial', 'Business letter'), description: tr('Genera cartas y comunicaciones profesionales.', 'Write professional letters and communications.') },
+  { type: 'payment_reminder', title: tr('Recordatorio de pago', 'Payment reminder'), description: tr('Prepara recordatorios para cuentas pendientes.', 'Prepare reminders for open balances.') },
 ]
-
-function formatMoney(value: number | null) {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-  }).format(value ?? 0)
-}
-
-function typeLabel(type: string) {
-  const found = documentTypes.find((item) => item.type === type)
-  return found?.title ?? 'Documento'
-}
 
 export default async function DocumentsPage({
   searchParams,
@@ -85,9 +53,15 @@ export default async function DocumentsPage({
   searchParams?: Promise<{ q?: string; type?: string; status?: string; page?: string; done?: string; error?: string }>
 }) {
   const params = (await searchParams) ?? {}
+  const locale = await getLocale()
+  const tr = translator(locale)
+  const f = formatters(locale)
+  const STATUS_FILTERS = statusFilters(tr)
+  const documentTypes = documentTypesFor(tr)
+  const typeLabel = (type: string) => documentTypes.find((item) => item.type === type)?.title ?? tr('Documento', 'Document')
   const q = searchTerm(params.q ?? '')
   const typeFilter = params.type && isDocumentType(params.type) ? params.type : ''
-  const statusFilter = STATUS_FILTERS.some((f) => f.value === params.status) ? (params.status ?? '') : ''
+  const statusFilter = (STATUS_VALUES as readonly string[]).includes(params.status ?? '') ? (params.status ?? '') : ''
   const page = Math.max(1, Math.min(10_000, Number.parseInt(params.page ?? '1', 10) || 1))
   const today = todayIn()
   const supabase = await createClient()
@@ -197,16 +171,16 @@ export default async function DocumentsPage({
           <div className="max-w-2xl">
             <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-electric/25 bg-brand/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.2em] text-accent">
               <span className="h-1.5 w-1.5 rounded-full bg-electric" />
-              Facturación y documentos
+              {tr('Facturación y documentos', 'Billing and documents')}
             </div>
 
             <h1 className="font-display text-3xl font-semibold tracking-tight sm:text-5xl">
-              Documentos
+              {tr('Documentos', 'Documents')}
             </h1>
 
             <p className="mt-3 text-sm leading-6 text-white/60 sm:text-base">
-              Crea y administra cotizaciones, facturas, recibos y documentos
-              comerciales desde un solo lugar.
+              {tr('Crea y administra cotizaciones, facturas, recibos y documentos comerciales desde un solo lugar.',
+                'Create and manage quotes, invoices, receipts and business documents in one place.')}
             </p>
           </div>
 
@@ -214,7 +188,7 @@ export default async function DocumentsPage({
             href="#crear-documento"
             className="btn-accent btn-lg"
           >
-            <Icon name="plus" className="h-4 w-4" /> Nuevo documento
+            <Icon name="plus" className="h-4 w-4" /> {tr('Nuevo documento', 'New document')}
           </Link>
         </div>
       </section>
@@ -222,13 +196,13 @@ export default async function DocumentsPage({
       {/* CREAR DOCUMENTO */}
       <section id="crear-documento">
         <div className="mb-5">
-          <p className="eyebrow">Nuevo</p>
+          <p className="eyebrow">{tr('Nuevo', 'New')}</p>
           <h2 className="mt-1.5 font-display text-2xl font-semibold tracking-tight text-fg">
-            Crear un documento
+            {tr('Crear un documento', 'Create a document')}
           </h2>
 
           <p className="mt-1 text-sm text-muted">
-            Selecciona el tipo de documento que necesitas.
+            {tr('Selecciona el tipo de documento que necesitas.', 'Choose the type of document you need.')}
           </p>
         </div>
 
@@ -245,7 +219,7 @@ export default async function DocumentsPage({
                 </div>
 
                 <span className="inline-flex items-center gap-1 text-sm font-semibold text-slate-500 transition group-hover:text-blue-400">
-                  Crear <Icon name="arrowRight" className="h-4 w-4 transition group-hover:translate-x-0.5" />
+                  {tr('Crear', 'Create')} <Icon name="arrowRight" className="h-4 w-4 transition group-hover:translate-x-0.5" />
                 </span>
               </div>
 
@@ -265,28 +239,28 @@ export default async function DocumentsPage({
       <section id="lista" className="scroll-mt-24">
         <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
           <div>
-            <p className="eyebrow">Historial</p>
-            <h2 className="mt-1.5 font-display text-2xl font-semibold tracking-tight text-fg">Todos los documentos</h2>
-            <p className="mt-1 text-sm text-muted">Busca por número, título o cliente, y filtra por tipo o estado.</p>
+            <p className="eyebrow">{tr('Historial', 'History')}</p>
+            <h2 className="mt-1.5 font-display text-2xl font-semibold tracking-tight text-fg">{tr('Todos los documentos', 'All documents')}</h2>
+            <p className="mt-1 text-sm text-muted">{tr('Busca por número, título o cliente, y filtra por tipo o estado.', 'Search by number, title or client, and filter by type or status.')}</p>
           </div>
-          <span className="badge-neutral">{total} documento{total === 1 ? '' : 's'}</span>
+          <span className="badge-neutral">{total === 1 ? tr('1 documento', '1 document') : tr(`${total} documentos`, `${total} documents`)}</span>
         </div>
 
-        {params.done === 'deleted' && <div role="status" className="alert-success mb-4 p-4">Borrador eliminado.</div>}
-        {params.error === 'not_found' && <div role="alert" className="alert-danger mb-4 p-4">No encontramos ese documento en tu empresa.</div>}
+        {params.done === 'deleted' && <div role="status" className="alert-success mb-4 p-4">{tr('Borrador eliminado.', 'Draft deleted.')}</div>}
+        {params.error === 'not_found' && <div role="alert" className="alert-danger mb-4 p-4">{tr('No encontramos ese documento en tu empresa.', 'We could not find that document in your company.')}</div>}
 
         <form method="get" action="/documents#lista" className="card mb-4 grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_200px_220px_auto]">
-          <input name="q" defaultValue={q} placeholder="Buscar número, título o cliente" aria-label="Buscar documentos" className="field" />
-          <select name="type" defaultValue={typeFilter} aria-label="Tipo de documento" className="field">
-            <option value="">Todos los tipos</option>
+          <input name="q" defaultValue={q} placeholder={tr('Buscar número, título o cliente', 'Search number, title or client')} aria-label={tr('Buscar documentos', 'Search documents')} maxLength={60} className="field" />
+          <select name="type" defaultValue={typeFilter} aria-label={tr('Tipo de documento', 'Document type')} className="field">
+            <option value="">{tr('Todos los tipos', 'All types')}</option>
             {documentTypes.map((t) => <option key={t.type} value={t.type}>{t.title}</option>)}
           </select>
-          <select name="status" defaultValue={statusFilter} aria-label="Estado" className="field">
-            {STATUS_FILTERS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
+          <select name="status" defaultValue={statusFilter} aria-label={tr('Estado', 'Status')} className="field">
+            {STATUS_FILTERS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
           <div className="flex gap-2">
-            <button type="submit" className="btn-primary flex-1 lg:flex-none">Buscar</button>
-            {filtered && <Link href="/documents#lista" className="btn-secondary">Limpiar</Link>}
+            <button type="submit" className="btn-primary flex-1 lg:flex-none">{tr('Buscar', 'Search')}</button>
+            {filtered && <Link href="/documents#lista" className="btn-secondary">{tr('Limpiar', 'Clear')}</Link>}
           </div>
         </form>
 
@@ -296,16 +270,16 @@ export default async function DocumentsPage({
               <Icon name="file" className="h-6 w-6" />
             </span>
             <h3 className="mt-4 font-semibold text-fg">
-              {filtered ? 'No hay documentos con esos filtros' : 'Todavía no tienes documentos'}
+              {filtered ? tr('No hay documentos con esos filtros', 'No documents match those filters') : tr('Todavía no tienes documentos', 'You have no documents yet')}
             </h3>
             <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted">
               {filtered
-                ? 'Prueba con otro texto, tipo o estado.'
-                : 'Crea tu primera factura, cotización u otro documento comercial utilizando las opciones de arriba.'}
+                ? tr('Prueba con otro texto, tipo o estado.', 'Try another text, type or status.')
+                : tr('Crea tu primera factura, cotización u otro documento comercial utilizando las opciones de arriba.', 'Create your first invoice, quote or other business document with the options above.')}
             </p>
             {!filtered && (
               <Link href="#crear-documento" className="btn-primary mt-5">
-                Crear mi primer documento <Icon name="arrowRight" className="h-4 w-4" />
+                {tr('Crear mi primer documento', 'Create my first document')} <Icon name="arrowRight" className="h-4 w-4" />
               </Link>
             )}
           </div>
@@ -332,10 +306,10 @@ export default async function DocumentsPage({
                         </div>
                       </div>
                       <div className="flex shrink-0 items-center gap-4">
-                        <span className="hidden sm:inline-flex"><StatusBadge status={status} /></span>
+                        <span className="hidden sm:inline-flex"><StatusBadge status={status} locale={locale} /></span>
                         <div className="text-right">
-                          <p className="font-bold tabular-nums text-fg">{formatMoney(document.total)}</p>
-                          <p className="mt-1 sm:hidden"><StatusBadge status={status} /></p>
+                          <p className="font-bold tabular-nums text-fg">{f.money(Number(document.total ?? 0))}</p>
+                          <p className="mt-1 sm:hidden"><StatusBadge status={status} locale={locale} /></p>
                         </div>
                       </div>
                     </div>
@@ -347,10 +321,10 @@ export default async function DocumentsPage({
         )}
 
         {pages > 1 && (
-          <nav aria-label="Páginas" className="mt-4 flex items-center justify-between gap-3">
-            {page > 1 ? <Link href={pageHref(page - 1)} className="btn-secondary btn-sm">← Anterior</Link> : <span />}
-            <span className="text-sm text-muted">Página {Math.min(page, pages)} de {pages}</span>
-            {page < pages ? <Link href={pageHref(page + 1)} className="btn-secondary btn-sm">Siguiente →</Link> : <span />}
+          <nav aria-label={tr('Páginas', 'Pages')} className="mt-4 flex items-center justify-between gap-3">
+            {page > 1 ? <Link href={pageHref(page - 1)} className="btn-secondary btn-sm">{tr('← Anterior', '← Previous')}</Link> : <span />}
+            <span className="text-sm text-muted">{tr(`Página ${Math.min(page, pages)} de ${pages}`, `Page ${Math.min(page, pages)} of ${pages}`)}</span>
+            {page < pages ? <Link href={pageHref(page + 1)} className="btn-secondary btn-sm">{tr('Siguiente →', 'Next →')}</Link> : <span />}
           </nav>
         )}
       </section>

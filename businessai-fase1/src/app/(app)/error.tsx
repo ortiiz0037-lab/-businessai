@@ -1,11 +1,11 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useSyncExternalStore } from 'react'
 import { Icon } from '@/components/ui/icon'
 import { clientLocale } from '@/components/html-lang'
 
 export default function ErrorPage({ reset }: { error: Error; reset: () => void }) {
-  const [en, setEn] = useState(false)
-  useEffect(() => { setEn(clientLocale() === 'en') }, [])
+  // Spanish on the server, the cookie / browser language once in the browser.
+  const en = useSyncExternalStore(() => () => {}, () => clientLocale() === 'en', () => false)
   return (
     <div role="alert" className="card mx-auto max-w-lg p-8 text-center">
       <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-danger/10 text-red-400 ring-1 ring-inset ring-danger/30">
