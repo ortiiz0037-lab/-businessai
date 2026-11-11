@@ -26,7 +26,8 @@ Las pruebas de `tests/staging-scripts.test.ts` hacen cumplir 3 y 4.
 | 0014a | `0014a_permissions.sql` | Aplicada en Staging (versión anterior a R3). La versión con la comprobación de Storage (R3) está **pendiente** de `staging:migrate` autorizado |
 | 0015 | `0015_documents_lifecycle.sql` | **Borrador (revisión 2), no aplicada en ningún entorno.** Tras la revisión de 8157f87, todas las reglas las aplica PostgreSQL: documentos emitidos inmutables (solo avanza el estado), tabla de transiciones por tipo, `company_id` inmutable en clientes / documentos / pagos / membresías / perfiles / auditoría, numeración solo por la base de datos (un número enviado por un usuario se reemplaza), no anular facturas con pagos, historial `document_events`, pagos seguros en concurrencia (READ COMMITTED y REPEATABLE READ) con clave de idempotencia, recibos con el cliente de la factura y reemisión tras anular, `billing.manage` solo para el propietario. Requiere 0014a. Marca `STAGING-GATE` |
 | 0016 | `0016_billing_hardening.sql` | **Borrador, no aplicada en ningún entorno.** Una prueba gratuita por **persona** (`trial_claims`, `claim_trial`), los recibos no consumen la cuota mensual de documentos. Requiere 0011 (independiente de 0015). Marca `STAGING-GATE` |
-| **0017** | — | **Siguiente número libre** |
+| 0017 | `0017_plan_features.sql` | **Borrador, no aplicada en ningún entorno.** Funciones por plan, denegadas por defecto: sucursales Básico 1 / Pro 3 / Premium 10; empleados Pro 25 / Premium 100; nómina Pro y Premium. Empleados en Básico: **decisión pendiente** (sin fila = no disponible, nunca ilimitado). Marca `STAGING-GATE` |
+| **0018** | — | **Siguiente número libre** |
 
 ### Borradores y `staging:migrate` (hallazgo I12)
 

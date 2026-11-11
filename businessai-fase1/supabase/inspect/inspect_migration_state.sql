@@ -10,7 +10,7 @@
 -- writes. It works whatever is applied: tables that may not exist are only
 -- looked up by name (to_regclass / to_regprocedure), never queried.
 --
--- One row per migration (0001–0004 together, then 0005 … 0016):
+-- One row per migration (0001–0004 together, then 0005 … 0017):
 --   status   applied | not applied | PARTIAL — review | n/a
 --   evidence what was measured (counts, flags) — compare it with the
 --            "applied when" column.
@@ -89,6 +89,9 @@ e as (
     to_regclass('public.trial_claims') is not null as t_claims,
     to_regprocedure('public.claim_trial(uuid, uuid)') is not null as f_claim,
     coalesce(pg_get_functiondef(to_regprocedure('public.enforce_billing_limits()')) like '%new.document_type <> ''receipt''%', false) as receipts_free,
+    -- 0017
+    to_regclass('public.billing_plan_features') is not null as t_features,
+    to_regprocedure('public.company_feature(uuid, text)') is not null as f_feature,
     -- staging bookkeeping (absent in Production)
     to_regclass('ba_meta.applied_migrations') is not null as t_record,
     to_regclass('ba_meta.environment') is not null        as t_marker
@@ -169,7 +172,13 @@ r(ord, migration, applied_when, status, evidence) as (
     format('trial_claims=%s claim_trial=%s receipts_outside_quota=%s', t_claims, f_claim, receipts_free)
   from e
   union all
-  select 12, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
+  select 12, '0017_plan_features', 'billing_plan_features + company_feature',
+    case when t_features and f_feature then 'applied'
+         when not (t_features or f_feature) then 'not applied' else 'PARTIAL — review' end,
+    format('billing_plan_features=%s company_feature=%s', t_features, f_feature)
+  from e
+  union all
+  select 13, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
     case when t_record or t_marker then 'present (staging?)' else 'absent' end,
     format('ba_meta.applied_migrations=%s ba_meta.environment=%s', t_record, t_marker)
   from e

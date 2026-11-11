@@ -360,6 +360,7 @@ suscripciones: se pueden volver a sincronizar.
 | 0011 | `0011_rollback.sql` | Quita uso, límite de miembros, umbrales; restaura `company_billing_state` de 0010 | Cambios hechos a los umbrales | Volcado de datos |
 | 0014a | `0014a_rollback.sql` | Catálogo idéntico al anterior (probado con huella del catálogo, incluso tras aplicar dos veces) | Se niega si hay membresías suspendidas o la tabla de invitaciones (E4) | No hay suspensiones hasta E4 |
 | 0015 | `0015_rollback.sql` | Catálogo idéntico a 0014a cuando no hay historial (probado con huella). Con datos: documentos, números, estados, anulaciones, pagos y recibos **se conservan** (probado). Quita contadores, triggers, funciones, la clave de idempotencia y el estado `accepted`/`rejected` | **`document_events` se conserva si tiene historial** (a propósito: trazabilidad); se niega si hay cotizaciones `accepted`/`rejected`. Tras el rollback las reglas vuelven a depender de la app | Reaplicar 0015 reutiliza el historial y continúa la numeración (probado) |
+| 0017 | `0017_rollback.sql` | Catálogo idéntico a 0016 (probado con huella) | Se niega si existen las tablas de empleados o sucursales (fases posteriores) | Revertir primero esos módulos |
 | 0016 | `0016_rollback.sql` | Catálogo idéntico a 0011 (probado con huella): `company_billing_state` de 0011 y `enforce_billing_limits` de 0010 | **`trial_claims`** (quién reclamó una prueba): tras el rollback la prueba vuelve a ser por empresa | Volcado de datos antes (§1b) |
 | Despliegue | Revertir el despliegue en Vercel | Código anterior | — | La base de datos no cambia |
 
@@ -433,4 +434,6 @@ Mientras no se cambie, un enlace abierto en otro navegador lleva a
 | Número de empresas por persona (C3) | Sin límite; la prueba gratuita es **una por persona** (0016 + app) y cada empresa nueva paga desde el primer día | ¿Limitar cuántas empresas puede crear una cuenta? |
 | Recibos y cuota mensual (I8) | 0016: los recibos **no** consumen la cuota (son consecuencia de un pago de una factura que ya contó); siguen exigiendo suscripción activa | Confirmar esta regla comercial antes de aplicar 0016 |
 | Facturas con pagos | No se pueden anular (`DOCUMENT_HAS_PAYMENTS`) | Notas de crédito (Fase D) |
+| Empleados en el plan Básico (0017) | Sin fila en `billing_plan_features`: **no disponible** (denegado por defecto, nunca ilimitado) | ¿Básico incluye empleados / ponches? ¿Cuántos? |
+| Idioma de los documentos impresos | Las etiquetas del documento siguen el idioma de quien lo abre; los títulos guardados quedan en el idioma de quien lo creó | ¿Idioma fijo por empresa o por cliente? |
 | Zona horaria | Numeración, fechas de pago y vencimientos usan `America/Puerto_Rico` (empresas existentes) | Zona por empresa cuando se elija en la configuración |

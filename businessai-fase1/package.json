@@ -11,7 +11,8 @@
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run",
-    "test:db": "bash supabase/tests/local/run.sh"
+    "test:db": "bash supabase/tests/local/run.sh",
+    "test:e2e": "node e2e/public.e2e.mjs"
   },
   "dependencies": {
     "@stripe/stripe-js": "^10.2.0",

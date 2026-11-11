@@ -239,3 +239,20 @@ describe('C3: one free trial per person', () => {
     expect(await personTrialAvailable(a.client, 'A', 'u', true)).toBe(false)
   })
 })
+
+import { featureAccess, toFeatureAccess } from '@/lib/billing/features'
+describe('plan features (0017): deny by default', () => {
+  it('available with a limit, at the limit, unlimited', () => {
+    expect(toFeatureAccess({ available: true, max_allowed: 25, used: 3 })).toEqual({ available: true, maxAllowed: 25, used: 3, atLimit: false })
+    expect(toFeatureAccess({ available: true, max_allowed: 3, used: 3 }).atLimit).toBe(true)
+    expect(toFeatureAccess({ available: true, max_allowed: null, used: 9 })).toMatchObject({ maxAllowed: null, atLimit: false })
+  })
+  it('anything else is not available (never unlimited by mistake)', async () => {
+    expect(toFeatureAccess(null).available).toBe(false)
+    expect(toFeatureAccess({ available: false, max_allowed: null }).available).toBe(false)
+    const missing = { rpc: async () => ({ data: null, error: { code: 'PGRST202' } }) }
+    expect((await featureAccess(missing, 'c', 'payroll')).available).toBe(false)
+    const empty = { rpc: async () => ({ data: [], error: null }) }
+    expect((await featureAccess(empty, 'c', 'branches')).available).toBe(false)
+  })
+})

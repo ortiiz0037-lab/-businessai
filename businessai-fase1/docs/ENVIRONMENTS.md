@@ -84,3 +84,14 @@ stripe listen --forward-to localhost:3000/api/stripe/webhook   # imprime un whse
 Seguir `supabase/RUNBOOK.md` para las migraciones de producción, crear en Stripe
 **live** los mismos productos con los mismos lookup keys, un endpoint de webhook live
 y configurar las variables **Production**. Nada de esto se ha hecho.
+
+## Pruebas E2E locales (Fase B)
+
+`npm run build && npm run test:e2e` arranca el build de producción con Supabase
+apuntando a un puerto local inalcanzable (no toca ningún entorno remoto) y
+recorre con Chromium: páginas públicas en español e inglés, el error de enlace
+de recuperación, la redirección a `/login` de todas las páginas protegidas y la
+ausencia de desbordamiento horizontal en iPhone, iPad y escritorio. Los flujos
+con sesión (documentos, pagos, roles) se prueban contra PostgreSQL local
+(`npm run test:db`); ejecutarlos en navegador requiere una pila Supabase
+desechable (no disponible en este contenedor: sin Docker).
