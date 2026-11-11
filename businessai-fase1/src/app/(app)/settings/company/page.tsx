@@ -3,6 +3,8 @@ import { getSignatureDisplayUrl } from '@/lib/branding-assets'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { activeCompanyRow } from '@/lib/active-company'
+import { getLocale } from '@/lib/i18n/server'
+import { translator } from '@/lib/i18n/t'
 
 /** Texto opcional: vacío → null (la BD exige null o 2–160 caracteres en legal_name). */
 function optionalText(formData: FormData, key: string): string | null {
@@ -84,6 +86,8 @@ export default async function CompanySettingsPage({
   searchParams: Promise<{ saved?: string; error?: string }>
 }) {
   const params = await searchParams
+  const locale = await getLocale()
+  const tr = translator(locale)
   const supabase = await createClient()
 
   const {
@@ -122,32 +126,30 @@ export default async function CompanySettingsPage({
           </p>
 
           <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight text-fg sm:text-4xl">
-            Configuración de la empresa
+            {tr('Configuración de la empresa', 'Company settings')}
           </h1>
 
           <p className="mt-2 max-w-2xl text-slate-400">
-            Configura la información que BusinessAI utilizará para crear
-            cotizaciones, facturas, recibos, órdenes de trabajo y documentos
-            profesionales con la identidad de tu empresa.
+            {tr('Configura la información que BusinessAI utilizará para crear cotizaciones, facturas, recibos, órdenes de trabajo y documentos profesionales con la identidad de tu empresa.',
+              'Set up the information BusinessAI uses to create quotes, invoices, receipts, work orders and professional documents with your company\'s identity.')}
           </p>
         </div>
 
         {params.saved === 'true' && (
           <div className="alert-success mb-6 font-medium">
-            ✓ Los cambios se guardaron correctamente.
+            ✓ {tr('Los cambios se guardaron correctamente.', 'Changes saved.')}
           </div>
         )}
 
         {params.error === 'save_failed' && (
           <div className="alert-danger mb-6 font-medium">
-            No pudimos guardar los cambios. Revisa los datos e inténtalo
-            nuevamente.
+            {tr('No pudimos guardar los cambios. Revisa los datos e inténtalo nuevamente.', 'We could not save the changes. Check the details and try again.')}
           </div>
         )}
 
         {params.error === 'missing_name' && (
           <div className="alert-warning mb-6 font-medium">
-            El nombre de la empresa es requerido (entre 2 y 160 caracteres).
+            {tr('El nombre de la empresa es requerido (entre 2 y 160 caracteres).', 'The company name is required (2 to 160 characters).')}
           </div>
         )}
 
@@ -155,45 +157,45 @@ export default async function CompanySettingsPage({
           <section className="card p-6 sm:p-8">
             <div className="mb-6">
               <h2 className="font-display text-2xl font-semibold tracking-tight text-fg">
-                Información principal
+                {tr('Información principal', 'Main information')}
               </h2>
 
               <p className="mt-1 text-sm text-muted">
-                Estos datos aparecerán en tus documentos.
+                {tr('Estos datos aparecerán en tus documentos.', 'These details appear on your documents.')}
               </p>
             </div>
 
             <div className="grid gap-5 md:grid-cols-2">
               <div>
                 <label className="field-label">
-                  Nombre legal
+                  {tr('Nombre legal', 'Legal name')}
                 </label>
 
                 <input
                   name="legal_name"
                   defaultValue={profile?.legal_name ?? ''}
-                  placeholder="Ej. PR Medical Ride Services LLC"
+                  placeholder={tr('Ej. PR Medical Ride Services LLC', 'e.g. PR Medical Ride Services LLC')}
                   className="field"
                 />
               </div>
 
               <div>
                 <label className="field-label">
-                  Nombre comercial
+                  {tr('Nombre comercial', 'Trade name')}
                 </label>
 
                 <input
                   name="company_name"
                   required
                   defaultValue={profile?.display_name ?? ''}
-                  placeholder="Ej. PR Medical Ride"
+                  placeholder={tr('Ej. PR Medical Ride', 'e.g. PR Medical Ride')}
                   className="field"
                 />
               </div>
 
               <div>
                 <label className="field-label">
-                  Teléfono
+                  {tr('Teléfono', 'Phone')}
                 </label>
 
                 <input
@@ -224,31 +226,31 @@ export default async function CompanySettingsPage({
           <section className="card p-6 sm:p-8">
             <div className="mb-6">
               <h2 className="font-display text-2xl font-semibold tracking-tight text-fg">
-                Dirección
+                {tr('Dirección', 'Address')}
               </h2>
 
               <p className="mt-1 text-sm text-muted">
-                Información utilizada en tus documentos comerciales.
+                {tr('Información utilizada en tus documentos comerciales.', 'Information used on your business documents.')}
               </p>
             </div>
 
             <div className="grid gap-5 md:grid-cols-2">
               <div className="md:col-span-2">
                 <label className="field-label">
-                  Dirección
+                  {tr('Dirección', 'Address')}
                 </label>
 
                 <input
                   name="address"
                   defaultValue={profile?.address ?? ''}
-                  placeholder="Calle, número, urbanización"
+                  placeholder={tr('Calle, número, urbanización', 'Street, number, neighborhood')}
                   className="field"
                 />
               </div>
 
               <div>
                 <label className="field-label">
-                  Ciudad
+                  {tr('Ciudad', 'City')}
                 </label>
 
                 <input
@@ -261,7 +263,7 @@ export default async function CompanySettingsPage({
 
               <div>
                 <label className="field-label">
-                  Estado / territorio
+                  {tr('Estado / territorio', 'State / territory')}
                 </label>
 
                 <input
@@ -273,7 +275,7 @@ export default async function CompanySettingsPage({
 
               <div>
                 <label className="field-label">
-                  Código postal
+                  {tr('Código postal', 'Postal code')}
                 </label>
 
                 <input
@@ -289,19 +291,18 @@ export default async function CompanySettingsPage({
           <section className="card p-6 sm:p-8">
             <div className="mb-6">
               <h2 className="font-display text-2xl font-semibold tracking-tight text-fg">
-                Identidad visual
+                {tr('Identidad visual', 'Visual identity')}
               </h2>
 
               <p className="mt-1 text-sm text-muted">
-                Estos colores serán utilizados para darle identidad a tus
-                documentos.
+                {tr('Estos colores serán utilizados para darle identidad a tus documentos.', 'These colors give your documents their identity.')}
               </p>
             </div>
 
             <div className="grid gap-5 md:grid-cols-2">
               <div>
                 <label className="field-label">
-                  Color principal
+                  {tr('Color principal', 'Primary color')}
                 </label>
 
                 <div className="flex gap-3">
@@ -322,7 +323,7 @@ export default async function CompanySettingsPage({
 
               <div>
                 <label className="field-label">
-                  Color secundario
+                  {tr('Color secundario', 'Secondary color')}
                 </label>
 
                 <div className="flex gap-3">
@@ -346,11 +347,11 @@ export default async function CompanySettingsPage({
           <section className="card p-6 sm:p-8">
             <div className="mb-6">
               <h2 className="font-display text-2xl font-semibold tracking-tight text-fg">
-                Información de pago
+                {tr('Información de pago', 'Payment information')}
               </h2>
 
               <p className="mt-1 text-sm text-muted">
-                Información que puede aparecer en facturas y recibos.
+                {tr('Información que puede aparecer en facturas y recibos.', 'Information that can appear on invoices and receipts.')}
               </p>
             </div>
 
@@ -358,7 +359,7 @@ export default async function CompanySettingsPage({
               name="payment_info"
               defaultValue={profile?.payment_info ?? ''}
               rows={5}
-              placeholder="Ej. Métodos de pago aceptados, instrucciones de ATH Móvil, cheque, transferencia bancaria, etc."
+              placeholder={tr('Ej. Métodos de pago aceptados, instrucciones de ATH Móvil, cheque, transferencia bancaria, etc.', 'e.g. Accepted payment methods, ATH Móvil instructions, check, bank transfer, etc.')}
               className="field"
             />
           </section>
@@ -369,6 +370,7 @@ export default async function CompanySettingsPage({
           logoUrl={profile?.logo_url ?? null}
           signaturePreviewUrl={signatureDisplay?.url ?? null}
           signatureIsLegacyPublic={signatureDisplay?.legacyPublic ?? false}
+          locale={locale}
         />
 
 <div className="flex justify-end">
@@ -376,7 +378,7 @@ export default async function CompanySettingsPage({
               type="submit"
               className="btn-accent btn-lg"
             >
-              Guardar cambios
+              {tr('Guardar cambios', 'Save changes')}
             </button>
           </div>
         </form>

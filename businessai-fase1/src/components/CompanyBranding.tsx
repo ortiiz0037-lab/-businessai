@@ -21,6 +21,7 @@ type CompanyBrandingProps = {
   signaturePreviewUrl: string | null
   /** The current signature still lives in the public bucket. */
   signatureIsLegacyPublic: boolean
+  locale?: 'es' | 'en'
 }
 
 const ACCEPT = Object.keys(ALLOWED_IMAGE_TYPES).join(',')
@@ -30,32 +31,16 @@ export default function CompanyBranding({
   logoUrl,
   signaturePreviewUrl,
   signatureIsLegacyPublic,
+  locale = 'es',
 }: CompanyBrandingProps) {
   const supabase = createClient()
+  const tr = (es: string, en: string) => (locale === 'en' ? en : es)
 
   const [logo, setLogo] = useState(logoUrl)
   const [signature, setSignature] = useState(signaturePreviewUrl)
   const [legacySignature, setLegacySignature] = useState(signatureIsLegacyPublic)
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
-
-  async function diagnosticarStorage() {
-    setLoading(true)
-    setMessage('Comprobando conexión con Storage...')
-
-    const { data, error } = await supabase.storage.listBuckets()
-
-    if (error) {
-      setMessage(`Error de conexión: ${error.message}`)
-    } else {
-      const names = data.map((bucket) => bucket.name)
-      setMessage(
-        `Buckets encontrados: ${names.join(', ') || 'ninguno visible'}`
-      )
-    }
-
-    setLoading(false)
-  }
 
   async function subirArchivo(file: File | undefined, tipo: BrandingKind) {
     if (!file) return
@@ -67,7 +52,7 @@ export default function CompanyBranding({
     }
 
     setLoading(true)
-    setMessage('Subiendo imagen...')
+    setMessage(tr('Subiendo imagen...', 'Uploading image...'))
 
     try {
       const type = file.type as AllowedImageType
@@ -82,7 +67,7 @@ export default function CompanyBranding({
       if (uploadError) {
         if (tipo === 'signature' && /bucket not found/i.test(uploadError.message)) {
           throw new Error(
-            'El almacenamiento privado de firmas aún no está configurado. Contacta al administrador.'
+            tr('El almacenamiento privado de firmas aún no está configurado. Contacta al administrador.', 'Private signature storage is not configured yet. Contact your administrator.')
           )
         }
         throw new Error(uploadError.message)
@@ -110,26 +95,26 @@ export default function CompanyBranding({
       }
       if (!updated || updated.length === 0) {
         throw new Error(
-          'Guarda primero los datos de la empresa (botón "Guardar") y vuelve a subir la imagen.'
+          tr('Guarda primero los datos de la empresa (botón "Guardar") y vuelve a subir la imagen.', 'Save the company details first ("Save" button) and upload the image again.')
         )
       }
 
       if (tipo === 'logo') {
         setLogo(logoPublicUrl)
-        setMessage('Logo guardado correctamente.')
+        setMessage(tr('Logo guardado correctamente.', 'Logo saved.'))
       } else {
         const { data: signed } = await supabase.storage
           .from(SIGNATURE_BUCKET)
           .createSignedUrl(path, SIGNATURE_URL_TTL_SECONDS)
         setSignature(signed?.signedUrl ?? null)
         setLegacySignature(false)
-        setMessage('Firma guardada de forma privada.')
+        setMessage(tr('Firma guardada de forma privada.', 'Signature saved privately.'))
       }
     } catch (error) {
       setMessage(
         error instanceof Error
           ? `Error: ${error.message}`
-          : 'Ocurrió un error al subir la imagen.'
+          : tr('Ocurrió un error al subir la imagen.', 'An error occurred while uploading the image.')
       )
     } finally {
       setLoading(false)
@@ -139,21 +124,12 @@ export default function CompanyBranding({
   return (
     <section className="card space-y-6 p-6 sm:p-8">
       <div>
-        <p className="eyebrow">Marca</p>
-        <h2 className="mt-1.5 font-display text-2xl font-semibold tracking-tight text-fg">Imagen de la empresa</h2>
+        <p className="eyebrow">{tr('Marca', 'Brand')}</p>
+        <h2 className="mt-1.5 font-display text-2xl font-semibold tracking-tight text-fg">{tr('Imagen de la empresa', 'Company image')}</h2>
         <p className="text-sm text-muted">
-          Sube el logo y la firma que aparecerán en tus documentos (PNG, JPG o WEBP).
+          {tr('Sube el logo y la firma que aparecerán en tus documentos (PNG, JPG o WEBP).', 'Upload the logo and signature shown on your documents (PNG, JPG or WEBP).')}
         </p>
       </div>
-
-      <button
-        type="button"
-        onClick={diagnosticarStorage}
-        disabled={loading}
-        className="btn-secondary btn-sm"
-      >
-        Diagnosticar conexión de Storage
-      </button>
 
       {message && (
         <p role="status" className="alert-info break-words">
@@ -163,15 +139,15 @@ export default function CompanyBranding({
 
       <div className="grid gap-5 md:grid-cols-2">
       <div className="space-y-3 rounded-2xl border border-line bg-app-2/60 p-5">
-        <h3 className="font-bold text-fg">Logo de la empresa</h3>
+        <h3 className="font-bold text-fg">{tr('Logo de la empresa', 'Company logo')}</h3>
         <p className="text-xs text-muted">
-          El logo es público: lo verá cualquier persona que reciba tus documentos. Máximo 5 MB.
+          {tr('El logo es público: lo verá cualquier persona que reciba tus documentos. Máximo 5 MB.', 'The logo is public: anyone who receives your documents will see it. Up to 5 MB.')}
         </p>
 
         {logo && (
           <img
             src={logo}
-            alt="Logo de la empresa"
+            alt={tr('Logo de la empresa', 'Company logo')}
             className="max-h-32 max-w-48 rounded-xl border border-line bg-card object-contain p-2"
           />
         )}
@@ -188,23 +164,23 @@ export default function CompanyBranding({
       </div>
 
       <div className="space-y-3 rounded-2xl border border-line bg-app-2/60 p-5">
-        <h3 className="font-bold text-fg">Firma para documentos</h3>
+        <h3 className="font-bold text-fg">{tr('Firma para documentos', 'Signature for documents')}</h3>
         <p className="text-xs text-muted">
-          La firma se guarda de forma privada y solo se muestra a miembros de tu
-          empresa mediante enlaces temporales. Máximo 2 MB.
+          {tr('La firma se guarda de forma privada y solo se muestra a miembros de tu empresa mediante enlaces temporales. Máximo 2 MB.',
+            'The signature is stored privately and only shown to your company\'s members through temporary links. Up to 2 MB.')}
         </p>
 
         {legacySignature && (
           <p role="alert" className="alert-warning text-xs">
-            Tu firma actual se subió antes de este cambio y está en almacenamiento
-            público. Vuelve a subirla para protegerla.
+            {tr('Tu firma actual se subió antes de este cambio y está en almacenamiento público. Vuelve a subirla para protegerla.',
+              'Your current signature was uploaded before this change and is in public storage. Upload it again to protect it.')}
           </p>
         )}
 
         {signature && (
           <img
             src={signature}
-            alt="Firma de la empresa"
+            alt={tr('Firma de la empresa', 'Company signature')}
             className="max-h-32 max-w-48 rounded-xl border border-line bg-card object-contain p-2"
           />
         )}
