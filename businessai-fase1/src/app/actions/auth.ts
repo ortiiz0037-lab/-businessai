@@ -1,5 +1,6 @@
 'use server'
 import { cookies, headers } from 'next/headers'
+import { resolveAppOrigin } from '@/lib/app-origin'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { SELECTED_PLAN_COOKIE, isPlanKey } from '@/lib/billing/catalog'
@@ -41,13 +42,9 @@ export async function signOut() {
 }
 
 /** Public URL of this deployment (NEXT_PUBLIC_APP_URL, else the request host). */
-async function appOrigin(): Promise<string> {
-  const configured = process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/+$/, '')
-  if (configured) return configured
+async function appOrigin(): Promise<string | null> {
   const h = await headers()
-  const host = h.get('x-forwarded-host') ?? h.get('host') ?? 'localhost:3000'
-  const proto = h.get('x-forwarded-proto') ?? (host.startsWith('localhost') ? 'http' : 'https')
-  return `${proto}://${host}`
+  return resolveAppOrigin(process.env, h.get('host'))
 }
 
 /**
@@ -57,9 +54,14 @@ async function appOrigin(): Promise<string> {
 export async function requestPasswordReset(_: FormState, formData: FormData): Promise<FormState> {
   const parsed = resetRequestSchema.safeParse(Object.fromEntries(formData))
   if (!parsed.success) return { fieldErrors: fieldErrors(parsed.error) }
+  const origin = await appOrigin()
+  if (!origin) {
+    console.error('PASSWORD_RESET_ORIGIN_MISSING: set NEXT_PUBLIC_APP_URL')
+    return { error: 'No se pudo enviar el enlace en este momento. Inténtalo más tarde.' }
+  }
   const supabase = await createClient()
   const { error } = await supabase.auth.resetPasswordForEmail(parsed.data.email, {
-    redirectTo: `${await appOrigin()}/auth/confirm?next=/reset-password`,
+    redirectTo: `${origin}/auth/confirm?next=/reset-password`,
   })
   if (error && error.status !== 429) console.error('PASSWORD_RESET_REQUEST_ERROR', { status: error.status, code: error.code })
   if (error?.status === 429) return { error: 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.' }

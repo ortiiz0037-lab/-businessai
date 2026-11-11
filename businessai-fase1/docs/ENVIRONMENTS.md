@@ -15,7 +15,7 @@ modo de Stripe y sus propias variables.
 Barreras automáticas (`src/lib/env.ts`):
 - Con `APP_ENV` distinto de `production`, una clave `sk_live_`/`rk_live_` se **rechaza**.
 - Con `APP_ENV=production`, una clave `sk_test_` se **rechaza**.
-- `NEXT_PUBLIC_APP_URL` debe ser `https` fuera de desarrollo.
+- `NEXT_PUBLIC_APP_URL` debe ser `https` fuera de desarrollo y es **obligatoria en Production**: sin ella los correos de recuperación de contraseña no se envían (la app nunca usa el encabezado `Host` para construir enlaces; en Preview usa `VERCEL_URL`).
 - Fuera de producción, la app muestra una franja "Entorno: staging — pagos en modo test".
 
 ## Variables (solo nombres; los valores se configuran en cada entorno)

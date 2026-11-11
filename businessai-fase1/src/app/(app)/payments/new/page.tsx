@@ -6,11 +6,14 @@ import { activeCompanyRow } from '@/lib/active-company'
 import { BILLING_ERROR_MESSAGE } from '@/lib/billing/state'
 import { balanceOf, todayIn } from '@/lib/documents/lifecycle'
 import { PAYMENT_ERROR_MESSAGE, PAYMENT_METHODS, paymentMethodLabel } from '@/lib/documents/payments'
+import { paidByDocument } from '@/lib/supabase/paged'
 import { registerPayment } from '@/app/actions/documents'
+import { newIdempotencyKey } from '@/lib/documents/capabilities'
+import { SubmitButton } from '@/components/submit-button'
 
 export const dynamic = 'force-dynamic'
 
-type OpenInvoice = { id: string; number: string; client: string; total: number; paid: number; balance: number; dueDate: string | null }
+type OpenInvoice = { id: string; number: string; client: string; total: number; paid: number; balance: number; dueDate: string | null; issueDate: string | null }
 
 const usd = (value: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
 
@@ -30,7 +33,7 @@ export default async function NewPaymentPage({
   // Issued invoices that can still receive payments.
   const { data: invoices } = await supabase
     .from('documents')
-    .select('id, document_number, title, total, due_date, client_id, status')
+    .select('id, document_number, title, total, due_date, issue_date, client_id, status')
     .eq('company_id', member.company_id)
     .eq('document_type', 'invoice')
     .in('status', ['sent', 'overdue'])
@@ -39,14 +42,10 @@ export default async function NewPaymentPage({
 
   const ids = (invoices ?? []).map((d) => d.id)
   const clientIds = [...new Set((invoices ?? []).map((d) => d.client_id).filter((v): v is string => !!v))]
-  const [{ data: payments }, { data: clients }] = await Promise.all([
-    ids.length ? supabase.from('payments').select('document_id, amount').in('document_id', ids) : Promise.resolve({ data: [] }),
+  const [paid, { data: clients }] = await Promise.all([
+    paidByDocument(supabase, ids),
     clientIds.length ? supabase.from('clients').select('id, name, business_name').in('id', clientIds) : Promise.resolve({ data: [] }),
   ])
-  const paid = new Map<string, number>()
-  for (const p of (payments ?? []) as { document_id: string; amount: number }[]) {
-    paid.set(p.document_id, (paid.get(p.document_id) ?? 0) + Number(p.amount ?? 0))
-  }
   const clientName = new Map(((clients ?? []) as { id: string; name: string | null; business_name: string | null }[])
     .map((c) => [c.id, c.business_name || c.name || 'Cliente']))
 
@@ -55,7 +54,7 @@ export default async function NewPaymentPage({
       const p = Math.round((paid.get(d.id) ?? 0) * 100) / 100
       return {
         id: d.id, number: d.document_number || d.title || 'Factura', client: d.client_id ? clientName.get(d.client_id) ?? 'Cliente' : 'Sin cliente',
-        total: Number(d.total ?? 0), paid: p, balance: balanceOf(d, p), dueDate: d.due_date,
+        total: Number(d.total ?? 0), paid: p, balance: balanceOf(d, p), dueDate: d.due_date, issueDate: d.issue_date,
       }
     })
     .filter((d) => d.balance > 0)
@@ -107,6 +106,7 @@ export default async function NewPaymentPage({
               <form action={registerPayment} className="space-y-4">
                 <input type="hidden" name="document_id" value={selected.id} />
                 <input type="hidden" name="return_to" value="payments" />
+                <input type="hidden" name="idempotency_key" value={newIdempotencyKey()} />
                 <div>
                   <h2 id="form-title" className="font-display text-lg font-semibold text-fg">{selected.number}</h2>
                   <p className="mt-1 text-sm text-muted">
@@ -125,7 +125,7 @@ export default async function NewPaymentPage({
                     </select>
                   </label>
                   <label className="field-label">Fecha *
-                    <input name="date" type="date" required defaultValue={today} max={today} className="field mt-2" />
+                    <input name="date" type="date" required defaultValue={today} max={today} min={selected.issueDate ?? undefined} className="field mt-2" />
                   </label>
                   <label className="field-label">Referencia
                     <input name="reference" maxLength={120} className="field mt-2" placeholder="Nº de cheque, confirmación…" />
@@ -135,7 +135,7 @@ export default async function NewPaymentPage({
                   <input type="checkbox" name="create_receipt" defaultChecked className="h-4 w-4 accent-blue-600" />
                   Crear el recibo de este pago
                 </label>
-                <button type="submit" className="btn-primary w-full">Registrar pago</button>
+                <SubmitButton pendingLabel="Registrando…">Registrar pago</SubmitButton>
                 <p className="text-xs text-muted">Pagos parciales permitidos hasta el balance pendiente. Los pagos registrados no se editan ni se borran.</p>
               </form>
             ) : (

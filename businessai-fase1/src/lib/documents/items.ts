@@ -13,7 +13,8 @@ export type LineItem = { description: string; quantity: number; unit_price: numb
 
 export const MAX_ITEMS = 30
 
-const cents = (n: number) => Math.round(n * 100) / 100
+// Half-up to cents; the tiny bias corrects binary artefacts (1.005 * 100 = 100.49999…).
+const cents = (n: number) => Math.round((n + Math.sign(n) * 1e-9) * 100) / 100
 
 export type ItemsInput = { items: LineItem[]; subtotal: number; error: null } | { items: []; subtotal: 0; error: 'required' | 'price' }
 
@@ -31,7 +32,10 @@ export function parseItemsInput(get: (key: string) => string): ItemsInput {
     if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(unitPrice) || unitPrice < 0) {
       return { items: [], subtotal: 0, error: 'price' }
     }
-    items.push({ description: description.slice(0, 500), quantity, unit_price: cents(unitPrice), amount: cents(quantity * unitPrice) })
+    // M1: the line amount is quantity × the price AS SHOWN (rounded to cents),
+    // so every printed line adds up: 3 × $0.33 = $0.99, never $1.00.
+    const price = cents(unitPrice)
+    items.push({ description: description.slice(0, 500), quantity, unit_price: price, amount: cents(quantity * price) })
   }
   return { items, subtotal: cents(items.reduce((s, i) => s + i.amount, 0)), error: null }
 }

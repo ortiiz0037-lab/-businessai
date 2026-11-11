@@ -1,5 +1,6 @@
 
 import Link from 'next/link'
+import { paidByDocument } from '@/lib/supabase/paged'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
@@ -134,12 +135,16 @@ async function createDocument(formData: FormData) {
       .eq('id', invoiceId)
       .eq('company_id', companyId)
       .eq('document_type', 'invoice')
-      .in('status', ['draft', 'sent', 'overdue'])
+      .in('status', ['sent', 'overdue'])
       .maybeSingle()
 
     if (!invoice || !invoice.client_id) {
       redirect('/documents/new?type=payment_reminder&error=invoice')
     }
+    // The reminder asks for what is still owed, not the original total (I6).
+    const paidSoFar = (await paidByDocument(supabase, [invoice.id])).get(invoice.id) ?? 0
+    const owed = Math.round(Math.max(Number(invoice.total ?? 0) - paidSoFar, 0) * 100) / 100
+    if (owed <= 0) redirect('/documents/new?type=payment_reminder&error=invoice')
 
     const { data: client } = await supabase
       .from('clients')
@@ -151,11 +156,13 @@ async function createDocument(formData: FormData) {
     if (!client) redirect('/documents/new?type=payment_reminder&error=client')
 
     clientName = client.business_name?.trim() || client.name?.trim() || 'Cliente'
-    total = Number(invoice.total ?? 0)
+    total = owed
 
     documentNotes = [
       `Factura relacionada: ${invoice.document_number || invoice.title || invoice.id}`,
-      `Importe pendiente: $${total.toFixed(2)}`,
+      `Total de la factura: $${Number(invoice.total ?? 0).toFixed(2)}`,
+      paidSoFar > 0 ? `Pagado: $${paidSoFar.toFixed(2)}` : null,
+      `Balance pendiente: $${owed.toFixed(2)}`,
       invoice.due_date ? `Fecha de vencimiento: ${invoice.due_date}` : null,
       '',
       notes || 'Le recordamos amablemente que tiene un pago pendiente. Gracias por su atención.',
@@ -243,11 +250,16 @@ export default async function NewDocumentPage({
     .select('id,document_number,title,total,due_date,client_id')
     .eq('company_id', membership.company_id)
     .eq('document_type', 'invoice')
-    .in('status', ['draft', 'sent', 'overdue'])
+    .in('status', ['sent', 'overdue'])
     .order('created_at', { ascending: false })
+    .limit(200)
 
   const clientList = (clients ?? []) as ClientRow[]
-  const invoiceList = (invoices ?? []) as InvoiceRow[]
+  // Reminders: issued invoices with an open balance, shown with that balance (I6).
+  const invoicePaid = await paidByDocument(supabase, (invoices ?? []).map((i) => i.id as string))
+  const invoiceList = ((invoices ?? []) as InvoiceRow[])
+    .map((i) => ({ ...i, balance: Math.round(Math.max(Number(i.total ?? 0) - (invoicePaid.get(i.id) ?? 0), 0) * 100) / 100 }))
+    .filter((i) => i.balance > 0)
   const usage = membership?.company_id ? await fetchUsage(supabase, membership.company_id) : []
   const documentNotice = usageNotice(usage.find((u) => u.metric === 'documents'))
   const documentsBlocked = documentNotice?.level === 'blocked'
@@ -260,11 +272,14 @@ export default async function NewDocumentPage({
   let receiptCandidates: { id: string; amount: number; method: string | null; paidAt: string | null; reference: string | null; invoice: string }[] = []
   if (isReceipt) {
     const companyId = membership.company_id
-    const [{ data: payments }, { data: receipts }] = await Promise.all([
-      supabase.from('payments').select('id, document_id, amount, payment_method, reference, paid_at')
-        .eq('company_id', companyId).order('paid_at', { ascending: false }).limit(100),
-      supabase.from('documents').select('metadata').eq('company_id', companyId).eq('document_type', 'receipt'),
-    ])
+    const { data: payments } = await supabase.from('payments').select('id, document_id, amount, payment_method, reference, paid_at')
+      .eq('company_id', companyId).order('paid_at', { ascending: false }).limit(100)
+    // Receipts of exactly these payments, voided ones excluded (M3, I7).
+    const ids = (payments ?? []).map((p) => p.id as string)
+    const { data: receipts } = ids.length
+      ? await supabase.from('documents').select('metadata').eq('company_id', companyId).eq('document_type', 'receipt')
+          .neq('status', 'cancelled').in('metadata->>payment_id', ids)
+      : { data: [] as { metadata: unknown }[] }
     const withReceipt = new Set((receipts ?? []).map((r) => String((r.metadata as Record<string, unknown> | null)?.payment_id ?? '')))
     const pending = (payments ?? []).filter((p) => !withReceipt.has(p.id))
     const docIds = [...new Set(pending.map((p) => p.document_id))]
@@ -400,7 +415,7 @@ export default async function NewDocumentPage({
                     <option value="" disabled>Seleccionar factura pendiente</option>
                     {invoiceList.map((invoice) => (
                       <option key={invoice.id} value={invoice.id}>
-                        {invoice.document_number || invoice.title || 'Factura'} — ${Number(invoice.total ?? 0).toFixed(2)}
+                        {invoice.document_number || invoice.title || 'Factura'} — balance ${invoice.balance.toFixed(2)}
                       </option>
                     ))}
                   </select>

@@ -4,7 +4,7 @@ import type { Locale } from '@/lib/i18n/landing'
 export type AuthCopy = {
   panel: { title: string; subtitle: string; points: { title: string; text: string }[]; footer: string }
   login: { title: string; subtitle: string; email: string; password: string; submit: string; noAccount: string; signup: string; confirmError: string; pricing: string; forgot: string }
-  forgot: { title: string; subtitle: string; email: string; submit: string; back: string }
+  forgot: { title: string; subtitle: string; email: string; submit: string; back: string; linkError: string }
   reset: { title: string; subtitle: string; password: string; confirm: string; submit: string; expired: string; requestNew: string }
   signup: { title: string; subtitle: string; name: string; email: string; password: string; submit: string; haveAccount: string; login: string; chosen: (plan: string, days: number) => string; change: string; legal: [string, string, string, string] }
   switchTo: string
@@ -32,6 +32,7 @@ const es: AuthCopy = {
   forgot: {
     title: 'Recupera tu acceso', subtitle: 'Te enviaremos un enlace para crear una nueva contraseña.',
     email: 'Correo electrónico', submit: 'Enviar enlace', back: 'Volver a iniciar sesión',
+    linkError: 'Ese enlace ya no es válido o se abrió en otro navegador. Solicita uno nuevo y ábrelo en este mismo navegador.',
   },
   reset: {
     title: 'Nueva contraseña', subtitle: 'Elige una contraseña nueva para tu cuenta.',
@@ -69,6 +70,7 @@ const en: AuthCopy = {
   forgot: {
     title: 'Recover your access', subtitle: 'We will email you a link to create a new password.',
     email: 'Email', submit: 'Send link', back: 'Back to sign in',
+    linkError: 'That link is no longer valid or was opened in another browser. Request a new one and open it in this same browser.',
   },
   reset: {
     title: 'New password', subtitle: 'Choose a new password for your account.',

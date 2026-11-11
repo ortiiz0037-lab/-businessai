@@ -150,12 +150,14 @@ do $$ begin
   begin
     update public.documents set company_id = t.id('coB') where id = t.id('docA');
     perform t.ok(false, 'A cannot move its document to B');
-  exception when insufficient_privilege then perform t.ok(true, 'A cannot move its document to B'); end;
+  exception when insufficient_privilege then perform t.ok(true, 'A cannot move its document to B');
+            when raise_exception then perform t.ok(sqlerrm = 'COMPANY_IMMUTABLE', 'A cannot move its document to B (0015: COMPANY_IMMUTABLE)'); end;
 
   begin
     update public.documents set client_id = t.id('clB') where id = t.id('docA');
     perform t.ok(false, 'A cannot re-point its document at B''s client');
-  exception when insufficient_privilege then perform t.ok(true, 'A cannot re-point its document at B''s client'); end;
+  exception when insufficient_privilege then perform t.ok(true, 'A cannot re-point its document at B''s client');
+            when raise_exception then perform t.ok(sqlerrm = 'DOCUMENT_ISSUED', 'A cannot re-point its issued document at B''s client (0015: DOCUMENT_ISSUED)'); end;
 end $$;
 
 do $$ declare n int; begin

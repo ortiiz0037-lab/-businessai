@@ -19,5 +19,8 @@ export async function GET(request: NextRequest) {
     const { error } = await supabase.auth.exchangeCodeForSession(code)
     if (!error) return NextResponse.redirect(`${origin}${next}`)
   }
+  // A reset link opened in another browser cannot finish the PKCE exchange:
+  // send the person back to ask for a new link instead of a generic error.
+  if (next === '/reset-password') return NextResponse.redirect(`${origin}/forgot-password?error=link`)
   return NextResponse.redirect(`${origin}/login?error=confirm`)
 }

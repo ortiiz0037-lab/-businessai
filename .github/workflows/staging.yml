@@ -32,6 +32,10 @@ on:
         description: '1. Aplicar migraciones a Supabase STAGING'
         type: boolean
         default: true
+      approved_drafts:
+        description: 'Migraciones BORRADOR aprobadas por el dueño para ESTA ejecución (p. ej. 0015_documents_lifecycle,0016_billing_hardening). Vacío = no se aplica ningún borrador.'
+        type: string
+        default: ''
       stripe:
         description: '2. Stripe TEST: precios, portal y webhook'
         type: boolean
@@ -192,6 +196,8 @@ jobs:
         env:
           STAGING_DB_URL: ${{ secrets.STAGING_DB_URL }}
           EXPECT_STAGING_REF: ${{ env.MODE == 'migrate' && env.PINNED_STAGING_REF || '' }}
+          # Drafts are applied only when named in a manual run (never by a label).
+          APPROVED_DRAFTS: ${{ github.event_name == 'workflow_dispatch' && inputs.approved_drafts || '' }}
         run: |
           if [ "$MODE" = check ]; then DRY_RUN=1 VERIFY_0014A=1 bash scripts/staging/apply-migrations.sh; exit; fi
           echo "== Plan (dry run: guards + pending migrations, nothing written)"
@@ -204,6 +210,7 @@ jobs:
         env:
           STAGING_DB_URL: ${{ secrets.STAGING_DB_URL }}
           EXPECT_STAGING_REF: ${{ env.MODE == 'migrate' && env.PINNED_STAGING_REF || '' }}
+          APPROVED_DRAFTS: ${{ github.event_name == 'workflow_dispatch' && inputs.approved_drafts || '' }}
         run: DRY_RUN=1 EXPECT_NONE=1 STATUS=1 VERIFY_0014A=1 bash scripts/staging/apply-migrations.sh
 
       - name: 2a. Stripe TEST → products, prices, Customer Portal

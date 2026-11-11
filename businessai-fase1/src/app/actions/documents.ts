@@ -16,12 +16,14 @@ import { billingErrorCode } from '@/lib/billing/state'
 import { balanceOf, canTransition, documentActions, lifecycleErrorCode, todayIn, type Role } from '@/lib/documents/lifecycle'
 import { parsePaymentInput } from '@/lib/documents/payments'
 import { insertDocument } from '@/lib/documents/numbering'
+import { IDEMPOTENCY_KEY, lifecycleAvailable } from '@/lib/documents/capabilities'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 type Doc = {
   id: string; company_id: string; client_id: string | null; document_type: string; document_number: string | null
-  title: string | null; status: string; total: number | string | null; due_date: string | null; metadata: Record<string, unknown> | null
+  title: string | null; status: string; total: number | string | null; due_date: string | null; issue_date: string | null
+  metadata: Record<string, unknown> | null
 }
 
 function text(data: FormData, key: string) {
@@ -47,7 +49,7 @@ async function loadContext(supabase: SupabaseClient, user: User, id: string) {
   if (!UUID.test(id)) return null
   const { data: doc } = await supabase
     .from('documents')
-    .select('id, company_id, client_id, document_type, document_number, title, status, total, due_date, metadata')
+    .select('id, company_id, client_id, document_type, document_number, title, status, total, due_date, issue_date, metadata')
     .eq('id', id)
     .maybeSingle()
   if (!doc) return null
@@ -79,7 +81,8 @@ export async function setDocumentStatus(formData: FormData) {
   const { supabase, user } = await session()
   const ctx = await loadContext(supabase, user, id)
   if (!ctx) redirect('/documents?error=not_found')
-  if (!['sent', 'accepted', 'rejected'].includes(target) || !canTransition(ctx.doc, ctx.paid, todayIn(), ctx.role, target)) {
+  const lifecycle = await lifecycleAvailable()
+  if (!['sent', 'accepted', 'rejected'].includes(target) || !canTransition(ctx.doc, ctx.paid, todayIn(), ctx.role, target, lifecycle)) {
     redirect(`/documents/${id}?actionError=transition`)
   }
   const { data, error } = await supabase
@@ -100,6 +103,8 @@ export async function voidDocument(formData: FormData) {
   if (!canTransition(ctx.doc, ctx.paid, todayIn(), ctx.role, 'cancelled')) {
     redirect(`/documents/${id}?actionError=${ctx.paid > 0 ? 'void_has_payments' : 'forbidden'}`)
   }
+  // With 0015 the database rewrites who / when / previous status itself;
+  // only the reason comes from here.
   const metadata = {
     ...(ctx.doc.metadata ?? {}),
     void: { reason, voided_at: new Date().toISOString(), voided_by: user.id, previous_status: ctx.doc.status },
@@ -121,15 +126,24 @@ export async function deleteDraft(formData: FormData) {
   if (!documentActions(ctx.doc, ctx.paid, todayIn(), ctx.role).delete) {
     redirect(`/documents/${id}?actionError=${ctx.doc.status === 'draft' ? 'forbidden' : 'issued'}`)
   }
-  const { data, error } = await supabase
-    .from('documents').delete().eq('id', id).eq('status', 'draft').select('id')
-  if (error || !data?.length) redirect(`/documents/${id}?actionError=${error ? errorCode(error) : 'forbidden'}`)
-  // Trace of the deletion (the draft was never issued).
-  await supabase.from('document_deletion_audit').insert({
+  // Trace first (review finding M4): without the audit row nothing is
+  // deleted. With 0015 the database also records the deletion itself
+  // (document_events), in the same transaction as the delete.
+  const { error: auditError } = await supabase.from('document_deletion_audit').insert({
     company_id: ctx.doc.company_id, document_id: id, document_number: ctx.doc.document_number,
     document_type: ctx.doc.document_type, title: ctx.doc.title, previous_status: ctx.doc.status,
     total: Number(ctx.doc.total ?? 0), reason: 'Borrador eliminado', deleted_by: user.id,
   })
+  if (auditError) {
+    console.error('DOCUMENT_DELETION_AUDIT_ERROR', { code: auditError.code, message: auditError.message })
+    redirect(`/documents/${id}?actionError=audit`)
+  }
+  const { data, error } = await supabase
+    .from('documents').delete().eq('id', id).eq('status', 'draft').select('id')
+  if (error || !data?.length) {
+    console.error('DOCUMENT_DELETE_AFTER_AUDIT_FAILED', { document_id: id, code: error?.code ?? 'no_rows' })
+    redirect(`/documents/${id}?actionError=${error ? errorCode(error) : 'forbidden'}`)
+  }
   revalidatePath('/documents')
   revalidatePath('/dashboard')
   redirect('/documents?done=deleted')
@@ -142,9 +156,10 @@ type PaymentRow = {
 
 /** Creates the receipt of a payment; returns its id or an error code. */
 async function receiptFor(supabase: SupabaseClient, user: User, payment: PaymentRow, invoice: Doc) {
+  // A voided receipt does not count: the payment can get a new one (I7).
   const { data: existing } = await supabase
     .from('documents').select('id').eq('company_id', payment.company_id).eq('document_type', 'receipt')
-    .eq('metadata->>payment_id', payment.id).maybeSingle()
+    .neq('status', 'cancelled').eq('metadata->>payment_id', payment.id).limit(1).maybeSingle()
   if (existing) return { id: existing.id as string, error: null }
   const amount = Number(payment.amount)
   const paidDay = (payment.paid_at ?? new Date().toISOString()).slice(0, 10)
@@ -185,19 +200,37 @@ export async function registerPayment(formData: FormData) {
   const balance = balanceOf(ctx.doc, ctx.paid)
   const input = parsePaymentInput(
     { amount: text(formData, 'amount'), method: text(formData, 'method'), date: text(formData, 'date'), reference: text(formData, 'reference') },
-    balance, today,
+    balance, today, ctx.doc.issue_date,
   )
   if (!input.ok) redirect(withParams(back, { paymentError: input.error }))
 
-  const { data: payment, error } = await supabase
+  // Double submission (review finding I5): the form carries a key generated
+  // when it was shown; the database stores one payment per key and company.
+  const lifecycle = await lifecycleAvailable()
+  const key = text(formData, 'idempotency_key')
+  const idempotencyKey = lifecycle && IDEMPOTENCY_KEY.test(key) ? key : null
+  const columns = 'id, company_id, document_id, amount, payment_method, reference, paid_at'
+  const inserted = await supabase
     .from('payments')
     .insert({
       company_id: ctx.doc.company_id, document_id: id, amount: input.amount, payment_method: input.method,
       reference: input.reference, paid_at: input.paidAt, created_by: user.id,
+      ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
     })
-    .select('id, company_id, document_id, amount, payment_method, reference, paid_at')
+    .select(columns)
     .single()
+  let payment = inserted.data
+  const error = inserted.error
+  if (error && idempotencyKey && errorCode(error) === 'payment_duplicate') {
+    // Already recorded by the first submission: show that payment.
+    const { data: first } = await supabase.from('payments').select(columns)
+      .eq('company_id', ctx.doc.company_id).eq('idempotency_key', idempotencyKey).maybeSingle()
+    if (!first) redirect(withParams(back, { paymentError: 'save' }))
+    refresh(id)
+    redirect(`/documents/${id}?done=payment`)
+  }
   if (error || !payment) redirect(withParams(back, { paymentError: errorCode(error) }))
+  payment = payment!
 
   // With 0015 the database already settled the invoice; without it, do it here.
   if (ctx.paid + input.amount >= Number(ctx.doc.total ?? 0)) {

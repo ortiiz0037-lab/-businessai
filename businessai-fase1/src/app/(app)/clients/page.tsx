@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { searchTerm } from '@/lib/search'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
@@ -95,9 +96,10 @@ export default async function ClientsPage({
     .eq('company_id', companyId)
     .order('created_at', { ascending: false })
 
-  if (query) {
+  const term = searchTerm(query)
+  if (term) {
     clientsQuery = clientsQuery.or(
-      `name.ilike.%${query}%,business_name.ilike.%${query}%,email.ilike.%${query}%,phone.ilike.%${query}%`
+      `name.ilike.%${term}%,business_name.ilike.%${term}%,email.ilike.%${term}%,phone.ilike.%${term}%`
     )
   }
 

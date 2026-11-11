@@ -59,15 +59,20 @@ export type DocumentActions = {
  *   invoice that already has payments (that needs a credit note);
  * - issued documents are never deleted.
  */
-export function documentActions(doc: LifecycleDoc, paid: number, today: string, role: Role | null): DocumentActions {
+/**
+ * `lifecycle`: the database has migration 0015 (accepted / rejected statuses).
+ * Without it, accepting or rejecting a quote would be refused by the old
+ * status constraint, so those buttons are not offered (review finding I9).
+ */
+export function documentActions(doc: LifecycleDoc, paid: number, today: string, role: Role | null, lifecycle = true): DocumentActions {
   const s = effectiveStatus(doc, paid, today)
   const manager = role === 'owner' || role === 'admin'
   const isInvoice = doc.document_type === 'invoice'
   const isQuote = doc.document_type === 'quote'
   return {
     send: s === 'draft' && (isInvoice || isQuote),
-    accept: isQuote && s === 'sent',
-    reject: isQuote && s === 'sent',
+    accept: lifecycle && isQuote && s === 'sent',
+    reject: lifecycle && isQuote && s === 'sent',
     recordPayment: isInvoice && (s === 'sent' || s === 'partial' || s === 'overdue') && balanceOf(doc, paid) > 0,
     void: manager && s !== 'draft' && s !== 'cancelled' && !(isInvoice && paid > 0),
     delete: manager && s === 'draft',
@@ -75,8 +80,8 @@ export function documentActions(doc: LifecycleDoc, paid: number, today: string, 
 }
 
 /** Status transitions a user may request from the document page. */
-export function canTransition(doc: LifecycleDoc, paid: number, today: string, role: Role | null, target: string): boolean {
-  const a = documentActions(doc, paid, today, role)
+export function canTransition(doc: LifecycleDoc, paid: number, today: string, role: Role | null, target: string, lifecycle = true): boolean {
+  const a = documentActions(doc, paid, today, role, lifecycle)
   if (target === 'sent') return a.send
   if (target === 'accepted') return a.accept
   if (target === 'rejected') return a.reject
@@ -91,13 +96,22 @@ export function todayIn(timeZone = 'America/Puerto_Rico', now: Date = new Date()
   return `${get('year')}-${get('month')}-${get('day')}`
 }
 
-/** Database errors of 0015 → a code for the interface. */
-export function lifecycleErrorCode(error: { message?: string | null } | null): string | null {
+/** Database errors of 0015 → a code for the interface (always lower case). */
+const LIFECYCLE_CODES = [
+  'DOCUMENT_ISSUED', 'DOCUMENT_CANCELLED', 'DOCUMENT_VOID_FORBIDDEN', 'DOCUMENT_HAS_PAYMENTS', 'DOCUMENT_TRANSITION',
+  'DOCUMENT_FIELD_LOCKED', 'DOCUMENT_NOT_PAID', 'DOCUMENT_NOT_OVERDUE', 'DOCUMENT_STATUS_INVALID', 'VOID_REASON_REQUIRED',
+  'COMPANY_IMMUTABLE', 'PAYMENT_NOT_ALLOWED', 'PAYMENT_EXCEEDS_BALANCE', 'PAYMENT_DATE_INVALID',
+  'RECEIPT_PAYMENT_REQUIRED', 'RECEIPT_AMOUNT_MISMATCH', 'RECEIPT_CLIENT_MISMATCH', 'RECEIPT_STATUS',
+] as const
+
+export function lifecycleErrorCode(error: { message?: string | null; code?: string | null } | null): string | null {
   const m = error?.message ?? ''
-  for (const code of ['DOCUMENT_ISSUED', 'DOCUMENT_CANCELLED', 'DOCUMENT_VOID_FORBIDDEN', 'PAYMENT_NOT_ALLOWED',
-    'PAYMENT_EXCEEDS_BALANCE', 'RECEIPT_PAYMENT_REQUIRED', 'RECEIPT_AMOUNT_MISMATCH']) {
-    if (m.includes(code)) return code.toLowerCase()
+  for (const code of LIFECYCLE_CODES) {
+    if (new RegExp(`\\b${code}\\b`).test(m)) return code.toLowerCase()
   }
   if (m.includes('documents_receipt_payment_uidx')) return 'receipt_exists'
+  if (m.includes('payments_idempotency_uidx')) return 'payment_duplicate'
+  // REPEATABLE READ / SERIALIZABLE: another payment changed the invoice first.
+  if (error?.code === '40001') return 'payment_retry'
   return null
 }

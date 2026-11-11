@@ -24,8 +24,22 @@ Las pruebas de `tests/staging-scripts.test.ts` hacen cumplir 3 y 4.
 |---|---|---|
 | 0001–0011 | ver `supabase/README.md` | Aplicadas en Staging |
 | 0014a | `0014a_permissions.sql` | Aplicada en Staging (versión anterior a R3). La versión con la comprobación de Storage (R3) está **pendiente** de `staging:migrate` autorizado |
-| 0015 | `0015_documents_lifecycle.sql` | **Borrador, no aplicada en ningún entorno.** Numeración consecutiva, estados de cotización, no borrar documentos emitidos (anulación), pagos parciales sin superar el balance, recibos ligados a un pago, `billing.manage` solo para el propietario. Requiere 0014a |
-| **0016** | — | **Siguiente número libre** |
+| 0015 | `0015_documents_lifecycle.sql` | **Borrador (revisión 2), no aplicada en ningún entorno.** Tras la revisión de 8157f87, todas las reglas las aplica PostgreSQL: documentos emitidos inmutables (solo avanza el estado), tabla de transiciones por tipo, `company_id` inmutable en clientes / documentos / pagos / membresías / perfiles / auditoría, numeración solo por la base de datos (un número enviado por un usuario se reemplaza), no anular facturas con pagos, historial `document_events`, pagos seguros en concurrencia (READ COMMITTED y REPEATABLE READ) con clave de idempotencia, recibos con el cliente de la factura y reemisión tras anular, `billing.manage` solo para el propietario. Requiere 0014a. Marca `STAGING-GATE` |
+| 0016 | `0016_billing_hardening.sql` | **Borrador, no aplicada en ningún entorno.** Una prueba gratuita por **persona** (`trial_claims`, `claim_trial`), los recibos no consumen la cuota mensual de documentos. Requiere 0011 (independiente de 0015). Marca `STAGING-GATE` |
+| **0017** | — | **Siguiente número libre** |
+
+### Borradores y `staging:migrate` (hallazgo I12)
+
+Añadir una migración a `ORDER` ya no basta para que se aplique. Un archivo con la
+línea `-- STAGING-GATE: approval required` (0015, 0016) se **retiene** —él y todo
+lo que va después— hasta que el propietario lo nombre en `APPROVED_DRAFTS`
+(entrada `approved_drafts` de una ejecución manual del workflow; una etiqueta
+nunca aprueba borradores). Lo comprueban `scripts/staging/draft-gate.sh` y
+`tests/staging-scripts.test.ts` (prueba de comportamiento del filtro).
+
+Nota: las cabeceras históricas `-- STATUS: DRAFT` de 0005–0014a describen su
+estado en Production y no se editan (cambiar el archivo cambiaría su sha256 en
+Staging y provocaría que se reaplicaran).
 
 Los números 0012, 0013 y 0014b se habían reservado en la planificación
 (sucursales e invitaciones) y **se retiran**: esas funciones tomarán el

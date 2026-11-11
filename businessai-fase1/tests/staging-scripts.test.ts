@@ -1,3 +1,5 @@
+import { fileURLToPath } from 'node:url'
+import { spawnSync } from 'node:child_process'
 import { describe, expect, it } from 'vitest'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { desiredVariables, pickLatestPreview, planChanges, redeployBody } from '../scripts/staging/vercel-env.mjs'
@@ -289,6 +291,62 @@ describe('migrations: order, identifiers and transactions (apply-migrations.sh)'
     expect(fns.length).toBe(3)
     for (const f of fns) expect(f).toMatch(/security definer set search_path = ''/)
     expect(existsSync(new URL('../supabase/rollback/0014a_rollback.sql', import.meta.url))).toBe(true)
+  })
+  it('from 0014a on: every SECURITY DEFINER function has a fixed search_path, and each migration has a rollback', () => {
+    for (const name of order.slice(order.indexOf('0014a_permissions'))) {
+      const text = sql(name)
+      for (const m of text.matchAll(/create or replace function[\s\S]*?\$\$;/g)) {
+        if (/security definer/.test(m[0])) expect(m[0], name).toMatch(/security definer set search_path = ''/)
+      }
+      const rb = new URL(`../supabase/rollback/${name.slice(0, name.indexOf('_'))}_rollback.sql`, import.meta.url)
+      expect(existsSync(rb), `${name}: rollback`).toBe(true)
+    }
+  })
+})
+
+describe('draft gate (review finding I12): a draft in ORDER is never applied without explicit approval', () => {
+  const gate = fileURLToPath(new URL('../scripts/staging/draft-gate.sh', import.meta.url))
+  const mig = fileURLToPath(new URL('../supabase/migrations', import.meta.url))
+  const runKnown = (approved: string, known: string, ...names: string[]) =>
+    spawnSync('bash', ['-c', `source "$0"; draft_gate "$1" "$2" "$3" "\${@:4}"`, gate, mig, approved, known, ...names], { encoding: 'utf8' })
+      .stdout.trim().split('\n')
+  const run = (approved: string, ...names: string[]) => runKnown(approved, '', ...names)
+  const script = readFileSync(new URL('../scripts/staging/apply-migrations.sh', import.meta.url), 'utf8')
+  const yml = readFileSync(new URL('../../.github/workflows/staging.yml', import.meta.url), 'utf8')
+
+  it('0015 and 0016 carry the gate marker; already-applied migrations do not', () => {
+    for (const n of ['0015_documents_lifecycle', '0016_billing_hardening'])
+      expect(readFileSync(`${mig}/${n}.sql`, 'utf8')).toMatch(/^-- STAGING-GATE: approval required/m)
+    for (const n of ['0011_usage_limits', '0014a_permissions'])
+      expect(readFileSync(`${mig}/${n}.sql`, 'utf8')).not.toMatch(/^-- STAGING-GATE/m)
+  })
+  it('without approval a draft and everything after it are held', () => {
+    expect(run('', '0011_usage_limits', '0015_documents_lifecycle', '0016_billing_hardening'))
+      .toEqual(['RUN 0011_usage_limits', 'HOLD 0015_documents_lifecycle', 'HOLD 0016_billing_hardening'])
+  })
+  it('approving one draft runs it and still holds the next draft', () => {
+    expect(run('0015_documents_lifecycle', '0015_documents_lifecycle', '0016_billing_hardening'))
+      .toEqual(['RUN 0015_documents_lifecycle', 'HOLD 0016_billing_hardening'])
+    expect(run('0015_documents_lifecycle,0016_billing_hardening', '0015_documents_lifecycle', '0016_billing_hardening'))
+      .toEqual(['RUN 0015_documents_lifecycle', 'RUN 0016_billing_hardening'])
+  })
+  it('a gated migration already applied with exactly this content re-runs in a cascade (lost record) without new approval', () => {
+    expect(runKnown('', '0015_documents_lifecycle,0016_billing_hardening,', '0014a_permissions', '0015_documents_lifecycle', '0016_billing_hardening'))
+      .toEqual(['RUN 0014a_permissions', 'RUN 0015_documents_lifecycle', 'RUN 0016_billing_hardening'])
+    // 0015 known, 0016 never applied: 0016 still waits.
+    expect(runKnown('', '0015_documents_lifecycle,', '0015_documents_lifecycle', '0016_billing_hardening'))
+      .toEqual(['RUN 0015_documents_lifecycle', 'HOLD 0016_billing_hardening'])
+  })
+  it('a partial name or a missing file is never approved', () => {
+    expect(run('0015', '0015_documents_lifecycle')).toEqual(['HOLD 0015_documents_lifecycle'])
+    expect(run('9999_missing', '9999_missing')).toEqual(['HOLD 9999_missing'])
+  })
+  it('apply-migrations.sh applies only what the gate lets run; drafts come only from a manual run', () => {
+    expect(script).toMatch(/source "\$HERE\/draft-gate.sh"/)
+    expect(script).toMatch(/\[\[ -n "\$recorded" && "\$recorded" == "\$sum" \]\] && known\+="\$name,"/)
+    expect(script.indexOf('draft_gate "$MIG"')).toBeLessThan(script.indexOf('for name in "${pending[@]}"; do\n  file='))
+    expect(yml).toMatch(/APPROVED_DRAFTS: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.approved_drafts \|\| '' \}\}/)
+    expect(yml.match(/APPROVED_DRAFTS:/g)).toHaveLength(2)
   })
 })
 

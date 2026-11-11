@@ -1,4 +1,6 @@
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
+import { searchTerm } from '@/lib/search'
 import { createClient } from '@/lib/supabase/server'
 import { Icon } from '@/components/ui/icon'
 import { StatusBadge, documentIcon } from '@/components/ui/status'
@@ -25,16 +27,12 @@ const STATUS_FILTERS: { value: string; label: string }[] = [
   { value: 'pending', label: 'Facturas por cobrar' },
   { value: 'overdue', label: 'Facturas vencidas' },
   { value: 'paid', label: 'Pagados' },
-  { value: 'sent', label: 'Enviados' },
+  { value: 'sent', label: 'Enviados (sin vencer)' },
   { value: 'accepted', label: 'Cotizaciones aceptadas' },
   { value: 'rejected', label: 'Cotizaciones rechazadas' },
   { value: 'cancelled', label: 'Anulados' },
 ]
 
-/** Text for an ilike search: PostgREST reserved characters removed. */
-function searchTerm(value: string) {
-  return value.replace(/[%_,()*\\:"']/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60)
-}
 
 const documentTypes = [
   {
@@ -112,31 +110,56 @@ export default async function DocumentsPage({
   const clientName = new Map<string, string>()
 
   if (companyId) {
-    let query = supabase
-      .from('documents')
-      .select('id, document_type, document_number, title, status, total, due_date, client_id, created_at', { count: 'exact' })
-      .eq('company_id', companyId)
-
-    if (typeFilter) query = query.eq('document_type', typeFilter)
-    if (statusFilter === 'pending') {
-      query = query.eq('document_type', 'invoice').in('status', ['sent', 'overdue'])
-    } else if (statusFilter === 'overdue') {
-      query = query.eq('document_type', 'invoice').in('status', ['sent', 'overdue']).lt('due_date', today)
-    } else if (statusFilter) {
-      query = query.eq('status', statusFilter)
-    }
-
+    let clientMatches: string[] = []
     if (q) {
       // Number, title, or the name of the client.
       const { data: matching } = await supabase
         .from('clients').select('id').eq('company_id', companyId)
         .or(`name.ilike.%${q}%,business_name.ilike.%${q}%`).limit(200)
-      const ids = (matching ?? []).map((c) => c.id)
-      query = query.or([`document_number.ilike.%${q}%`, `title.ilike.%${q}%`, ...(ids.length ? [`client_id.in.(${ids.join(',')})`] : [])].join(','))
+      clientMatches = (matching ?? []).map((c) => c.id as string)
+    }
+    // The same filters for the page and for the total count.
+    const filteredQuery = (head: boolean) => {
+      let query = supabase
+        .from('documents')
+        .select('id, document_type, document_number, title, status, total, due_date, client_id, created_at', { count: 'exact', head })
+        .eq('company_id', companyId)
+      if (typeFilter) query = query.eq('document_type', typeFilter)
+      if (statusFilter === 'pending') {
+        query = query.eq('document_type', 'invoice').in('status', ['sent', 'overdue'])
+      } else if (statusFilter === 'overdue') {
+        query = query.eq('document_type', 'invoice').in('status', ['sent', 'overdue']).lt('due_date', today)
+      } else if (statusFilter === 'sent') {
+        // M8: what the list shows as "sent": issued and not past due
+        // (a past-due invoice is listed under "Facturas vencidas").
+        query = query.eq('status', 'sent').or(`document_type.neq.invoice,due_date.is.null,due_date.gte.${today}`)
+      } else if (statusFilter) {
+        query = query.eq('status', statusFilter)
+      }
+      if (q) {
+        query = query.or([`document_number.ilike.%${q}%`, `title.ilike.%${q}%`,
+          ...(clientMatches.length ? [`client_id.in.(${clientMatches.join(',')})`] : [])].join(','))
+      }
+      return query
     }
 
     const from = (page - 1) * PAGE_SIZE
-    const { data, count } = await query.order('created_at', { ascending: false }).range(from, from + PAGE_SIZE - 1)
+    const { data, count, error: listError } = await filteredQuery(false)
+      .order('created_at', { ascending: false }).order('id').range(from, from + PAGE_SIZE - 1)
+    if (page > 1 && (listError || !(data ?? []).length)) {
+      // M2: a page past the end (or a stale link) goes to the last page instead of "no documents".
+      const { count: all } = await filteredQuery(true)
+      const last = Math.max(1, Math.ceil((all ?? 0) / PAGE_SIZE))
+      if (last < page) {
+        const sp = new URLSearchParams()
+        if (q) sp.set('q', q)
+        if (typeFilter) sp.set('type', typeFilter)
+        if (statusFilter) sp.set('status', statusFilter)
+        if (last > 1) sp.set('page', String(last))
+        const qs = sp.toString()
+        redirect(`/documents${qs ? `?${qs}` : ''}#lista`)
+      }
+    }
     documents = (data ?? []) as DocumentRow[]
     total = count ?? documents.length
 

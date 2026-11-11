@@ -276,11 +276,13 @@ Premium sin límite / sin límite / 10). 0011 aplica lo mismo a los miembros nue
 - 0011 exige 0010 (aborta si no).
 - 0010 no depende de 0005–0009, pero el único orden probado de principio a fin
   sobre la forma de Production es `0005 → 0007 → 0009 → 0006 → 0008 → 0010 →
-  0011 → 0014a → 0015` (escenarios 18, 20, 21 y 22). 0015 (ciclo de vida de
-  documentos, pagos parciales, recibos; ver su cabecera) exige 0014a y debe
-  aplicarse antes de desplegar la versión de la app de la Fase A: sin ella la
-  app numera con el formato anterior y no puede marcar cotizaciones como
-  aceptadas o rechazadas.
+  0011 → 0014a → 0015 → 0016` (escenarios 18, 20, 21, 22 y 23). 0015 (ciclo de
+  vida de documentos, pagos parciales, recibos; ver su cabecera) exige 0014a.
+  La app de la Fase A funciona sin 0015 (numera con el formato anterior y no
+  ofrece aceptar / rechazar cotizaciones) y sin 0016 (aplica la regla de una
+  prueba por persona desde las suscripciones, sin la protección de
+  concurrencia de `claim_trial`), pero las reglas de integridad de documentos
+  y pagos solo quedan garantizadas por la base de datos con 0015 aplicada.
 
 ### 9.2 Comprobaciones previas (solo lectura)
 
@@ -357,6 +359,8 @@ suscripciones: se pueden volver a sincronizar.
 | 0010 | `0010_rollback.sql` | Quita triggers, funciones, FK, tablas `billing_plans` / `billing_config` y las 9 columnas nuevas | **Datos escritos en esas columnas/tablas** tras aplicar (fechas de Stripe, `trial_consumed_at` = una prueba por empresa, cambios de límites). Los `revoke` sobre `company_subscriptions` no se deshacen, pero con los privilegios inspeccionados (authenticated: solo SELECT; TRUNCATE ya quitado por 0005) no cambian nada | Volcado de datos antes (§1b). Stripe conserva las suscripciones (re-sincronizables) |
 | 0011 | `0011_rollback.sql` | Quita uso, límite de miembros, umbrales; restaura `company_billing_state` de 0010 | Cambios hechos a los umbrales | Volcado de datos |
 | 0014a | `0014a_rollback.sql` | Catálogo idéntico al anterior (probado con huella del catálogo, incluso tras aplicar dos veces) | Se niega si hay membresías suspendidas o la tabla de invitaciones (E4) | No hay suspensiones hasta E4 |
+| 0015 | `0015_rollback.sql` | Catálogo idéntico a 0014a cuando no hay historial (probado con huella). Con datos: documentos, números, estados, anulaciones, pagos y recibos **se conservan** (probado). Quita contadores, triggers, funciones, la clave de idempotencia y el estado `accepted`/`rejected` | **`document_events` se conserva si tiene historial** (a propósito: trazabilidad); se niega si hay cotizaciones `accepted`/`rejected`. Tras el rollback las reglas vuelven a depender de la app | Reaplicar 0015 reutiliza el historial y continúa la numeración (probado) |
+| 0016 | `0016_rollback.sql` | Catálogo idéntico a 0011 (probado con huella): `company_billing_state` de 0011 y `enforce_billing_limits` de 0010 | **`trial_claims`** (quién reclamó una prueba): tras el rollback la prueba vuelve a ser por empresa | Volcado de datos antes (§1b) |
 | Despliegue | Revertir el despliegue en Vercel | Código anterior | — | La base de datos no cambia |
 
 Respaldo (§1), puntos a tener en cuenta:
@@ -401,3 +405,32 @@ from storage.objects where bucket_id = 'Company-assets';
    archivos es una acción aparte, con su propia autorización.
 3. **Aplicar 0009** para limitar los tipos de archivo.
 4. Revisar de nuevo si en el futuro los logos pasan a considerarse confidenciales.
+
+## 12. Correo de recuperación de contraseña (hallazgo I10) — cambio pendiente fuera del repositorio
+
+La app ya no construye enlaces a partir del encabezado `Host`: usa
+`NEXT_PUBLIC_APP_URL` (obligatoria en Production; sin ella el correo no se
+envía y se registra `PASSWORD_RESET_ORIGIN_MISSING`) o, en Preview, la URL que
+da Vercel (`VERCEL_URL`).
+
+El enlace por defecto de Supabase usa PKCE y solo funciona en el mismo
+navegador donde se pidió. `/auth/confirm` ya acepta el formato `token_hash`,
+que funciona en cualquier navegador. Para usarlo hay que cambiar la plantilla
+**Reset password** en Supabase → Authentication → Email Templates (cambio en
+un entorno remoto: requiere autorización; no se ha hecho):
+
+```
+<a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery&next=/reset-password">Crear una nueva contraseña</a>
+```
+
+Mientras no se cambie, un enlace abierto en otro navegador lleva a
+`/forgot-password?error=link`, que explica cómo pedir uno nuevo.
+
+## 13. Decisiones de negocio pendientes (documentadas, no inventadas)
+
+| Tema | Qué hace hoy el sistema | Decisión pendiente |
+|---|---|---|
+| Número de empresas por persona (C3) | Sin límite; la prueba gratuita es **una por persona** (0016 + app) y cada empresa nueva paga desde el primer día | ¿Limitar cuántas empresas puede crear una cuenta? |
+| Recibos y cuota mensual (I8) | 0016: los recibos **no** consumen la cuota (son consecuencia de un pago de una factura que ya contó); siguen exigiendo suscripción activa | Confirmar esta regla comercial antes de aplicar 0016 |
+| Facturas con pagos | No se pueden anular (`DOCUMENT_HAS_PAYMENTS`) | Notas de crédito (Fase D) |
+| Zona horaria | Numeración, fechas de pago y vencimientos usan `America/Puerto_Rico` (empresas existentes) | Zona por empresa cuando se elija en la configuración |

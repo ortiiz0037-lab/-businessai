@@ -10,7 +10,7 @@
 -- writes. It works whatever is applied: tables that may not exist are only
 -- looked up by name (to_regclass / to_regprocedure), never queried.
 --
--- One row per migration (0001–0004 together, then 0005 … 0015):
+-- One row per migration (0001–0004 together, then 0005 … 0016):
 --   status   applied | not applied | PARTIAL — review | n/a
 --   evidence what was measured (counts, flags) — compare it with the
 --            "applied when" column.
@@ -80,10 +80,15 @@ e as (
     to_regclass('public.document_counters') is not null as t_counters,
     (select count(*) from pg_trigger where not tgisinternal and tgname in
        ('ba_assign_document_number', 'ba_protect_issued_documents', 'ba_check_receipt',
-        'ba_check_payment', 'ba_settle_invoice')) as lifecycle_trg,
+        'ba_check_payment', 'ba_settle_invoice', 'ba_check_document_insert', 'ba_log_document_event')) as lifecycle_trg,
+    to_regclass('public.document_events') is not null as t_events,
     exists (select 1 from pg_constraint where conname = 'documents_status_check'
               and conrelid = to_regclass('public.documents')
               and pg_get_constraintdef(oid) ilike '%accepted%') as c_quote_status,
+    -- 0016
+    to_regclass('public.trial_claims') is not null as t_claims,
+    to_regprocedure('public.claim_trial(uuid, uuid)') is not null as f_claim,
+    coalesce(pg_get_functiondef(to_regprocedure('public.enforce_billing_limits()')) like '%new.document_type <> ''receipt''%', false) as receipts_free,
     -- staging bookkeeping (absent in Production)
     to_regclass('ba_meta.applied_migrations') is not null as t_record,
     to_regclass('ba_meta.environment') is not null        as t_marker
@@ -150,14 +155,21 @@ r(ord, migration, applied_when, status, evidence) as (
            t_perm, t_roleperm, f_perm, c_status, perm_policies)
   from e
   union all
-  select 10, '0015_documents_lifecycle', 'counters table + 5 triggers + accepted/rejected statuses',
-    case when t_counters and lifecycle_trg = 5 and c_quote_status then 'applied'
+  select 10, '0015_documents_lifecycle', 'counters table + 7 triggers + accepted/rejected statuses (document_events may outlive a rollback)',
+    case when t_counters and lifecycle_trg = 7 and c_quote_status then 'applied'
          when not t_counters and lifecycle_trg = 0 and not c_quote_status then 'not applied'
          else 'PARTIAL — review' end,
-    format('document_counters=%s triggers=%s/5 quote_statuses=%s', t_counters, lifecycle_trg, c_quote_status)
+    format('document_counters=%s triggers=%s/7 quote_statuses=%s document_events=%s', t_counters, lifecycle_trg, c_quote_status, t_events)
   from e
   union all
-  select 11, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
+  select 11, '0016_billing_hardening', 'trial_claims + claim_trial + receipts outside the quota',
+    case when t_claims and f_claim and receipts_free then 'applied'
+         when not (t_claims or f_claim or receipts_free) then 'not applied'
+         else 'PARTIAL — review' end,
+    format('trial_claims=%s claim_trial=%s receipts_outside_quota=%s', t_claims, f_claim, receipts_free)
+  from e
+  union all
+  select 12, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
     case when t_record or t_marker then 'present (staging?)' else 'absent' end,
     format('ba_meta.applied_migrations=%s ba_meta.environment=%s', t_record, t_marker)
   from e

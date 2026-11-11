@@ -9,6 +9,8 @@ import { balanceOf, documentActions, effectiveStatus, todayIn, type Role } from 
 import { PAYMENT_ERROR_MESSAGE, PAYMENT_METHODS, paymentMethodLabel } from '@/lib/documents/payments'
 import { BILLING_ERROR_MESSAGE } from '@/lib/billing/state'
 import { createReceipt, deleteDraft, registerPayment, setDocumentStatus, voidDocument } from '@/app/actions/documents'
+import { lifecycleAvailable, newIdempotencyKey } from '@/lib/documents/capabilities'
+import { SubmitButton } from '@/components/submit-button'
 
 type DocumentRow = {
   id: string
@@ -123,6 +125,15 @@ const ACTION_ERROR: Record<string, string> = {
   document_void_forbidden: 'Solo el propietario o un administrador puede anular documentos.',
   void_reason: 'Escribe el motivo de la anulación (entre 3 y 300 caracteres).',
   void_has_payments: 'Esta factura tiene pagos registrados: no se puede anular. Los pagos se conservan como historial.',
+  document_has_payments: 'Esta factura tiene pagos registrados: no se puede anular. Los pagos se conservan como historial.',
+  void_reason_required: 'Escribe el motivo de la anulación (entre 3 y 300 caracteres).',
+  document_transition: 'Ese cambio de estado no está permitido para este tipo de documento.',
+  document_not_paid: 'La factura solo pasa a pagada cuando los pagos cubren el total.',
+  document_field_locked: 'El número y el tipo de un documento no se cambian.',
+  company_immutable: 'Un documento no se puede mover a otra empresa.',
+  receipt_client_mismatch: 'El recibo debe ser para el cliente de la factura.',
+  receipt_exists: 'Ese pago ya tiene un recibo vigente.',
+  audit: 'No se pudo registrar el historial del borrador; no se eliminó nada. Inténtalo nuevamente.',
   save: 'No se pudo completar la acción. Inténtalo nuevamente.',
   ...BILLING_ERROR_MESSAGE,
 }
@@ -256,7 +267,7 @@ export default async function DocumentDetailPage({
   const paid = Math.round(payments.reduce((s, p) => s + Number(p.amount ?? 0), 0) * 100) / 100
   const lifecycle = { document_type: doc.document_type ?? null, status: doc.status ?? null, total: doc.total ?? 0, due_date: doc.due_date ?? null }
   const shownStatus = effectiveStatus(lifecycle, paid, today)
-  const actions = documentActions(lifecycle, paid, today, role)
+  const actions = documentActions(lifecycle, paid, today, role, await lifecycleAvailable())
   const balance = balanceOf(lifecycle, paid)
   const voidInfo = (meta.void ?? null) as { reason?: string; voided_at?: string } | null
 
@@ -384,6 +395,7 @@ export default async function DocumentDetailPage({
             {actions.recordPayment && (
               <form action={registerPayment} className="mt-6 space-y-4 border-t border-line pt-5">
                 <input type="hidden" name="document_id" value={doc.id} />
+                <input type="hidden" name="idempotency_key" value={newIdempotencyKey()} />
                 <h2 className="font-display text-lg font-semibold text-fg">Registrar pago</h2>
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                   <label className="field-label">Cantidad *
@@ -396,7 +408,7 @@ export default async function DocumentDetailPage({
                     </select>
                   </label>
                   <label className="field-label">Fecha *
-                    <input name="date" type="date" required defaultValue={today} max={today} className="field mt-2" />
+                    <input name="date" type="date" required defaultValue={today} max={today} min={doc.issue_date ?? undefined} className="field mt-2" />
                   </label>
                   <label className="field-label">Referencia
                     <input name="reference" maxLength={120} className="field mt-2" placeholder="Nº de cheque, confirmación…" />
@@ -407,7 +419,7 @@ export default async function DocumentDetailPage({
                     <input type="checkbox" name="create_receipt" defaultChecked className="h-4 w-4 accent-blue-600" />
                     Crear el recibo de este pago
                   </label>
-                  <button type="submit" className="btn-primary w-full sm:w-auto">Registrar pago</button>
+                  <SubmitButton pendingLabel="Registrando…" className="w-full sm:w-auto">Registrar pago</SubmitButton>
                 </div>
                 <p className="text-xs text-muted">Pagos parciales permitidos hasta el balance pendiente. Los pagos registrados no se editan ni se borran.</p>
               </form>

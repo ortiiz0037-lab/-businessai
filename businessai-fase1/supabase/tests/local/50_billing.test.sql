@@ -178,12 +178,14 @@ do $$ declare st record; begin
 end $$;
 -- Leave an open balance on coA's invoice (the RLS suite paid it in full):
 -- with 0015 a payment can never exceed the balance.
-update public.documents set total = total + 100 where company_id = t.id('coA') and document_type = 'invoice';
+update public.documents set total = total + 100, status = case when status = 'paid' then 'sent' else status end
+ where company_id = t.id('coA') and document_type = 'invoice';
 do $$ declare n int; begin
   perform t.as_user('userA'); set local role authenticated;
   select count(*) into n from public.documents where company_id = t.id('coA');
   perform t.ok(n > 0, 'read-only: existing documents still readable');
-  update public.documents set status = 'sent' where company_id = t.id('coA') and document_type = 'invoice';
+  -- (with 0015 an issued invoice only accepts allowed transitions: touch updated_at)
+  update public.documents set updated_at = now() where company_id = t.id('coA') and document_type = 'invoice';
   get diagnostics n = row_count;
   perform t.ok(n > 0, 'read-only: existing invoices can still be updated');
   insert into public.payments (company_id, document_id, amount, payment_method, created_by)

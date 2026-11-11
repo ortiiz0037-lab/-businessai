@@ -6,6 +6,7 @@ import { getUserCompany } from '@/lib/billing/company'
 import { buildCheckoutSessionParams, chargeTerms, toPriceInfo } from '@/lib/billing/checkout'
 import { hasLiveStripeSubscription } from '@/lib/billing/sync'
 import { ConfigError } from '@/lib/env'
+import { personTrialAvailable } from '@/lib/billing/trial'
 
 export const runtime = 'nodejs'
 
@@ -17,7 +18,8 @@ function back(request: NextRequest, query: string) {
  * Form POST from /billing with `plan` and `accept_terms=yes` → 303 to Stripe
  * Checkout (or to the portal when a subscription already exists).
  * Checkout always collects a card; the first subscription of a company gets
- * the free trial (billing_config.trial_days), later ones are charged at once.
+ * the free trial (billing_config.trial_days) if neither the company nor the
+ * person used one before; otherwise it is charged at once.
  */
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
@@ -92,8 +94,11 @@ export async function POST(request: NextRequest) {
     }
 
     const { data: config } = await admin.from('billing_config').select('trial_days').maybeSingle()
-    // One trial per company: none if it was already consumed.
-    const trialDays = current?.trial_consumed_at ? null : (config?.trial_days ?? 7)
+    // One trial per company AND per person (C3): creating more companies
+    // does not chain free trials.
+    const trialDays = !current?.trial_consumed_at && await personTrialAvailable(admin, company.companyId, user.id, true)
+      ? (config?.trial_days ?? 7)
+      : null
     const { terms } = chargeTerms({ planName: plan.name, price: priceInfo, trialDays, now: new Date() })
 
     const session = await stripe.checkout.sessions.create(

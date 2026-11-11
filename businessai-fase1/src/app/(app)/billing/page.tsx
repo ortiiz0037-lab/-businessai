@@ -1,4 +1,6 @@
 import Link from 'next/link'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { personTrialAvailable } from '@/lib/billing/trial'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { getUserCompany } from '@/lib/billing/company'
@@ -40,6 +42,15 @@ function limit(value: number | null) {
   return value === null ? 'Ilimitado' : String(value)
 }
 
+/** Read-only trial check for the page; without service-role config, show no trial promise. */
+async function personTrialForPage(companyId: string, userId: string): Promise<boolean> {
+  try {
+    return await personTrialAvailable(createAdminClient(), companyId, userId, false)
+  } catch {
+    return false
+  }
+}
+
 export default async function BillingPage({
   searchParams,
 }: {
@@ -62,7 +73,11 @@ export default async function BillingPage({
   const prices = await loadPrices(plans.map((p) => p.stripe_lookup_key))
   const now = new Date()
   const hasSubscription = Boolean(state && state.state !== 'none')
-  const trialDays = state?.trial_eligible ? (state.trial_days ?? 7) : null
+  // One trial per person (C3): the company may be eligible while its owner
+  // already used a trial in another company.
+  const personEligible = state?.trial_eligible ? await personTrialForPage(company.companyId, user.id) : false
+  const trialDays = state?.trial_eligible && personEligible ? (state.trial_days ?? 7) : null
+  if (state && !personEligible) state.trial_eligible = false
   // Plan chosen on /precios (or kept through signup): highlighted below.
   const selected = isPlanKey(params.plan) ? plans.find((p) => p.plan === params.plan) ?? null : null
 

@@ -21,6 +21,12 @@
 #                           Also lists every storage.objects policy with its R3
 #                           verdict (supabase/inspect/inspect_storage_policies.sql,
 #                           read-only), whether or not 0014a is recorded.
+#   APPROVED_DRAFTS         Comma-separated migration names that the owner
+#                           approved for THIS run although their header says
+#                           "-- STAGING-GATE: approval required". Without it that migration and every
+#                           migration after it are HELD: listed, never applied
+#                           (review finding I12: adding a draft to ORDER must
+#                           not make the next staging:migrate apply it).
 #   EXPECT_STAGING_REF      If set, STAGING_PROJECT_REF must equal it (a ref
 #                           pinned in the workflow, so a changed repository
 #                           variable cannot redirect the run).
@@ -68,6 +74,7 @@ ORDER=(
   0011_usage_limits
   0014a_permissions
   0015_documents_lifecycle
+  0016_billing_hardening
 )
 EXPECTED_VERIFY="10,0,2,0,f,0,2,3,t,t,t,"
 
@@ -136,8 +143,8 @@ has_record="$(psqlx -tA -c "select to_regclass('ba_meta.applied_migrations') is 
 # 0010's company_billing_state), so order is preserved.
 pending=()
 cascade=0
+known=""
 for name in "${ORDER[@]}"; do
-  if [[ "$cascade" == 1 ]]; then pending+=("$name"); continue; fi
   file="$MIG/$name.sql"
   [[ -f "$file" ]] || die "missing migration file $name.sql"
   sum="$(sha256sum "$file" | cut -d' ' -f1)"
@@ -145,6 +152,9 @@ for name in "${ORDER[@]}"; do
   if [[ "$has_record" == "t" ]]; then
     recorded="$(psqlx -tA -c "select sha256 from ba_meta.applied_migrations where name = '$name'")"
   fi
+  # Exactly this content was applied here before (used by the draft gate).
+  [[ -n "$recorded" && "$recorded" == "$sum" ]] && known+="$name,"
+  if [[ "$cascade" == 1 ]]; then pending+=("$name"); continue; fi
   if [[ -z "$recorded" ]]; then
     pending+=("$name"); cascade=1
   elif [[ "$recorded" != "$sum" ]]; then
@@ -153,10 +163,25 @@ for name in "${ORDER[@]}"; do
   fi
 done
 
+# Draft gate: stop at the first pending draft that was not approved.
+# shellcheck source=draft-gate.sh
+source "$HERE/draft-gate.sh"
+held=()
+runnable=()
+if [[ ${#pending[@]} -gt 0 ]]; then
+  while read -r verdict name; do
+    if [[ "$verdict" == RUN ]]; then runnable+=("$name"); else held+=("$name"); fi
+  done < <(draft_gate "$MIG" "${APPROVED_DRAFTS:-}" "$known" "${pending[@]}")
+fi
+pending=("${runnable[@]+"${runnable[@]}"}")
+
 if [[ ${#pending[@]} -eq 0 ]]; then
   echo "No pending migrations."
 else
   echo "Pending: ${pending[*]}"
+fi
+if [[ ${#held[@]} -gt 0 ]]; then
+  echo "Held (draft not approved — pass APPROVED_DRAFTS to apply): ${held[*]}"
 fi
 
 if [[ "${DRY_RUN:-0}" == "1" ]]; then

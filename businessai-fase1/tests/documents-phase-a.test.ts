@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { computeTotals, documentItems, parseItemsInput } from '@/lib/documents/items'
 import { balanceOf, canTransition, documentActions, effectiveStatus, lifecycleErrorCode, todayIn } from '@/lib/documents/lifecycle'
 import { parsePaymentInput, paymentMethodLabel } from '@/lib/documents/payments'
-import { legacyDocumentNumber, NUMBER_PREFIX } from '@/lib/documents/numbering'
+import { legacyDocumentNumber } from '@/lib/documents/numbering'
 import { parseClientInput } from '@/lib/clients'
 import { canManageBilling } from '@/lib/billing/company'
 import { newPasswordSchema, resetRequestSchema } from '@/lib/validators'
@@ -19,10 +19,10 @@ describe('line items (E4)', () => {
     }))
     expect(r.error).toBeNull()
     expect(r.items).toEqual([
-      { description: 'Diseño', quantity: 2, unit_price: 10.01, amount: 20.01 },
+      { description: 'Diseño', quantity: 2, unit_price: 10.01, amount: 20.02 },   // M1: 2 × 10.01 as printed
       { description: 'Hosting', quantity: 1, unit_price: 5, amount: 5 },
     ])
-    expect(r.subtotal).toBe(25.01)
+    expect(r.subtotal).toBe(25.02)
   })
   it('refuses a row without description and bad numbers', () => {
     expect(parseItemsInput(form({ item_quantity_1: '1' })).error).toBe('required')
@@ -130,15 +130,11 @@ describe('payment form (partial payments)', () => {
 })
 
 describe('numbering (E5)', () => {
-  it('uses the same prefixes as the database (0015)', () => {
-    const sql = read('supabase/migrations/0015_documents_lifecycle.sql')
-    for (const [type, prefix] of Object.entries(NUMBER_PREFIX)) expect(sql).toContain(`when '${type}' then '${prefix}'`)
-  })
+  // The numbers themselves are asserted on a real database (suite 74:
+  // FAC/COT/RCB/OT/CARTA/REC, consecutive, per company and year) and the
+  // insert path in tests/review-fixes.test.ts (no number sent, fallback).
   it('previous random format only as a fallback without 0015', () => {
     expect(legacyDocumentNumber('invoice', 2026, 'abcdef1234')).toBe('FAC-2026-ABCDEF12')
-  })
-  it('the app no longer generates numbers when creating documents', () => {
-    expect(read('src/app/(app)/documents/new/page.tsx')).not.toMatch(/const documentNumber|document_number: documentNumber|randomUUID/)
   })
 })
 

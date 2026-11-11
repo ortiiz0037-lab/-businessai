@@ -81,10 +81,13 @@ export default async function PaymentsPage() {
 
   // Receipt issued for each payment, if any.
   const receiptByPayment = new Map<string, { id: string; number: string | null }>()
-  if ((payments ?? []).length > 0) {
+  const paymentIds = (payments ?? []).map((p) => p.id as string)
+  if (paymentIds.length > 0) {
+    // Only the receipts of the payments on screen, voided ones excluded (M3, I7).
     const { data: receipts } = await supabase
       .from('documents').select('id, document_number, metadata')
-      .eq('company_id', member.company_id).eq('document_type', 'receipt')
+      .eq('company_id', member.company_id).eq('document_type', 'receipt').neq('status', 'cancelled')
+      .in('metadata->>payment_id', paymentIds)
     for (const r of receipts ?? []) {
       const pid = String((r.metadata as Record<string, unknown> | null)?.payment_id ?? '')
       if (pid) receiptByPayment.set(pid, { id: r.id, number: r.document_number })
