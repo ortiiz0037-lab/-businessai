@@ -36,10 +36,12 @@ with
 has15 as (select to_regclass('public.document_counters') is not null as yes),
 has18 as (select to_regclass('public.invitations') is not null as yes),
 has19 as (select to_regclass('public.client_events') is not null as yes),
-expected_count as (select 18 + (select yes::int from has15) + 2 * (select yes::int from has18) + (select yes::int from has19) as n),
+has20 as (select to_regclass('public.employees') is not null as yes),
+expected_count as (select 18 + (select yes::int from has15) + 2 * (select yes::int from has18) + (select yes::int from has19)
+                          + (select yes::int from has20) as n),
 member_lacks(key) as (values ('billing.manage'), ('clients.delete'), ('company.branding.manage'),
                              ('company.settings.manage'), ('documents.delete'), ('documents.void'),
-                             ('members.invite'), ('members.manage'), ('clients.archive')),
+                             ('members.invite'), ('members.manage'), ('clients.archive'), ('workforce.manage')),
 admin_lacks(key) as (select 'billing.manage' from has15 where yes
                      union all select 'members.manage' from has18 where yes),
 expected_policies(tbl, name) as (values

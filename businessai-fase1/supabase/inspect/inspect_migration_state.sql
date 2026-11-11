@@ -10,7 +10,7 @@
 -- writes. It works whatever is applied: tables that may not exist are only
 -- looked up by name (to_regclass / to_regprocedure), never queried.
 --
--- One row per migration (0001–0004 together, then 0005 … 0019):
+-- One row per migration (0001–0004 together, then 0005 … 0020):
 --   status   applied | not applied | PARTIAL — review | n/a
 --   evidence what was measured (counts, flags) — compare it with the
 --            "applied when" column.
@@ -98,6 +98,9 @@ e as (
     to_regclass('public.client_events') is not null as t_client_events,
     exists (select 1 from information_schema.columns where table_schema = 'public'
               and table_name = 'documents' and column_name = 'language') as c_language,
+    -- 0020
+    to_regclass('public.employees') is not null as t_employees,
+    to_regprocedure('public.punch(uuid, text, text)') is not null as f_punch,
     -- staging bookkeeping (absent in Production)
     to_regclass('ba_meta.applied_migrations') is not null as t_record,
     to_regclass('ba_meta.environment') is not null        as t_marker
@@ -196,7 +199,13 @@ r(ord, migration, applied_when, status, evidence) as (
     format('client_events=%s documents.language=%s', t_client_events, c_language)
   from e
   union all
-  select 15, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
+  select 15, '0020_workforce', 'employees + punch()',
+    case when t_employees and f_punch then 'applied'
+         when not (t_employees or f_punch) then 'not applied' else 'PARTIAL — review' end,
+    format('employees=%s punch=%s', t_employees, f_punch)
+  from e
+  union all
+  select 16, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
     case when t_record or t_marker then 'present (staging?)' else 'absent' end,
     format('ba_meta.applied_migrations=%s ba_meta.environment=%s', t_record, t_marker)
   from e

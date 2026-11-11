@@ -78,6 +78,7 @@ ORDER=(
   0017_plan_features
   0018_team
   0019_crm
+  0020_workforce
 )
 EXPECTED_VERIFY="10,0,2,0,f,0,2,3,t,t,t,"
 
