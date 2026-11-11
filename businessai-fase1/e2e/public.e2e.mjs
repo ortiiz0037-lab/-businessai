@@ -57,8 +57,9 @@ const VIEWPORTS = [
   ['iPad', devices['iPad (gen 7)']],
   ['desktop', { viewport: { width: 1440, height: 900 } }],
 ]
-const PUBLIC_PAGES = ['/', '/precios', '/login', '/signup', '/forgot-password', '/terminos', '/privacidad']
-const PROTECTED = ['/dashboard', '/documents', '/documents/new', '/payments', '/payments/new', '/clients', '/billing', '/settings/company']
+const PUBLIC_PAGES = ['/', '/precios', '/login', '/signup', '/forgot-password', '/terminos', '/privacidad', '/invite?token=' + 'f'.repeat(64)]
+const PROTECTED = ['/dashboard', '/documents', '/documents/new', '/payments', '/payments/new', '/clients', '/billing', '/settings/company',
+  '/settings/team', '/clients/00000000-0000-4000-8000-000000000000', '/clients/00000000-0000-4000-8000-000000000000/edit']
 
 try {
   await waitForServer()
@@ -89,6 +90,12 @@ try {
   check(await page.getByText('opened in another browser').count() > 0, 'reset link error explained in English (I10)')
   await page.goto(`${BASE}/forgot-password?error=link`)
   check(await page.getByText('otro navegador').count() > 0, 'reset link error explained in Spanish (I10)')
+  // Invitation link: public, explains an unknown link, sends no referrer.
+  await page.goto(`${BASE}/invite?token=${'0'.repeat(64)}&lang=es`)
+  check(await page.getByText('Enlace no válido').count() > 0, 'an unknown invitation link is explained (Spanish)')
+  await page.goto(`${BASE}/invite?token=${'0'.repeat(64)}&lang=en`)
+  check(await page.getByText('Invalid link').count() > 0, 'an unknown invitation link is explained (English)')
+  check(await page.locator('meta[name="referrer"][content="no-referrer"]').count() === 1, 'the invitation page sends no referrer (token never leaks)')
   // Protected pages: never rendered without a session.
   for (const path of PROTECTED) {
     await page.goto(`${BASE}${path}`)

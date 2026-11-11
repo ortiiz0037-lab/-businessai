@@ -22,3 +22,10 @@ export function newIdempotencyKey(): string {
 }
 
 export const IDEMPOTENCY_KEY = /^pay-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** Does the database have migration 0019 (archived clients, document language)? */
+export const crmAvailable = cache(async (): Promise<boolean> => {
+  const supabase = await createClient()
+  const { error } = await supabase.from('clients').select('archived_at').limit(1)
+  return !error
+})

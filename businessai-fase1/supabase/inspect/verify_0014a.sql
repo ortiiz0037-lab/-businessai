@@ -16,6 +16,9 @@
 --      the 5 management/delete permissions);
 --      after 0015 (detected by public.document_counters): 19 permissions
 --      (+ documents.void); owner 19, admin 18 (no billing.manage), member 13
+--      after 0018 (public.invitations): + members.invite (owner, admin) and
+--      members.manage (owner); after 0019 (public.client_events): +
+--      clients.archive (owner, admin)
 --      (no documents.void either).
 --   2. has_permission, is_company_member, has_company_role: SECURITY DEFINER,
 --      search_path="", executable by authenticated, not by anon or PUBLIC.
@@ -31,9 +34,14 @@
 -- =====================================================================
 with
 has15 as (select to_regclass('public.document_counters') is not null as yes),
+has18 as (select to_regclass('public.invitations') is not null as yes),
+has19 as (select to_regclass('public.client_events') is not null as yes),
+expected_count as (select 18 + (select yes::int from has15) + 2 * (select yes::int from has18) + (select yes::int from has19) as n),
 member_lacks(key) as (values ('billing.manage'), ('clients.delete'), ('company.branding.manage'),
-                             ('company.settings.manage'), ('documents.delete'), ('documents.void')),
-admin_lacks(key) as (select 'billing.manage' from has15 where yes),
+                             ('company.settings.manage'), ('documents.delete'), ('documents.void'),
+                             ('members.invite'), ('members.manage'), ('clients.archive')),
+admin_lacks(key) as (select 'billing.manage' from has15 where yes
+                     union all select 'members.manage' from has18 where yes),
 expected_policies(tbl, name) as (values
   ('public.companies', 'companies_select'), ('public.companies', 'companies_update'),
   ('public.memberships', 'memberships_select'),
@@ -58,9 +66,9 @@ matrix as (
   where (r.role <> 'member' or p.key not in (select key from member_lacks))
     and (r.role <> 'admin' or p.key not in (select key from admin_lacks))),
 problems(msg) as (
-  select 'expected ' || (select case when yes then 19 else 18 end from has15) || ' permissions, found ' || count(*)
+  select 'expected ' || (select n from expected_count) || ' permissions, found ' || count(*)
   from public.permissions
-  having count(*) <> (select case when yes then 19 else 18 end from has15)
+  having count(*) <> (select n from expected_count)
   union all
   select 'role matrix differs: ' || string_agg(x, ', ' order by x) from (
     (select role || ':' || key || ' missing' as x from matrix

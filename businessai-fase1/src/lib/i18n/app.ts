@@ -41,7 +41,7 @@ export type TopBarCopy = {
 }
 
 export type AppCopy = {
-  nav: { dashboard: string; clients: string; documents: string; payments: string; company: string; plan: string; more: string; menu: string; openMenu: string; closeMenu: string; mainMenu: string }
+  nav: { dashboard: string; clients: string; documents: string; payments: string; company: string; team: string; plan: string; more: string; menu: string; openMenu: string; closeMenu: string; mainMenu: string }
   shell: { env: (env: string) => string; seePlan: string; terms: string; privacy: string; legal: string; signOut: string; myCompany: string; language: string; languageNames: Record<Locale, string>; company: string; switchCompany: string; newCompany: string; current: string; roles: Record<string, string>; top: TopBarCopy }
   docType: Record<string, string>
   docStatus: Record<string, string>
@@ -80,7 +80,7 @@ export type AppCopy = {
 }
 
 const es: AppCopy = {
-  nav: { dashboard: 'Inicio', clients: 'Clientes', documents: 'Documentos', payments: 'Pagos', company: 'Mi empresa', plan: 'Plan', more: 'Más', menu: 'Menú', openMenu: 'Abrir menú', closeMenu: 'Cerrar menú', mainMenu: 'Menú principal' },
+  nav: { dashboard: 'Inicio', clients: 'Clientes', documents: 'Documentos', payments: 'Pagos', company: 'Mi empresa', team: 'Equipo', plan: 'Plan', more: 'Más', menu: 'Menú', openMenu: 'Abrir menú', closeMenu: 'Cerrar menú', mainMenu: 'Menú principal' },
   shell: {
     env: (env) => `Entorno: ${env} — pagos en modo test`, seePlan: 'Ver plan', terms: 'Términos', privacy: 'Privacidad', legal: 'Enlaces legales',
     signOut: 'Cerrar sesión', myCompany: 'Mi empresa', language: 'Idioma', languageNames: { es: 'Español', en: 'English' },
@@ -141,7 +141,7 @@ const es: AppCopy = {
 }
 
 const en: AppCopy = {
-  nav: { dashboard: 'Home', clients: 'Clients', documents: 'Documents', payments: 'Payments', company: 'My company', plan: 'Plan', more: 'More', menu: 'Menu', openMenu: 'Open menu', closeMenu: 'Close menu', mainMenu: 'Main menu' },
+  nav: { dashboard: 'Home', clients: 'Clients', documents: 'Documents', payments: 'Payments', company: 'My company', team: 'Team', plan: 'Plan', more: 'More', menu: 'Menu', openMenu: 'Open menu', closeMenu: 'Close menu', mainMenu: 'Main menu' },
   shell: {
     env: (env) => `Environment: ${env} — payments in test mode`, seePlan: 'See plan', terms: 'Terms', privacy: 'Privacy', legal: 'Legal links',
     signOut: 'Sign out', myCompany: 'My company', language: 'Language', languageNames: { es: 'Español', en: 'English' },

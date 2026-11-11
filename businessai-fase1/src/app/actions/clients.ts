@@ -25,7 +25,7 @@ export async function updateClient(formData: FormData) {
   if (!member) redirect('/clients?error=not_found')
 
   const parsed = parseClientInput((key) => String(formData.get(key) ?? ''))
-  if (!parsed.ok) redirect(`/clients/${id}?error=${parsed.error}`)
+  if (!parsed.ok) redirect(`/clients/${id}/edit?error=${parsed.error}`)
 
   const { data, error } = await supabase
     .from('clients')
@@ -35,9 +35,56 @@ export async function updateClient(formData: FormData) {
     .select('id')
   if (error || !data?.length) {
     if (error) console.error('CLIENT_UPDATE_ERROR', { code: error.code, message: error.message })
-    redirect(`/clients/${id}?error=${error?.code === '42501' || !data?.length ? 'forbidden' : 'save'}`)
+    redirect(`/clients/${id}/edit?error=${error?.code === '42501' || !data?.length ? 'forbidden' : 'save'}`)
   }
   revalidatePath('/clients')
   revalidatePath('/dashboard')
-  redirect('/clients?success=updated')
+  revalidatePath(`/clients/${id}`)
+  redirect(`/clients/${id}?done=updated`)
+}
+
+/**
+ * Archive / restore / delete (migration 0019). The database decides: only
+ * clients.archive archives (and writes who and when); a client with
+ * documents is never deleted (CLIENT_HAS_HISTORY); RLS limits everything to
+ * the user's companies.
+ */
+async function clientRow(formData: FormData) {
+  const id = String(formData.get('id') ?? '')
+  if (!UUID.test(id)) redirect('/clients?error=not_found')
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  const { data: client } = await supabase.from('clients').select('id, company_id').eq('id', id).maybeSingle()
+  if (!client) redirect('/clients?error=not_found')
+  return { supabase, id, companyId: client.company_id as string }
+}
+
+function clientErrorCode(error: { code?: string; message?: string } | null): string {
+  const m = error?.message ?? ''
+  for (const code of ['CLIENT_ARCHIVE_FORBIDDEN', 'CLIENT_HAS_HISTORY', 'COMPANY_IMMUTABLE']) if (m.includes(code)) return code.toLowerCase()
+  if (error?.code === '42501') return 'forbidden'
+  if (/archived_at/.test(m)) return 'unavailable'
+  return 'save'
+}
+
+export async function setClientArchived(formData: FormData) {
+  const { supabase, id, companyId } = await clientRow(formData)
+  const archive = formData.get('archive') === 'yes'
+  const { data, error } = await supabase.from('clients')
+    .update({ archived_at: archive ? new Date().toISOString() : null, updated_at: new Date().toISOString() })
+    .eq('id', id).eq('company_id', companyId).select('id')
+  if (error || !data?.length) redirect(`/clients/${id}?error=${error ? clientErrorCode(error) : 'forbidden'}`)
+  revalidatePath('/clients')
+  revalidatePath(`/clients/${id}`)
+  redirect(`/clients/${id}?done=${archive ? 'archived' : 'restored'}`)
+}
+
+export async function deleteClient(formData: FormData) {
+  if (formData.get('confirm') !== 'yes') redirect(`/clients/${String(formData.get('id') ?? '')}?error=confirm`)
+  const { supabase, id, companyId } = await clientRow(formData)
+  const { data, error } = await supabase.from('clients').delete().eq('id', id).eq('company_id', companyId).select('id')
+  if (error || !data?.length) redirect(`/clients/${id}?error=${error ? clientErrorCode(error) : 'forbidden'}`)
+  revalidatePath('/clients')
+  redirect('/clients?success=deleted')
 }

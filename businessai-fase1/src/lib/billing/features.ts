@@ -1,11 +1,11 @@
 /**
- * Plan features (migration 0017): branches, employees, payroll. DENY BY
+ * Plan features (migration 0017): branches, employees, time clock, payroll. DENY BY
  * DEFAULT — when the database has no answer (migration not applied, no
  * active subscription, feature not in the plan, any error) the feature is
  * not available. Modules of Phases C–E show their entry points only when
  * featureAccess(...).available; their database triggers enforce it again.
  */
-export type PlanFeature = 'branches' | 'employees' | 'payroll'
+export type PlanFeature = 'branches' | 'employees' | 'time_clock' | 'payroll'
 export type FeatureAccess = { available: boolean; maxAllowed: number | null; used: number; atLimit: boolean }
 
 const DENIED: FeatureAccess = { available: false, maxAllowed: null, used: 0, atLimit: false }

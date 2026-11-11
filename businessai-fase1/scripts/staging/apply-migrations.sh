@@ -76,6 +76,8 @@ ORDER=(
   0015_documents_lifecycle
   0016_billing_hardening
   0017_plan_features
+  0018_team
+  0019_crm
 )
 EXPECTED_VERIFY="10,0,2,0,f,0,2,3,t,t,t,"
 

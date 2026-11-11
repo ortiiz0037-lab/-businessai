@@ -35,7 +35,9 @@ begin
   select * into r from public.company_feature(b, 'payroll');
   perform pf.ok(not r.available, 'Basic: no payroll');
   select * into r from public.company_feature(b, 'employees');
-  perform pf.ok(not r.available, 'Basic: employees not available (decision pending → deny, never unlimited)');
+  perform pf.ok(r.available and r.max_allowed = 3, 'Basic: 3 employees');
+  select * into r from public.company_feature(b, 'time_clock');
+  perform pf.ok(r.available and r.max_allowed is null, 'Basic: time clock included');
   select * into r from public.company_feature(p, 'employees');
   perform pf.ok(r.available and r.max_allowed = 25, 'Pro (trial): 25 employees');
   select * into r from public.company_feature(p, 'payroll');
@@ -67,7 +69,7 @@ do $$ declare n int; begin
   set local role authenticated;
   select count(*) into n from public.billing_plan_features;
   reset role;
-  perform pf.ok(n = 7, 'signed-in users can read the public feature catalog (7 rows)');
+  perform pf.ok(n = 11, 'signed-in users can read the public feature catalog (11 rows)');
   perform set_config('request.jwt.claims', '', true);
 end $$;
 do $$ begin

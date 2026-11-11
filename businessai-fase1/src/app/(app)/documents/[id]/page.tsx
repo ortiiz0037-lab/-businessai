@@ -287,6 +287,11 @@ export default async function DocumentDetailPage({
   const tax = Number(doc.tax ?? 0)
   const total = doc.total !== null && doc.total !== undefined ? Number(doc.total) : subtotal + tax
   const primaryColor = companyData?.primary_color || '#0f172a'
+  // The document itself is shown in its own language (0019); older documents
+  // without one follow the reader's language.
+  const docLocale: 'es' | 'en' = (doc as { language?: string | null }).language === 'en' ? 'en'
+    : (doc as { language?: string | null }).language === 'es' ? 'es' : locale
+  const dt = translator(docLocale)
   const lines = documentItems({ items: doc.items, metadata: doc.metadata, notes: doc.notes })
 
   const errorText =
@@ -481,11 +486,11 @@ export default async function DocumentDetailPage({
             <div className="flex flex-col gap-8 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 {companyData?.logo_url ? (
-                  <img src={companyData.logo_url} alt={tr('Logo de la empresa', 'Company logo')} className="mb-5 h-16 max-w-[220px] object-contain object-left" />
+                  <img src={companyData.logo_url} alt={dt('Logo de la empresa', 'Company logo')} className="mb-5 h-16 max-w-[220px] object-contain object-left" />
                 ) : (
                   <div className="mb-5 inline-flex h-12 items-center rounded-xl bg-white/10 px-4 text-sm font-bold tracking-wide">BUSINESSAI</div>
                 )}
-                <h2 className="text-2xl font-bold">{companyData?.display_name || companyData?.legal_name || tr('Tu empresa', 'Your company')}</h2>
+                <h2 className="text-2xl font-bold">{companyData?.display_name || companyData?.legal_name || dt('Tu empresa', 'Your company')}</h2>
                 {companyData?.legal_name && companyData.display_name !== companyData.legal_name && (
                   <p className="mt-1 text-sm text-white/70">{companyData.legal_name}</p>
                 )}
@@ -501,16 +506,16 @@ export default async function DocumentDetailPage({
 
               <div className="sm:text-right">
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">{documentType(doc.document_type, tr)}</p>
-                <p className="mt-2 text-2xl font-bold">{doc.document_number || tr('Documento', 'Document')}</p>
+                <p className="mt-2 text-2xl font-bold">{doc.document_number || dt('Documento', 'Document')}</p>
                 {shownStatus === 'cancelled' && (
-                  <p className="mt-2 inline-block rounded-md border border-white/60 px-2 py-0.5 text-xs font-bold uppercase tracking-widest">{tr('Anulado', 'Voided')}</p>
+                  <p className="mt-2 inline-block rounded-md border border-white/60 px-2 py-0.5 text-xs font-bold uppercase tracking-widest">{dt('Anulado', 'Voided')}</p>
                 )}
                 <div className="mt-5 space-y-1 text-sm text-white/75">
-                  <p>{tr('Fecha', 'Date')}: <span className="font-semibold text-white">{formatDate(doc.issue_date, locale)}</span></p>
+                  <p>{dt('Fecha', 'Date')}: <span className="font-semibold text-white">{formatDate(doc.issue_date, docLocale)}</span></p>
                   {doc.due_date && (
                     <p>
-                      {isQuote ? tr('Válida hasta', 'Valid until') : tr('Vencimiento', 'Due')}:{' '}
-                      <span className="font-semibold text-white">{formatDate(doc.due_date, locale)}</span>
+                      {isQuote ? dt('Válida hasta', 'Valid until') : dt('Vencimiento', 'Due')}:{' '}
+                      <span className="font-semibold text-white">{formatDate(doc.due_date, docLocale)}</span>
                     </p>
                   )}
                 </div>
@@ -520,63 +525,63 @@ export default async function DocumentDetailPage({
 
           {isLetter ? (
             <section className="px-6 py-10 sm:px-10">
-              <h3 className="text-2xl font-bold text-slate-900">{doc.title || tr('Carta comercial', 'Business letter')}</h3>
-              <p className="mt-2 text-sm text-slate-500">{tr('Fecha', 'Date')}: {formatDate(doc.issue_date, locale)}</p>
-              <p className="mt-6 text-sm text-slate-700">{tr('Para', 'To')}: {clientData?.business_name || clientData?.name || tr('Destinatario', 'Recipient')}</p>
-              <div className="mt-8 whitespace-pre-wrap text-base leading-8 text-slate-700">{doc.notes || tr('Contenido de la carta no especificado.', 'No letter content.')}</div>
+              <h3 className="text-2xl font-bold text-slate-900">{doc.title || dt('Carta comercial', 'Business letter')}</h3>
+              <p className="mt-2 text-sm text-slate-500">{dt('Fecha', 'Date')}: {formatDate(doc.issue_date, docLocale)}</p>
+              <p className="mt-6 text-sm text-slate-700">{dt('Para', 'To')}: {clientData?.business_name || clientData?.name || dt('Destinatario', 'Recipient')}</p>
+              <div className="mt-8 whitespace-pre-wrap text-base leading-8 text-slate-700">{doc.notes || dt('Contenido de la carta no especificado.', 'No letter content.')}</div>
             </section>
           ) : isWorkOrder ? (
             <section className="px-6 py-8 sm:px-10">
-              <h3 className="text-xl font-bold text-slate-900">{tr('Detalles de la orden de trabajo', 'Work order details')}</h3>
-              <p className="mt-4 text-sm text-slate-500">{tr('Cliente', 'Client')}</p>
-              <p className="font-semibold text-slate-900">{clientData?.business_name || clientData?.name || tr('Cliente no especificado', 'No client')}</p>
+              <h3 className="text-xl font-bold text-slate-900">{dt('Detalles de la orden de trabajo', 'Work order details')}</h3>
+              <p className="mt-4 text-sm text-slate-500">{dt('Cliente', 'Client')}</p>
+              <p className="font-semibold text-slate-900">{clientData?.business_name || clientData?.name || dt('Cliente no especificado', 'No client')}</p>
               {clientData?.email && <p className="mt-1 text-sm text-slate-600">{clientData.email}</p>}
               {clientData?.phone && <p className="mt-1 text-sm text-slate-600">{clientData.phone}</p>}
-              <p className="mt-5 text-sm text-slate-500">{tr('Trabajo solicitado', 'Requested work')}</p>
-              <p className="mt-1 text-lg font-semibold text-slate-900">{doc.title || tr('Trabajo no especificado', 'No work specified')}</p>
-              {doc.due_date && <p className="mt-4 text-sm text-slate-600">{tr('Fecha límite', 'Deadline')}: {formatDate(doc.due_date, locale)}</p>}
+              <p className="mt-5 text-sm text-slate-500">{dt('Trabajo solicitado', 'Requested work')}</p>
+              <p className="mt-1 text-lg font-semibold text-slate-900">{doc.title || dt('Trabajo no especificado', 'No work specified')}</p>
+              {doc.due_date && <p className="mt-4 text-sm text-slate-600">{dt('Fecha límite', 'Deadline')}: {formatDate(doc.due_date, docLocale)}</p>}
             </section>
           ) : isReminder ? (
             <section className="px-6 py-8 sm:px-10">
-              <h3 className="text-xl font-bold text-slate-900">{tr('Recordatorio de pago', 'Payment reminder')}</h3>
-              <p className="mt-4 text-slate-700">{tr('Estimado/a', 'Dear')} {clientData?.name || clientData?.business_name || tr('cliente', 'customer')},</p>
+              <h3 className="text-xl font-bold text-slate-900">{dt('Recordatorio de pago', 'Payment reminder')}</h3>
+              <p className="mt-4 text-slate-700">{dt('Estimado/a', 'Dear')} {clientData?.name || clientData?.business_name || dt('cliente', 'customer')},</p>
               <p className="mt-3 leading-7 text-slate-600">
-                {tr('Le recordamos que tiene un balance pendiente de pago. Le agradecemos realizar el pago correspondiente o comunicarse con nosotros si ya realizó el pago.',
+                {dt('Le recordamos que tiene un balance pendiente de pago. Le agradecemos realizar el pago correspondiente o comunicarse con nosotros si ya realizó el pago.',
                   'This is a reminder that you have an open balance. Please make the payment or contact us if you have already paid.')}
               </p>
               <div className="mt-6 rounded-2xl bg-blue-50 p-5">
-                <p className="text-sm text-blue-800">{tr('Balance pendiente', 'Open balance')}</p>
+                <p className="text-sm text-blue-800">{dt('Balance pendiente', 'Open balance')}</p>
                 <p className="mt-1 text-3xl font-bold text-blue-950">{money(total)}</p>
-                {doc.due_date && <p className="mt-2 text-sm text-blue-800">{tr('Fecha de vencimiento', 'Due date')}: {formatDate(doc.due_date, locale)}</p>}
+                {doc.due_date && <p className="mt-2 text-sm text-blue-800">{dt('Fecha de vencimiento', 'Due date')}: {formatDate(doc.due_date, docLocale)}</p>}
               </div>
             </section>
           ) : isReceipt ? (
             <section className="px-6 py-8 sm:px-10">
-              <h3 className="text-xl font-bold text-slate-900">{tr('Recibo de pago', 'Payment receipt')}</h3>
+              <h3 className="text-xl font-bold text-slate-900">{dt('Recibo de pago', 'Payment receipt')}</h3>
               <p className="mt-4 leading-7 text-slate-700">
-                {tr('Recibimos de', 'We received from')} <span className="font-semibold">{clientData?.business_name || clientData?.name || tr('el cliente', 'the customer')}</span>{' '}
-                {tr('la cantidad de', 'the amount of')} <span className="font-semibold">{money(total)}</span>
+                {dt('Recibimos de', 'We received from')} <span className="font-semibold">{clientData?.business_name || clientData?.name || dt('el cliente', 'the customer')}</span>{' '}
+                {dt('la cantidad de', 'the amount of')} <span className="font-semibold">{money(total)}</span>
                 {typeof meta.invoice_number === 'string' && meta.invoice_number ? (
-                  <> {tr('como pago de la factura', 'as payment of invoice')} <span className="font-semibold">{meta.invoice_number}</span></>
+                  <> {dt('como pago de la factura', 'as payment of invoice')} <span className="font-semibold">{meta.invoice_number}</span></>
                 ) : null}
                 .
               </p>
               <dl className="mt-6 grid gap-4 rounded-2xl bg-slate-50 p-5 text-sm sm:grid-cols-3">
                 <div>
-                  <dt className="text-xs font-bold uppercase tracking-wider text-slate-400">{tr('Fecha del pago', 'Payment date')}</dt>
-                  <dd className="mt-1 font-semibold text-slate-900">{formatTimestamp(typeof meta.paid_at === 'string' ? meta.paid_at : doc.issue_date, locale)}</dd>
+                  <dt className="text-xs font-bold uppercase tracking-wider text-slate-400">{dt('Fecha del pago', 'Payment date')}</dt>
+                  <dd className="mt-1 font-semibold text-slate-900">{formatTimestamp(typeof meta.paid_at === 'string' ? meta.paid_at : doc.issue_date, docLocale)}</dd>
                 </div>
                 <div>
-                  <dt className="text-xs font-bold uppercase tracking-wider text-slate-400">{tr('Método', 'Method')}</dt>
-                  <dd className="mt-1 font-semibold text-slate-900">{paymentMethodLabel(typeof meta.payment_method === 'string' ? meta.payment_method : null, locale)}</dd>
+                  <dt className="text-xs font-bold uppercase tracking-wider text-slate-400">{dt('Método', 'Method')}</dt>
+                  <dd className="mt-1 font-semibold text-slate-900">{paymentMethodLabel(typeof meta.payment_method === 'string' ? meta.payment_method : null, docLocale)}</dd>
                 </div>
                 <div>
-                  <dt className="text-xs font-bold uppercase tracking-wider text-slate-400">{tr('Referencia', 'Reference')}</dt>
+                  <dt className="text-xs font-bold uppercase tracking-wider text-slate-400">{dt('Referencia', 'Reference')}</dt>
                   <dd className="mt-1 font-semibold text-slate-900">{typeof meta.reference === 'string' && meta.reference ? meta.reference : '—'}</dd>
                 </div>
               </dl>
               <div className="mt-6 flex items-end justify-between border-t border-slate-200 pt-4">
-                <span className="text-base font-bold text-slate-900">{tr('Total recibido', 'Total received')}</span>
+                <span className="text-base font-bold text-slate-900">{dt('Total recibido', 'Total received')}</span>
                 <span className="text-3xl font-bold" style={{ color: primaryColor }}>{money(total)}</span>
               </div>
             </section>
@@ -584,8 +589,8 @@ export default async function DocumentDetailPage({
             <>
               <section className="grid gap-6 border-b border-slate-200 px-6 py-7 sm:grid-cols-2 sm:px-10">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">{isQuote ? tr('Preparado para', 'Prepared for') : tr('Facturado a', 'Bill to')}</p>
-                  <h3 className="mt-2 text-lg font-bold text-slate-900">{clientData?.business_name || clientData?.name || tr('Cliente no especificado', 'No client')}</h3>
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">{isQuote ? dt('Preparado para', 'Prepared for') : dt('Facturado a', 'Bill to')}</p>
+                  <h3 className="mt-2 text-lg font-bold text-slate-900">{clientData?.business_name || clientData?.name || dt('Cliente no especificado', 'No client')}</h3>
                   {clientData?.business_name && clientData?.name && <p className="mt-1 text-sm text-slate-600">{clientData.name}</p>}
                   <div className="mt-3 space-y-1 text-sm text-slate-500">
                     {clientData?.email && <p>{clientData.email}</p>}
@@ -597,19 +602,19 @@ export default async function DocumentDetailPage({
                   </div>
                 </div>
                 <div className="rounded-2xl bg-slate-50 p-5 sm:text-right">
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">{tr('Resumen', 'Summary')}</p>
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">{dt('Resumen', 'Summary')}</p>
                   <p className="mt-2 text-3xl font-bold text-slate-950">{money(total)}</p>
-                  <p className="mt-1 text-sm text-slate-500">{tr('Total del documento', 'Document total')}</p>
+                  <p className="mt-1 text-sm text-slate-500">{dt('Total del documento', 'Document total')}</p>
                 </div>
               </section>
 
               <section className="px-6 py-8 sm:px-10">
                 <div className="overflow-hidden rounded-2xl border border-slate-200">
                   <div className="grid grid-cols-[minmax(100px,1fr)_42px_72px_78px] gap-1 bg-slate-50 px-2 py-3 text-[9px] font-bold uppercase tracking-wide text-slate-500 sm:grid-cols-[minmax(0,1fr)_90px_130px_130px] sm:gap-3 sm:px-5 sm:text-xs">
-                    <span>{tr('Descripción', 'Description')}</span>
-                    <span className="text-right">{tr('Cant.', 'Qty')}</span>
-                    <span className="text-right">{tr('Precio unit.', 'Unit price')}</span>
-                    <span className="text-right">{tr('Importe', 'Amount')}</span>
+                    <span>{dt('Descripción', 'Description')}</span>
+                    <span className="text-right">{dt('Cant.', 'Qty')}</span>
+                    <span className="text-right">{dt('Precio unit.', 'Unit price')}</span>
+                    <span className="text-right">{dt('Importe', 'Amount')}</span>
                   </div>
                   {lines.items.length > 0 ? (
                     lines.items.map((item, index) => (
@@ -626,7 +631,7 @@ export default async function DocumentDetailPage({
                   ) : (
                     <div className="border-t border-slate-100 px-5 py-6">
                       <p className="font-semibold text-slate-900">{doc.title || documentType(doc.document_type, tr)}</p>
-                      <p className="mt-1 text-sm text-slate-500">{tr('Este documento no tiene partidas detalladas.', 'This document has no itemized lines.')}</p>
+                      <p className="mt-1 text-sm text-slate-500">{dt('Este documento no tiene partidas detalladas.', 'This document has no itemized lines.')}</p>
                     </div>
                   )}
                 </div>
@@ -639,12 +644,12 @@ export default async function DocumentDetailPage({
                     </div>
                     {lines.discount > 0 && (
                       <div className="flex justify-between text-sm text-slate-500">
-                        <span>{tr('Descuento', 'Discount')}</span>
+                        <span>{dt('Descuento', 'Discount')}</span>
                         <span className="font-medium text-slate-800">−{money(lines.discount)}</span>
                       </div>
                     )}
                     <div className="flex justify-between text-sm text-slate-500">
-                      <span>{tr('Impuesto', 'Tax')}{lines.taxRate !== null ? ` (${lines.taxRate}%)` : ''}</span>
+                      <span>{dt('Impuesto', 'Tax')}{lines.taxRate !== null ? ` (${lines.taxRate}%)` : ''}</span>
                       <span className="font-medium text-slate-800">{money(tax)}</span>
                     </div>
                     <div className="border-t border-slate-200 pt-4">
@@ -656,11 +661,11 @@ export default async function DocumentDetailPage({
                     {isInvoice && paid > 0 && (
                       <>
                         <div className="flex justify-between text-sm text-slate-500">
-                          <span>{tr('Pagado', 'Paid')}</span>
+                          <span>{dt('Pagado', 'Paid')}</span>
                           <span className="font-medium text-slate-800">−{money(paid)}</span>
                         </div>
                         <div className="flex justify-between text-sm font-bold text-slate-900">
-                          <span>{tr('Balance pendiente', 'Open balance')}</span>
+                          <span>{dt('Balance pendiente', 'Open balance')}</span>
                           <span>{money(balance)}</span>
                         </div>
                       </>
@@ -674,7 +679,7 @@ export default async function DocumentDetailPage({
           {(isInvoice || isQuote ? lines.notes : isLetter || isReceipt ? '' : doc.notes) && (
             <section className="border-t border-slate-200 px-6 py-7 sm:px-10">
               <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">
-                {isWorkOrder ? tr('Descripción del trabajo y notas', 'Work description and notes') : tr('Notas y condiciones', 'Notes and conditions')}
+                {isWorkOrder ? dt('Descripción del trabajo y notas', 'Work description and notes') : dt('Notas y condiciones', 'Notes and conditions')}
               </h3>
               <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-600">
                 {isInvoice || isQuote ? lines.notes : doc.notes}
@@ -684,7 +689,7 @@ export default async function DocumentDetailPage({
 
           {companyData?.payment_info && (isInvoice || isQuote) && (
             <section className="border-t border-slate-200 px-6 py-7 sm:px-10">
-              <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">{tr('Información de pago', 'Payment information')}</h3>
+              <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">{dt('Información de pago', 'Payment information')}</h3>
               <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-600">{companyData.payment_info}</p>
             </section>
           )}
@@ -693,9 +698,9 @@ export default async function DocumentDetailPage({
             <section className="border-t border-slate-200 px-6 py-7 sm:px-10">
               <div className="flex justify-end">
                 <div className="w-full max-w-xs text-center">
-                  <img src={signature.url} alt={tr('Firma autorizada', 'Authorized signature')} className="mx-auto h-20 max-w-[240px] object-contain" />
+                  <img src={signature.url} alt={dt('Firma autorizada', 'Authorized signature')} className="mx-auto h-20 max-w-[240px] object-contain" />
                   <div className="mt-2 border-t border-slate-300 pt-2 text-xs text-slate-500">
-                    {tr('Firma autorizada', 'Authorized signature')}
+                    {dt('Firma autorizada', 'Authorized signature')}
                     {companyData?.display_name || companyData?.legal_name ? ` · ${companyData.display_name || companyData.legal_name}` : ''}
                   </div>
                 </div>
@@ -704,7 +709,7 @@ export default async function DocumentDetailPage({
           )}
 
           <footer className="border-t border-slate-200 bg-slate-50 px-6 py-6 text-center sm:px-10">
-            <p className="text-xs text-slate-400">{tr('Documento generado con BusinessAI', 'Document created with BusinessAI')}</p>
+            <p className="text-xs text-slate-400">{dt('Documento generado con BusinessAI', 'Document created with BusinessAI')}</p>
             <p className="mt-1 text-xs text-slate-400">{companyData?.display_name || companyData?.legal_name || 'BusinessAI'}</p>
           </footer>
         </article>

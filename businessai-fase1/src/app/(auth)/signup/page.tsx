@@ -6,14 +6,16 @@ import { TRIAL_DAYS, catalogPlan, isPlanKey } from '@/lib/billing/catalog'
 import { AUTH } from '@/lib/i18n/auth'
 import { LANDING, toLocale } from '@/lib/i18n/landing'
 
-export default async function SignUpPage({ searchParams }: { searchParams: Promise<{ plan?: string; lang?: string }> }) {
-  const { plan, lang } = await searchParams
+export default async function SignUpPage({ searchParams }: { searchParams: Promise<{ plan?: string; lang?: string; next?: string }> }) {
+  const { plan, lang, next } = await searchParams
+  const nextPath = next && next.startsWith('/invite?') ? next : null
   const locale = toLocale(lang)
   const t = AUTH[locale]
   const chosen = isPlanKey(plan) ? catalogPlan(plan) : null
   const chosenName = chosen ? LANDING[locale].pricing.plans[chosen.plan].name : null
   const params = new URLSearchParams()
   if (chosen) params.set('plan', chosen.plan)
+  if (nextPath) params.set('next', nextPath)
   params.set('lang', locale === 'es' ? 'en' : 'es')
   const langHref = `/signup${params.size ? `?${params}` : ''}`
   const login = locale === 'en' ? '/login?lang=en' : '/login'
@@ -36,7 +38,7 @@ export default async function SignUpPage({ searchParams }: { searchParams: Promi
         </div>
       )}
       <ActionForm action={signUp} submitLabel={t.signup.submit} variant="gold"
-        hidden={chosen ? { plan: chosen.plan } : undefined}
+        hidden={chosen || nextPath ? { ...(chosen ? { plan: chosen.plan } : {}), ...(nextPath ? { next: nextPath } : {}) } : undefined}
         fields={[
           { name: 'fullName', label: t.signup.name, autoComplete: 'name' },
           { name: 'email', label: t.signup.email, type: 'email', autoComplete: 'email', placeholder: 'tu@empresa.com' },

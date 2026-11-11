@@ -10,7 +10,7 @@
 -- writes. It works whatever is applied: tables that may not exist are only
 -- looked up by name (to_regclass / to_regprocedure), never queried.
 --
--- One row per migration (0001–0004 together, then 0005 … 0017):
+-- One row per migration (0001–0004 together, then 0005 … 0019):
 --   status   applied | not applied | PARTIAL — review | n/a
 --   evidence what was measured (counts, flags) — compare it with the
 --            "applied when" column.
@@ -92,6 +92,12 @@ e as (
     -- 0017
     to_regclass('public.billing_plan_features') is not null as t_features,
     to_regprocedure('public.company_feature(uuid, text)') is not null as f_feature,
+    -- 0018 / 0019
+    to_regclass('public.invitations') is not null as t_invitations,
+    to_regprocedure('public.accept_invitation(text)') is not null as f_accept,
+    to_regclass('public.client_events') is not null as t_client_events,
+    exists (select 1 from information_schema.columns where table_schema = 'public'
+              and table_name = 'documents' and column_name = 'language') as c_language,
     -- staging bookkeeping (absent in Production)
     to_regclass('ba_meta.applied_migrations') is not null as t_record,
     to_regclass('ba_meta.environment') is not null        as t_marker
@@ -178,7 +184,19 @@ r(ord, migration, applied_when, status, evidence) as (
     format('billing_plan_features=%s company_feature=%s', t_features, f_feature)
   from e
   union all
-  select 13, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
+  select 13, '0018_team', 'invitations + accept_invitation',
+    case when t_invitations and f_accept then 'applied'
+         when not (t_invitations or f_accept) then 'not applied' else 'PARTIAL — review' end,
+    format('invitations=%s accept_invitation=%s', t_invitations, f_accept)
+  from e
+  union all
+  select 14, '0019_crm', 'client_events + documents.language',
+    case when t_client_events and c_language then 'applied'
+         when not (t_client_events or c_language) then 'not applied' else 'PARTIAL — review' end,
+    format('client_events=%s documents.language=%s', t_client_events, c_language)
+  from e
+  union all
+  select 15, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
     case when t_record or t_marker then 'present (staging?)' else 'absent' end,
     format('ba_meta.applied_migrations=%s ba_meta.environment=%s', t_record, t_marker)
   from e

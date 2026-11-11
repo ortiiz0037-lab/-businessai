@@ -9,10 +9,10 @@
 -- a feature is available on a plan only when a row exists here; a missing
 -- row means "not available" (never "unlimited"). Only the owner's approved
 -- decisions are seeded:
---   branches   Basic 1 · Pro 3 · Premium 10
---   employees  Pro 25 active · Premium 100 active
---   payroll    Pro · Premium (Basic has no payroll)
--- Not decided (documented in RUNBOOK §13, no row): employees on Basic.
+--   branches    Basic 1 · Pro 3 · Premium 10
+--   employees   Basic 3 · Pro 25 · Premium 100 active employees
+--   time_clock  Basic · Pro · Premium (the time clock is included from Basic)
+--   payroll     Pro · Premium (Basic has no payroll)
 --
 -- public.company_feature(target, feature) → (available, max_allowed, used)
 -- is what the app and the module triggers ask. max_allowed NULL with
@@ -35,7 +35,7 @@ end $$;
 
 create table if not exists public.billing_plan_features (
   plan text not null references public.billing_plans(plan) on delete cascade,
-  feature text not null check (feature in ('branches', 'employees', 'payroll')),
+  feature text not null check (feature in ('branches', 'employees', 'time_clock', 'payroll')),
   max_allowed integer check (max_allowed is null or max_allowed >= 0),
   primary key (plan, feature)
 );
@@ -49,7 +49,8 @@ create policy ba_billing_plan_features_select on public.billing_plan_features fo
 
 insert into public.billing_plan_features (plan, feature, max_allowed) values
   ('basic', 'branches', 1), ('pro', 'branches', 3), ('premium', 'branches', 10),
-  ('pro', 'employees', 25), ('premium', 'employees', 100),
+  ('basic', 'employees', 3), ('pro', 'employees', 25), ('premium', 'employees', 100),
+  ('basic', 'time_clock', null), ('pro', 'time_clock', null), ('premium', 'time_clock', null),
   ('pro', 'payroll', null), ('premium', 'payroll', null)
 on conflict (plan, feature) do nothing;
 
@@ -114,11 +115,11 @@ grant execute on function public.assert_feature_available(uuid, text) to service
 
 do $$
 begin
-  if (select count(*) from public.billing_plan_features) < 7 then
+  if (select count(*) from public.billing_plan_features) < 11 then
     raise exception 'BA0017 self-check failed: feature catalog';
   end if;
-  if exists (select 1 from public.billing_plan_features where plan = 'basic' and feature in ('employees', 'payroll')) then
-    raise exception 'BA0017 self-check failed: Basic must not have employees/payroll rows (not decided / not included)';
+  if exists (select 1 from public.billing_plan_features where plan = 'basic' and feature = 'payroll') then
+    raise exception 'BA0017 self-check failed: Basic has no payroll';
   end if;
   if has_function_privilege('authenticated', 'public.assert_feature_available(uuid, text)', 'EXECUTE')
      or has_table_privilege('authenticated', 'public.billing_plan_features', 'INSERT') then

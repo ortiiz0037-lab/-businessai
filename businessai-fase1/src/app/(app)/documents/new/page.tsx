@@ -15,6 +15,7 @@ import { createReceipt } from '@/app/actions/documents'
 import { documentTypeName } from '@/components/ui/status'
 import { SubmitButton } from '@/components/submit-button'
 import { formatters } from '@/lib/i18n/app'
+import { crmAvailable } from '@/lib/documents/capabilities'
 import { getLocale } from '@/lib/i18n/server'
 import { translator } from '@/lib/i18n/t'
 
@@ -75,6 +76,10 @@ async function createDocument(formData: FormData) {
 
   const clientId = text(formData, 'client_id')
   const title = text(formData, 'title')
+  // Language of the document itself (0019); without 0019 the column does not exist.
+  const docLanguage = text(formData, 'language') === 'en' ? 'en' : text(formData, 'language') === 'es' ? 'es' : null
+  const withLanguage = docLanguage && (await crmAvailable()) ? { language: docLanguage } : {}
+  const dl = translator(docLanguage ?? locale)
   const issueDate = text(formData, 'issue_date') || today()
   const dueDate = text(formData, 'due_date')
   const notes = text(formData, 'notes')
@@ -185,12 +190,13 @@ async function createDocument(formData: FormData) {
     company_id: companyId,
     created_by: user.id,
     document_type: type,
+    ...withLanguage,
     title: type === 'invoice'
-      ? `${tr('Factura', 'Invoice')} - ${clientName}`
+      ? `${dl('Factura', 'Invoice')} - ${clientName}`
       : type === 'quote'
         ? title.slice(0, 200)
         : type === 'payment_reminder'
-          ? `${tr('Recordatorio de pago', 'Payment reminder')} - ${clientName}`
+          ? `${dl('Recordatorio de pago', 'Payment reminder')} - ${clientName}`
           : title.slice(0, 200),
     client_id: clientId || null,
     issue_date: issueDate,
@@ -221,7 +227,7 @@ async function createDocument(formData: FormData) {
 export default async function NewDocumentPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ type?: string; error?: string }>
+  searchParams?: Promise<{ type?: string; error?: string; client?: string }>
 }) {
   const params = await searchParams
   const locale = await getLocale()
@@ -244,6 +250,11 @@ export default async function NewDocumentPage({
     .neq('status', 'inactive')
     .order('name')
     .limit(1000)
+  const crm = await crmAvailable()
+  const { data: archivedRows } = crm
+    ? await supabase.from('clients').select('id').eq('company_id', membership.company_id).not('archived_at', 'is', null).limit(1000)
+    : { data: [] as { id: string }[] }
+  const archivedIds = new Set((archivedRows ?? []).map((r) => r.id as string))
 
   const { data: invoices } = await supabase
     .from('documents')
@@ -254,7 +265,9 @@ export default async function NewDocumentPage({
     .order('created_at', { ascending: false })
     .limit(200)
 
-  const clientList = (clients ?? []) as ClientRow[]
+  // Archived clients receive no new documents (0019).
+  const clientList = ((clients ?? []) as ClientRow[]).filter((c) => !archivedIds.has(c.id))
+  const preselected = clientList.some((c) => c.id === params?.client) ? params?.client ?? '' : ''
   // Reminders: issued invoices with an open balance, shown with that balance (I6).
   const invoicePaid = await paidByDocument(supabase, (invoices ?? []).map((i) => i.id as string))
   const invoiceList = ((invoices ?? []) as InvoiceRow[])
@@ -461,7 +474,7 @@ export default async function NewDocumentPage({
             <section className="card space-y-5 p-6">
               <h2 className="font-display text-2xl font-semibold tracking-tight text-fg">{tr('Cliente y detalles', 'Client and details')}</h2>
               <label className="field-label">{tr('Cliente *', 'Client *')}
-                <select name="client_id" required defaultValue="" className={`${fieldClass} mt-2`}>
+                <select name="client_id" required defaultValue={preselected} className={`${fieldClass} mt-2`}>
                   <option value="" disabled>{tr('Selecciona un cliente', 'Choose a client')}</option>
                   {clientOptions}
                 </select>
@@ -529,7 +542,7 @@ export default async function NewDocumentPage({
                 placeholder={selectedType === 'letter' ? tr('Ej. Carta comercial para cliente', 'e.g. Business letter to a client') : tr('Ej. Reparación y mantenimiento', 'e.g. Repair and maintenance')} />
             </label>
             <label className="field-label">{tr('Cliente (opcional)', 'Client (optional)')}
-              <select name="client_id" defaultValue="" className={`${fieldClass} mt-2`}>
+              <select name="client_id" defaultValue={preselected} className={`${fieldClass} mt-2`}>
                 <option value="">{tr('Sin cliente específico', 'No specific client')}</option>
                 {clientOptions}
               </select>
@@ -549,6 +562,18 @@ export default async function NewDocumentPage({
                   ? tr('Escribe aquí el destinatario, el propósito y el contenido de la carta.', 'Write the recipient, purpose and content of the letter here.')
                   : tr('Describe el trabajo solicitado, materiales, instrucciones y detalles importantes.', 'Describe the requested work, materials, instructions and important details.')} />
             </label>
+          </section>
+        )}
+
+        {crm && (
+          <section className="card p-6">
+            <label className="field-label">{tr('Idioma del documento', 'Document language')}
+              <select name="language" defaultValue={locale} className={`${fieldClass} mt-2 sm:max-w-xs`}>
+                <option value="es">Español</option>
+                <option value="en">English</option>
+              </select>
+            </label>
+            <p className="mt-2 text-xs text-muted">{tr('El documento se imprime y se muestra en este idioma, para cualquiera que lo abra.', 'The document is printed and shown in this language, for anyone who opens it.')}</p>
           </section>
         )}
 

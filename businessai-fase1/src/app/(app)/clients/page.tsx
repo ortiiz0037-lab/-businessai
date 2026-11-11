@@ -10,6 +10,7 @@ import { parseClientInput } from '@/lib/clients'
 import { getLocale } from '@/lib/i18n/server'
 import { translator } from '@/lib/i18n/t'
 import { SubmitButton } from '@/components/submit-button'
+import { crmAvailable } from '@/lib/documents/capabilities'
 
 const PAGE_SIZE = 25
 
@@ -48,7 +49,7 @@ async function createClientAction(formData: FormData) {
 export default async function ClientsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; success?: string; error?: string; page?: string }>
+  searchParams: Promise<{ q?: string; success?: string; error?: string; page?: string; status?: string }>
 }) {
   const params = await searchParams
   const locale = await getLocale()
@@ -57,31 +58,41 @@ export default async function ClientsPage({
   const term = searchTerm(query)
   const page = Math.max(1, Math.min(10_000, Number.parseInt(params.page ?? '1', 10) || 1))
   const { supabase, companyId } = await getCompanyId()
+  const crm = await crmAvailable()
+  const STATUS_FILTERS = ['active', 'inactive', 'archived', 'all'] as const
+  const statusFilter = (STATUS_FILTERS as readonly string[]).includes(params.status ?? '') ? params.status! : 'active'
 
   const listQuery = (head: boolean) => {
     let q = supabase
       .from('clients')
-      .select('id, name, business_name, email, phone, city, status, created_at', { count: 'exact', head })
+      .select((crm ? 'id, name, business_name, email, phone, city, status, created_at, archived_at' : 'id, name, business_name, email, phone, city, status, created_at') as 'id', { count: 'exact', head })
       .eq('company_id', companyId)
     if (term) q = q.or(`name.ilike.%${term}%,business_name.ilike.%${term}%,email.ilike.%${term}%,phone.ilike.%${term}%`)
+    // Archived clients only appear when asked for (0019); without 0019 the filter is ignored.
+    if (crm && statusFilter === 'archived') q = q.not('archived_at', 'is', null)
+    else if (crm && statusFilter !== 'all') q = q.is('archived_at', null)
+    if (statusFilter === 'active' || statusFilter === 'inactive') q = q.eq('status', statusFilter)
     return q
   }
   const href = (n: number) => {
     const sp = new URLSearchParams()
     if (query) sp.set('q', query)
+    if (statusFilter !== 'active') sp.set('status', statusFilter)
     if (n > 1) sp.set('page', String(n))
     const qs = sp.toString()
     return `/clients${qs ? `?${qs}` : ''}`
   }
   const from = (page - 1) * PAGE_SIZE
-  const { data: clients, count, error } = await listQuery(false)
+  const { data: clientRows, count, error } = await listQuery(false)
     .order('created_at', { ascending: false }).order('id').range(from, from + PAGE_SIZE - 1)
-  if (page > 1 && (error || !(clients ?? []).length)) {
+  type ClientRow = { id: string; name: string; business_name: string | null; email: string | null; phone: string | null; city: string | null; status: string; archived_at?: string | null }
+  const clients = (clientRows ?? []) as unknown as ClientRow[]
+  if (page > 1 && (error || !clients.length)) {
     const { count: all } = await listQuery(true)
     const last = Math.max(1, Math.ceil((all ?? 0) / PAGE_SIZE))
     if (last < page) redirect(href(last))
   }
-  const total = count ?? clients?.length ?? 0
+  const total = count ?? clients.length
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
   const usage = await fetchUsage(supabase, companyId)
@@ -137,6 +148,11 @@ export default async function ClientsPage({
           {params.success === 'updated' ? tr('Cliente actualizado correctamente.', 'Client updated.') : tr('Cliente guardado correctamente.', 'Client saved.')}
         </div>
       )}
+      {params.success === 'deleted' && (
+        <div role="status" className="alert-success font-medium">
+          {tr('Cliente eliminado.', 'Client deleted.')}
+        </div>
+      )}
       {params.error && billingText && (
         <div role="alert" className="alert-warning font-medium">
           {billingText}{' '}<a href="/billing" className="underline">{tr('Ver planes', 'See plans')}</a>
@@ -153,9 +169,15 @@ export default async function ClientsPage({
               <h2 className="text-lg font-semibold text-fg">{tr('Mis clientes', 'My clients')}</h2>
               <p className="mt-1 text-sm text-muted">{tr('Busca y administra los clientes de tu empresa.', 'Search and manage your company\'s clients.')}</p>
             </div>
-            <form method="get" className="flex w-full gap-2 sm:w-auto" role="search">
+            <form method="get" className="flex w-full flex-wrap gap-2 sm:w-auto sm:flex-nowrap" role="search">
               <input name="q" defaultValue={query} maxLength={60} aria-label={tr('Buscar cliente', 'Search client')}
-                placeholder={tr('Buscar cliente...', 'Search client...')} className="field min-w-0 flex-1 py-2.5 sm:w-64" />
+                placeholder={tr('Buscar cliente...', 'Search client...')} className="field min-w-0 flex-1 py-2.5 sm:w-56" />
+              <select name="status" defaultValue={statusFilter} aria-label={tr('Estado', 'Status')} className="field w-auto py-2.5">
+                <option value="active">{tr('Activos', 'Active')}</option>
+                <option value="inactive">{tr('Inactivos', 'Inactive')}</option>
+                {crm && <option value="archived">{tr('Archivados', 'Archived')}</option>}
+                <option value="all">{tr('Todos', 'All')}</option>
+              </select>
               <button type="submit" className="btn-primary py-2.5">{tr('Buscar', 'Search')}</button>
             </form>
           </div>
@@ -168,7 +190,7 @@ export default async function ClientsPage({
                 {clients.map((client) => (
                   <div key={client.id} className="flex items-center justify-between gap-4 py-4">
                     <div className="min-w-0">
-                      <p className="truncate font-semibold text-fg">{client.name}</p>
+                      <Link href={`/clients/${client.id}`} className="block truncate font-semibold text-fg hover:text-blue-400">{client.name}</Link>
                       {client.business_name && <p className="truncate text-sm text-muted">{client.business_name}</p>}
                       <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
                         {client.email && <span>{client.email}</span>}
@@ -177,11 +199,15 @@ export default async function ClientsPage({
                       </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-3">
-                      <span className={client.status === 'inactive' ? 'badge-neutral' : 'badge-success'}>
-                        {client.status === 'inactive' ? tr('Inactivo', 'Inactive') : tr('Activo', 'Active')}
-                      </span>
-                      <Link href={`/clients/${client.id}`} className="btn-secondary btn-sm" aria-label={`${tr('Editar', 'Edit')} ${client.name}`}>
-                        {tr('Editar', 'Edit')}
+                      {client.archived_at ? (
+                        <span className="badge-neutral">{tr('Archivado', 'Archived')}</span>
+                      ) : (
+                        <span className={client.status === 'inactive' ? 'badge-neutral' : 'badge-success'}>
+                          {client.status === 'inactive' ? tr('Inactivo', 'Inactive') : tr('Activo', 'Active')}
+                        </span>
+                      )}
+                      <Link href={`/clients/${client.id}`} className="btn-secondary btn-sm" aria-label={`${tr('Ver', 'View')} ${client.name}`}>
+                        {tr('Ver', 'View')}
                       </Link>
                     </div>
                   </div>

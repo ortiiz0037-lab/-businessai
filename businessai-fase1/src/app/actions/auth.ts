@@ -1,5 +1,6 @@
 'use server'
 import { cookies, headers } from 'next/headers'
+import { getLocale } from '@/lib/i18n/server'
 import { resolveAppOrigin } from '@/lib/app-origin'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
@@ -11,10 +12,15 @@ export async function signUp(_: FormState, formData: FormData): Promise<FormStat
   if (!parsed.success) return { fieldErrors: fieldErrors(parsed.error) }
   const { fullName, email, password } = parsed.data
   const supabase = await createClient()
+  const en = (await getLocale()) === 'en'
+  // Where to continue after confirming the email (e.g. a team invitation).
+  const next = safeNext(formData.get('next'), '/onboarding')
+  const origin = await appOrigin()
   const { data, error } = await supabase.auth.signUp({
-    email, password, options: { data: { full_name: fullName } },
+    email, password,
+    options: { data: { full_name: fullName }, ...(origin ? { emailRedirectTo: `${origin}/auth/confirm?next=${encodeURIComponent(next)}` } : {}) },
   })
-  if (error) return { error: 'No se pudo crear la cuenta. Revisa los datos e inténtalo de nuevo.' }
+  if (error) return { error: en ? 'The account could not be created. Check the details and try again.' : 'No se pudo crear la cuenta. Revisa los datos e inténtalo de nuevo.' }
   // Plan chosen on /precios: kept until the company is created (then /billing selects it).
   const plan = formData.get('plan')
   if (isPlanKey(plan)) {
@@ -22,8 +28,8 @@ export async function signUp(_: FormState, formData: FormData): Promise<FormStat
       httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', path: '/', maxAge: 7 * 86_400,
     })
   }
-  if (data.session) redirect('/onboarding')
-  return { message: 'Te enviamos un correo para confirmar tu cuenta. Ábrelo para continuar.' }
+  if (data.session) redirect(next)
+  return { message: en ? 'We sent you an email to confirm your account. Open it to continue.' : 'Te enviamos un correo para confirmar tu cuenta. Ábrelo para continuar.' }
 }
 
 export async function signIn(_: FormState, formData: FormData): Promise<FormState> {
@@ -31,7 +37,7 @@ export async function signIn(_: FormState, formData: FormData): Promise<FormStat
   if (!parsed.success) return { fieldErrors: fieldErrors(parsed.error) }
   const supabase = await createClient()
   const { error } = await supabase.auth.signInWithPassword(parsed.data)
-  if (error) return { error: 'Correo o contraseña incorrectos.' }
+  if (error) return { error: (await getLocale()) === 'en' ? 'Wrong email or password.' : 'Correo o contraseña incorrectos.' }
   redirect(safeNext(formData.get('next')))
 }
 
