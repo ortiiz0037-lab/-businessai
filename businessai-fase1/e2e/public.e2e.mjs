@@ -57,9 +57,10 @@ const VIEWPORTS = [
   ['iPad', devices['iPad (gen 7)']],
   ['desktop', { viewport: { width: 1440, height: 900 } }],
 ]
-const PUBLIC_PAGES = ['/', '/precios', '/login', '/signup', '/forgot-password', '/terminos', '/privacidad', '/invite?token=' + 'f'.repeat(64)]
+const PUBLIC_PAGES = ['/', '/precios', '/login', '/signup', '/forgot-password', '/terminos', '/privacidad', '/invite?token=' + 'f'.repeat(64), '/clock/link?token=' + 'e'.repeat(64)]
 const PROTECTED = ['/dashboard', '/documents', '/documents/new', '/payments', '/payments/new', '/clients', '/billing', '/settings/company',
-  '/settings/team', '/clients/00000000-0000-4000-8000-000000000000', '/clients/00000000-0000-4000-8000-000000000000/edit']
+  '/settings/team', '/clients/00000000-0000-4000-8000-000000000000', '/clients/00000000-0000-4000-8000-000000000000/edit',
+  '/clock', '/workforce', '/workforce/employees', '/workforce/schedule', '/workforce/requests', '/workforce/reports', '/workforce/settings']
 
 try {
   await waitForServer()
@@ -96,6 +97,12 @@ try {
   await page.goto(`${BASE}/invite?token=${'0'.repeat(64)}&lang=en`)
   check(await page.getByText('Invalid link').count() > 0, 'an unknown invitation link is explained (English)')
   check(await page.locator('meta[name="referrer"][content="no-referrer"]').count() === 1, 'the invitation page sends no referrer (token never leaks)')
+  // Employee access link: public page, no referrer, sign-in options.
+  await page.goto(`${BASE}/clock/link?token=${'e'.repeat(64)}&lang=es`)
+  check(await page.getByText('Acceso al reloj ponchador').count() > 0, 'employee access link page in Spanish')
+  check(await page.locator('meta[name="referrer"][content="no-referrer"]').count() === 1, 'the employee link page sends no referrer')
+  const csv = await fetch(`${BASE}/api/workforce/report?from=2026-01-01&to=2026-01-07`, { redirect: 'manual' })
+  check(csv.status === 401 || csv.status === 307 || csv.status === 302, `the CSV export refuses anonymous requests (${csv.status})`)
   // Protected pages: never rendered without a session.
   for (const path of PROTECTED) {
     await page.goto(`${BASE}${path}`)

@@ -8,7 +8,7 @@ import { LANDING, toLocale } from '@/lib/i18n/landing'
 
 export default async function SignUpPage({ searchParams }: { searchParams: Promise<{ plan?: string; lang?: string; next?: string }> }) {
   const { plan, lang, next } = await searchParams
-  const nextPath = next && next.startsWith('/invite?') ? next : null
+  const nextPath = next && (next.startsWith('/invite?') || next.startsWith('/clock/link?')) ? next : null
   const locale = toLocale(lang)
   const t = AUTH[locale]
   const chosen = isPlanKey(plan) ? catalogPlan(plan) : null

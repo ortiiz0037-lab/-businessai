@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { ActionForm } from '@/components/action-form'
 import { createCompany } from '@/app/actions/company'
 import { getSession } from '@/lib/session'
+import { createClient } from '@/lib/supabase/server'
 import { Icon } from '@/components/ui/icon'
 import { getLocale } from '@/lib/i18n/server'
 import { translator } from '@/lib/i18n/t'
@@ -11,6 +12,12 @@ export default async function OnboardingPage({ searchParams }: { searchParams?: 
   if (!session) redirect('/login')
   const another = (await searchParams)?.new === '1'
   if (session.membership && !another) redirect('/dashboard')
+  if (!session.membership && !another) {
+    // Employees (time clock only) have no company membership: their place is /clock.
+    const supabase = await createClient()
+    const { data: employee } = await supabase.from('employees').select('id').eq('user_id', session.user.id).limit(1).maybeSingle()
+    if (employee) redirect('/clock')
+  }
   const tr = translator(await getLocale())
   return (
     <div className="mx-auto max-w-lg py-6 sm:py-12">

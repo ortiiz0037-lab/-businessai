@@ -2,7 +2,7 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 // Páginas públicas: autenticación y páginas informativas (precios y textos legales).
-const PUBLIC = ['/login', '/signup', '/register', '/forgot-password', '/invite', '/auth', '/precios', '/terminos', '/privacidad']
+const PUBLIC = ['/login', '/signup', '/register', '/forgot-password', '/invite', '/clock/link', '/auth', '/precios', '/terminos', '/privacidad']
 // Página principal pública (solo la ruta exacta "/").
 const PUBLIC_EXACT = ['/']
 
