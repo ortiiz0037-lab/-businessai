@@ -66,7 +66,7 @@ function QuickActions({ t }: { t: AppCopy }) {
     { href: '/documents/new?type=invoice', label: q.invoice, icon: 'receipt' },
     { href: '/documents/new?type=quote', label: q.quote, icon: 'clipboard' },
     { href: '/clients#nuevo-cliente', label: q.client, icon: 'users' },
-    { href: '/documents', label: q.payment, hint: q.paymentHint, icon: 'card' },
+    { href: '/payments/new', label: q.payment, hint: q.paymentHint, icon: 'card' },
   ]
   return (
     <section aria-label={t.shell.top.actions}>

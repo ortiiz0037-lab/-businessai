@@ -42,7 +42,7 @@ export type TopBarCopy = {
 
 export type AppCopy = {
   nav: { dashboard: string; clients: string; documents: string; payments: string; company: string; plan: string; more: string; menu: string; openMenu: string; closeMenu: string; mainMenu: string }
-  shell: { env: (env: string) => string; seePlan: string; terms: string; privacy: string; legal: string; signOut: string; myCompany: string; language: string; languageNames: Record<Locale, string>; company: string; switchCompany: string; current: string; roles: Record<string, string>; top: TopBarCopy }
+  shell: { env: (env: string) => string; seePlan: string; terms: string; privacy: string; legal: string; signOut: string; myCompany: string; language: string; languageNames: Record<Locale, string>; company: string; switchCompany: string; newCompany: string; current: string; roles: Record<string, string>; top: TopBarCopy }
   docType: Record<string, string>
   docStatus: Record<string, string>
   dashboard: {
@@ -84,7 +84,7 @@ const es: AppCopy = {
   shell: {
     env: (env) => `Entorno: ${env} — pagos en modo test`, seePlan: 'Ver plan', terms: 'Términos', privacy: 'Privacidad', legal: 'Enlaces legales',
     signOut: 'Cerrar sesión', myCompany: 'Mi empresa', language: 'Idioma', languageNames: { es: 'Español', en: 'English' },
-    company: 'Empresa', switchCompany: 'Cambiar de empresa', current: 'Actual',
+    company: 'Empresa', switchCompany: 'Cambiar de empresa', newCompany: 'Crear otra empresa', current: 'Actual',
     roles: { owner: 'Propietario', admin: 'Administrador', member: 'Miembro' },
     top: {
       search: 'Buscar', searchPlaceholder: 'Buscar secciones y acciones…', searchHint: 'Ir a una sección o crear algo nuevo',
@@ -145,7 +145,7 @@ const en: AppCopy = {
   shell: {
     env: (env) => `Environment: ${env} — payments in test mode`, seePlan: 'See plan', terms: 'Terms', privacy: 'Privacy', legal: 'Legal links',
     signOut: 'Sign out', myCompany: 'My company', language: 'Language', languageNames: { es: 'Español', en: 'English' },
-    company: 'Company', switchCompany: 'Switch company', current: 'Current',
+    company: 'Company', switchCompany: 'Switch company', newCompany: 'Create another company', current: 'Current',
     roles: { owner: 'Owner', admin: 'Admin', member: 'Member' },
     top: {
       search: 'Search', searchPlaceholder: 'Search sections and actions…', searchHint: 'Go to a section or create something new',

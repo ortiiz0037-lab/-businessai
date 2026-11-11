@@ -30,7 +30,9 @@ beforeAll(async () => {
   if (c.error) throw c.error
   const d = await O.client.from('documents').insert({
     company_id: A.id, client_id: c.data.id, document_type: 'invoice', document_number: n('SEED'),
-    title: 'e3 roles', total: 100, subtotal: 100, tax: 0, status: 'sent',
+    // Open balance left after the seed payment: each role records 1 below
+    // (with 0015 a payment can never exceed the invoice balance).
+    title: 'e3 roles', total: 1000, subtotal: 1000, tax: 0, status: 'sent',
   }).select('id').single()
   if (d.error) throw d.error
   const p = await O.client.from('payments').insert({

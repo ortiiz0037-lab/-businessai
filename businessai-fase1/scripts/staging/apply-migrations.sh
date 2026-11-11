@@ -67,6 +67,7 @@ ORDER=(
   0010_billing
   0011_usage_limits
   0014a_permissions
+  0015_documents_lifecycle
 )
 EXPECTED_VERIFY="10,0,2,0,f,0,2,3,t,t,t,"
 

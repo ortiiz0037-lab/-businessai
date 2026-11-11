@@ -95,6 +95,10 @@ describe('shared document status', () => {
     expect(documentStatus('overdue').className).toBe('badge-danger')
     expect(documentStatus(null)).toEqual({ label: 'Pendiente', className: 'badge-warning' })
     expect(documentStatus('custom').label).toBe('custom')
+    expect(documentStatus('partial')).toEqual({ label: 'Pago parcial', className: 'badge-warning' })
+    expect(documentStatus('accepted').label).toBe('Aceptada')
+    expect(documentStatus('rejected').className).toBe('badge-danger')
+    expect(documentStatus('cancelled').label).toBe('Anulado')
   })
   it('has an icon per document type', () => {
     expect(documentIcon('invoice')).toBe('receipt')

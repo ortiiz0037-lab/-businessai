@@ -276,7 +276,11 @@ Premium sin límite / sin límite / 10). 0011 aplica lo mismo a los miembros nue
 - 0011 exige 0010 (aborta si no).
 - 0010 no depende de 0005–0009, pero el único orden probado de principio a fin
   sobre la forma de Production es `0005 → 0007 → 0009 → 0006 → 0008 → 0010 →
-  0011 → 0014a` (escenarios 18, 20 y 21).
+  0011 → 0014a → 0015` (escenarios 18, 20, 21 y 22). 0015 (ciclo de vida de
+  documentos, pagos parciales, recibos; ver su cabecera) exige 0014a y debe
+  aplicarse antes de desplegar la versión de la app de la Fase A: sin ella la
+  app numera con el formato anterior y no puede marcar cotizaciones como
+  aceptadas o rechazadas.
 
 ### 9.2 Comprobaciones previas (solo lectura)
 

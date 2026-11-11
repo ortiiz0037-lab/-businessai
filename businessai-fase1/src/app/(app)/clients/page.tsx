@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
@@ -146,9 +147,15 @@ export default async function ClientsPage({
         </div>
       )}
 
-      {params.success === 'created' && (
-        <div className="alert-success font-medium">
-          Cliente guardado correctamente.
+      {(params.success === 'created' || params.success === 'updated') && (
+        <div role="status" className="alert-success font-medium">
+          {params.success === 'updated' ? 'Cliente actualizado correctamente.' : 'Cliente guardado correctamente.'}
+        </div>
+      )}
+
+      {params.error === 'not_found' && (
+        <div role="alert" className="alert-danger font-medium">
+          No encontramos ese cliente en tu empresa.
         </div>
       )}
 
@@ -167,7 +174,7 @@ export default async function ClientsPage({
 
       {params.error === 'save' && (
         <div className="alert-danger font-medium">
-          No se pudo guardar el cliente. Revisa la consola para ver el error.
+          No se pudo guardar el cliente. Inténtalo nuevamente.
         </div>
       )}
 
@@ -234,11 +241,14 @@ export default async function ClientsPage({
                       </div>
                     </div>
 
-                    <span className="badge-success shrink-0">
-                      {client.status === 'active'
-                        ? 'Activo'
-                        : client.status}
-                    </span>
+                    <div className="flex shrink-0 items-center gap-3">
+                      <span className={client.status === 'inactive' ? 'badge-neutral' : 'badge-success'}>
+                        {client.status === 'inactive' ? 'Inactivo' : 'Activo'}
+                      </span>
+                      <Link href={`/clients/${client.id}`} className="btn-secondary btn-sm" aria-label={`Editar ${client.name}`}>
+                        Editar
+                      </Link>
+                    </div>
                   </div>
                 ))}
               </div>

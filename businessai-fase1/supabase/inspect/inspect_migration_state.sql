@@ -10,7 +10,7 @@
 -- writes. It works whatever is applied: tables that may not exist are only
 -- looked up by name (to_regclass / to_regprocedure), never queried.
 --
--- One row per migration:
+-- One row per migration (0001–0004 together, then 0005 … 0015):
 --   status   applied | not applied | PARTIAL — review | n/a
 --   evidence what was measured (counts, flags) — compare it with the
 --            "applied when" column.
@@ -76,6 +76,14 @@ e as (
                'company_subscriptions', 'document_deletion_audit', 'clients', 'documents', 'payments'))
              or (schemaname = 'storage' and tablename = 'objects' and policyname like 'ba\_company\_%'))
         and coalesce(qual, '') || coalesce(with_check, '') like '%has_permission(%') as perm_policies,
+    -- 0015
+    to_regclass('public.document_counters') is not null as t_counters,
+    (select count(*) from pg_trigger where not tgisinternal and tgname in
+       ('ba_assign_document_number', 'ba_protect_issued_documents', 'ba_check_receipt',
+        'ba_check_payment', 'ba_settle_invoice')) as lifecycle_trg,
+    exists (select 1 from pg_constraint where conname = 'documents_status_check'
+              and conrelid = to_regclass('public.documents')
+              and pg_get_constraintdef(oid) ilike '%accepted%') as c_quote_status,
     -- staging bookkeeping (absent in Production)
     to_regclass('ba_meta.applied_migrations') is not null as t_record,
     to_regclass('ba_meta.environment') is not null        as t_marker
@@ -142,7 +150,14 @@ r(ord, migration, applied_when, status, evidence) as (
            t_perm, t_roleperm, f_perm, c_status, perm_policies)
   from e
   union all
-  select 10, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
+  select 10, '0015_documents_lifecycle', 'counters table + 5 triggers + accepted/rejected statuses',
+    case when t_counters and lifecycle_trg = 5 and c_quote_status then 'applied'
+         when not t_counters and lifecycle_trg = 0 and not c_quote_status then 'not applied'
+         else 'PARTIAL — review' end,
+    format('document_counters=%s triggers=%s/5 quote_statuses=%s', t_counters, lifecycle_trg, c_quote_status)
+  from e
+  union all
+  select 11, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
     case when t_record or t_marker then 'present (staging?)' else 'absent' end,
     format('ba_meta.applied_migrations=%s ba_meta.environment=%s', t_record, t_marker)
   from e

@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { EmptyState, PageHeader, StatCard } from '@/components/ui/page'
 import { createClient } from '@/lib/supabase/server'
 import { activeCompanyRow } from '@/lib/active-company'
+import { paymentMethodLabel } from '@/lib/documents/payments'
 
 type LinkedDocument = {
   id: string
@@ -78,6 +79,18 @@ export default async function PaymentsPage() {
     }
   }
 
+  // Receipt issued for each payment, if any.
+  const receiptByPayment = new Map<string, { id: string; number: string | null }>()
+  if ((payments ?? []).length > 0) {
+    const { data: receipts } = await supabase
+      .from('documents').select('id, document_number, metadata')
+      .eq('company_id', member.company_id).eq('document_type', 'receipt')
+    for (const r of receipts ?? []) {
+      const pid = String((r.metadata as Record<string, unknown> | null)?.payment_id ?? '')
+      if (pid) receiptByPayment.set(pid, { id: r.id, number: r.document_number })
+    }
+  }
+
   const rows = payments ?? []
   const total = rows.reduce(
     (sum, payment) => sum + Number(payment.amount ?? 0),
@@ -85,12 +98,12 @@ export default async function PaymentsPage() {
   )
 
   const usd = (value: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
-  const methodLabel = (method: string | null) =>
-    method === 'manual' ? 'Registro manual' : method || 'No especificado'
+  const methodLabel = (method: string | null) => paymentMethodLabel(method)
 
   return (
     <div className="space-y-8">
-      <PageHeader eyebrow="Cobros" title="Pagos y cobros" description="Historial de pagos registrados en tu empresa." />
+      <PageHeader eyebrow="Cobros" title="Pagos y cobros" description="Historial de pagos registrados en tu empresa."
+        actions={<Link href="/payments/new" className="btn-primary">Registrar pago</Link>} />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <StatCard label="Total cobrado" value={usd(total)} hint={`${rows.length} ${rows.length === 1 ? 'pago registrado' : 'pagos registrados'}`} icon="wallet" tone="gold" />
@@ -105,8 +118,8 @@ export default async function PaymentsPage() {
           <p className="alert-danger m-6">No se pudieron cargar los pagos. Revisa la conexión con Supabase.</p>
         ) : rows.length === 0 ? (
           <EmptyState icon="wallet" title="Todavía no hay pagos registrados."
-            description="Registra los pagos desde cada documento y aparecerán aquí."
-            action={<Link className="btn-primary" href="/documents">Ir a documentos</Link>} />
+            description="Registra el pago de una factura emitida y aparecerá aquí."
+            action={<Link className="btn-primary" href="/payments/new">Registrar pago</Link>} />
         ) : (
           <div className="overflow-x-auto">
             <table className="table-premium sm:min-w-[640px]">
@@ -116,6 +129,7 @@ export default async function PaymentsPage() {
                   <th>Documento</th>
                   <th className="hidden sm:table-cell">Método</th>
                   <th className="text-right">Importe</th>
+                  <th className="hidden md:table-cell">Recibo</th>
                 </tr>
               </thead>
               <tbody>
@@ -125,7 +139,7 @@ export default async function PaymentsPage() {
                     <tr key={payment.id}>
                       <td className="whitespace-nowrap text-slate-400">
                         {payment.paid_at || payment.created_at
-                          ? new Date(payment.paid_at ?? payment.created_at).toLocaleDateString('es-PR')
+                          ? new Date(payment.paid_at ?? payment.created_at).toLocaleDateString('es-PR', { timeZone: 'America/Puerto_Rico' })
                           : '—'}
                       </td>
                       <td>
@@ -142,6 +156,15 @@ export default async function PaymentsPage() {
                       </td>
                       <td className="hidden sm:table-cell"><span className="badge-neutral">{methodLabel(payment.payment_method)}</span></td>
                       <td className="text-right font-bold tabular-nums text-fg">{usd(Number(payment.amount ?? 0))}</td>
+                      <td className="hidden md:table-cell">
+                        {receiptByPayment.get(payment.id) ? (
+                          <Link className="text-sm font-semibold text-blue-400 hover:underline" href={`/documents/${receiptByPayment.get(payment.id)!.id}`}>
+                            {receiptByPayment.get(payment.id)!.number ?? 'Ver recibo'}
+                          </Link>
+                        ) : (
+                          <Link className="text-sm text-muted hover:text-fg" href="/documents/new?type=receipt">Crear recibo</Link>
+                        )}
+                      </td>
                     </tr>
                   )
                 })}

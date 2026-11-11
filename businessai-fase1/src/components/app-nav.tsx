@@ -109,7 +109,7 @@ function CompanyBlock({ copy, companies, activeCompanyId, email, setActiveCompan
   const many = companies.length > 1
   return (
     <div className="rounded-xl border border-line/70 bg-card/60">
-      <button type="button" disabled={!many} onClick={() => setOpen((v) => !v)} aria-expanded={many ? open : undefined}
+      <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open}
         className="flex w-full items-center gap-3 rounded-xl p-3 text-left transition enabled:hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/80">
         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-electric/15 text-sm font-bold text-blue-300 ring-1 ring-inset ring-electric/30">
           {(name || email || 'B').trim().charAt(0).toUpperCase()}
@@ -120,8 +120,15 @@ function CompanyBlock({ copy, companies, activeCompanyId, email, setActiveCompan
             {active ? copy.shell.roles[active.role] ?? active.role : email}
           </span>
         </span>
-        {many && <Icon name="chevronDown" className={`h-4 w-4 shrink-0 text-slate-500 transition ${open ? 'rotate-180' : ''}`} />}
+        <Icon name="chevronDown" className={`h-4 w-4 shrink-0 text-slate-500 transition ${open ? 'rotate-180' : ''}`} />
       </button>
+      {open && !many && (
+        <div className="border-t border-line/70 p-2">
+          <Link href="/onboarding?new=1" className="flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm text-slate-300 transition hover:bg-white/[0.05] hover:text-fg">
+            <Icon name="plus" className="h-4 w-4" /> {copy.shell.newCompany}
+          </Link>
+        </div>
+      )}
       {many && open && (
         <form action={setActiveCompany} className="border-t border-line/70 p-2">
           <p className="px-2 pb-1 pt-1 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">{copy.shell.switchCompany}</p>
@@ -143,6 +150,9 @@ function CompanyBlock({ copy, companies, activeCompanyId, email, setActiveCompan
               )
             })}
           </ul>
+          <Link href="/onboarding?new=1" className="mt-1 flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm text-slate-300 transition hover:bg-white/[0.05] hover:text-fg">
+            <Icon name="plus" className="h-4 w-4" /> {copy.shell.newCompany}
+          </Link>
         </form>
       )}
     </div>
@@ -164,7 +174,7 @@ function CommandPalette({ items, copy, open, onClose }: { items: NavItem[]; copy
     { id: 'receipt', label: q.receipt, href: '/documents/new?type=receipt', icon: 'wallet', group: 'actions' },
     { id: 'work', label: q.workOrder, href: '/documents/new?type=work_order', icon: 'settings', group: 'actions' },
     { id: 'client', label: q.client, href: '/clients#nuevo-cliente', icon: 'users', group: 'actions' },
-    { id: 'payment', label: q.payment, hint: q.paymentHint, href: '/documents', icon: 'card', group: 'actions' },
+    { id: 'payment', label: q.payment, hint: q.paymentHint, href: '/payments/new', icon: 'card', group: 'actions' },
   ], [items, q])
   const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
   const results = commands.filter((c) => norm(`${c.label} ${c.hint ?? ''}`).includes(norm(query.trim())))

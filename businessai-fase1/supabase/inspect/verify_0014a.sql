@@ -11,8 +11,12 @@
 --
 -- Output: one line. "OK" when everything below holds, otherwise the list of
 -- problems separated by "; ".
---   1. 18 permissions and exactly the 0014a role matrix (owner 18, admin 18,
---      member 13 = all but the 5 management/delete permissions).
+--   1. Permissions and exactly the expected role matrix:
+--      after 0014a: 18 permissions; owner 18, admin 18, member 13 (all but
+--      the 5 management/delete permissions);
+--      after 0015 (detected by public.document_counters): 19 permissions
+--      (+ documents.void); owner 19, admin 18 (no billing.manage), member 13
+--      (no documents.void either).
 --   2. has_permission, is_company_member, has_company_role: SECURITY DEFINER,
 --      search_path="", executable by authenticated, not by anon or PUBLIC.
 --   3. The 24 tenant policies exist and all use has_permission, none the old
@@ -26,8 +30,10 @@
 --      classifier 0014a uses as its guard.
 -- =====================================================================
 with
+has15 as (select to_regclass('public.document_counters') is not null as yes),
 member_lacks(key) as (values ('billing.manage'), ('clients.delete'), ('company.branding.manage'),
-                             ('company.settings.manage'), ('documents.delete')),
+                             ('company.settings.manage'), ('documents.delete'), ('documents.void')),
+admin_lacks(key) as (select 'billing.manage' from has15 where yes),
 expected_policies(tbl, name) as (values
   ('public.companies', 'companies_select'), ('public.companies', 'companies_update'),
   ('public.memberships', 'memberships_select'),
@@ -49,10 +55,12 @@ matrix as (
   select r.role, p.key
   from (values ('owner'), ('admin'), ('member')) r(role)
   cross join public.permissions p
-  where (r.role <> 'member' or p.key not in (select key from member_lacks))),
+  where (r.role <> 'member' or p.key not in (select key from member_lacks))
+    and (r.role <> 'admin' or p.key not in (select key from admin_lacks))),
 problems(msg) as (
-  select 'expected 18 permissions, found ' || count(*) from public.permissions
-  having count(*) <> 18
+  select 'expected ' || (select case when yes then 19 else 18 end from has15) || ' permissions, found ' || count(*)
+  from public.permissions
+  having count(*) <> (select case when yes then 19 else 18 end from has15)
   union all
   select 'role matrix differs: ' || string_agg(x, ', ' order by x) from (
     (select role || ':' || key || ' missing' as x from matrix

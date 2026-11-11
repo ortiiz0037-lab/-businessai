@@ -1,12 +1,19 @@
 import type { IconName } from '@/components/ui/icon'
 
-/** Document status → Spanish label and badge style (one place for the whole app). */
+/**
+ * Document status → Spanish label and badge style (one place for the whole
+ * app). Includes the statuses derived from payments (partial) and the quote
+ * answers (accepted / rejected); cancelled documents are shown as voided.
+ */
 const STATUS: Record<string, { label: string; className: string }> = {
   draft: { label: 'Borrador', className: 'badge-neutral' },
   sent: { label: 'Enviado', className: 'badge-accent' },
+  partial: { label: 'Pago parcial', className: 'badge-warning' },
   paid: { label: 'Pagado', className: 'badge-success' },
   overdue: { label: 'Vencido', className: 'badge-danger' },
-  cancelled: { label: 'Cancelado', className: 'badge-neutral opacity-70' },
+  accepted: { label: 'Aceptada', className: 'badge-success' },
+  rejected: { label: 'Rechazada', className: 'badge-danger' },
+  cancelled: { label: 'Anulado', className: 'badge-neutral opacity-70' },
 }
 
 export function documentStatus(status: string | null | undefined) {

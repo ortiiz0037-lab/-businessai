@@ -24,7 +24,8 @@ Las pruebas de `tests/staging-scripts.test.ts` hacen cumplir 3 y 4.
 |---|---|---|
 | 0001–0011 | ver `supabase/README.md` | Aplicadas en Staging |
 | 0014a | `0014a_permissions.sql` | Aplicada en Staging (versión anterior a R3). La versión con la comprobación de Storage (R3) está **pendiente** de `staging:migrate` autorizado |
-| **0015** | — | **Siguiente número libre** |
+| 0015 | `0015_documents_lifecycle.sql` | **Borrador, no aplicada en ningún entorno.** Numeración consecutiva, estados de cotización, no borrar documentos emitidos (anulación), pagos parciales sin superar el balance, recibos ligados a un pago, `billing.manage` solo para el propietario. Requiere 0014a |
+| **0016** | — | **Siguiente número libre** |
 
 Los números 0012, 0013 y 0014b se habían reservado en la planificación
 (sucursales e invitaciones) y **se retiran**: esas funciones tomarán el

@@ -6,6 +6,11 @@ import { createClient } from '@/lib/supabase/server'
 import { BILLING_ERROR_MESSAGE, billingErrorCode } from '@/lib/billing/state'
 import { fetchUsage, isBlocked, usageNotice } from '@/lib/billing/usage'
 import { activeCompanyRow } from '@/lib/active-company'
+import { computeTotals, parseItemsInput, type LineItem } from '@/lib/documents/items'
+import { insertDocument } from '@/lib/documents/numbering'
+import { todayIn } from '@/lib/documents/lifecycle'
+import { paymentMethodLabel } from '@/lib/documents/payments'
+import { createReceipt } from '@/app/actions/documents'
 
 export const dynamic = 'force-dynamic'
 
@@ -26,8 +31,11 @@ type InvoiceRow = {
 }
 
 function today() {
-  return new Date().toISOString().slice(0, 10)
+  return todayIn()
 }
+
+/** Types created with this form. Receipts come from a payment. */
+const FORM_TYPES = ['invoice', 'quote', 'letter', 'work_order', 'payment_reminder']
 
 function text(data: FormData, key: string) {
   return String(data.get(key) ?? '').trim()
@@ -37,6 +45,7 @@ function docTitle(type: string) {
   const titles: Record<string, string> = {
     invoice: 'Factura',
     quote: 'Cotización',
+    receipt: 'Recibo',
     letter: 'Carta comercial',
     work_order: 'Orden de trabajo',
     payment_reminder: 'Recordatorio de pago',
@@ -63,7 +72,8 @@ async function createDocument(formData: FormData) {
     redirect(`/documents/new?type=${encodeURIComponent(type || 'invoice')}&error=limit_documents`)
   }
 
-  if (!['invoice', 'quote', 'letter', 'work_order', 'payment_reminder'].includes(type)) {
+  // Receipts are created from a payment (actions/documents.createReceipt), never here.
+  if (!FORM_TYPES.includes(type)) {
     redirect('/documents/new?error=type')
   }
 
@@ -78,63 +88,22 @@ async function createDocument(formData: FormData) {
   let subtotal = 0
   let tax = 0
   let documentNotes = notes
+  let items: LineItem[] = []
+  let metadata: Record<string, unknown> = {}
 
   if (type === 'invoice' || type === 'quote') {
-    const items: {
-      description: string
-      quantity: number
-      unitPrice: number
-      amount: number
-    }[] = []
-
-    for (let i = 1; i <= 30; i++) {
-      const description = text(formData, `item_description_${i}`)
-      const quantityRaw = text(formData, `item_quantity_${i}`)
-      const priceRaw = text(formData, `item_price_${i}`)
-
-      if (!description && !quantityRaw && !priceRaw) continue
-      if (!description) redirect(`/documents/new?type=${type}&error=required`)
-
-      const quantity = Number(quantityRaw || 1)
-      const unitPrice = Number(priceRaw || 0)
-
-      if (!Number.isFinite(quantity) || quantity <= 0 ||
-          !Number.isFinite(unitPrice) || unitPrice < 0) {
-        redirect(`/documents/new?type=${type}&error=price`)
-      }
-
-      const amount = Number((quantity * unitPrice).toFixed(2))
-      subtotal += amount
-      items.push({ description, quantity, unitPrice, amount })
-    }
-
-    // Mantiene compatibilidad con el formulario anterior de factura.
-    if (items.length === 0 && type === 'invoice') {
-      const service = text(formData, 'service')
-      const quantity = Number(formData.get('quantity') ?? 1)
-      const unitPrice = Number(formData.get('unit_price') ?? 0)
-
-      if (service) {
-        if (!Number.isFinite(quantity) || quantity <= 0 ||
-            !Number.isFinite(unitPrice) || unitPrice < 0) {
-          redirect('/documents/new?type=invoice&error=price')
-        }
-
-        const amount = Number((quantity * unitPrice).toFixed(2))
-        subtotal = amount
-        items.push({ description: service, quantity, unitPrice, amount })
-      }
-    }
+    const parsed = parseItemsInput((key) => text(formData, key))
+    if (parsed.error) redirect(`/documents/new?type=${type}&error=${parsed.error}`)
 
     const taxRate = Number(formData.get('tax_rate') ?? 0)
     const discount = Number(formData.get('discount') ?? 0)
 
-    if (!clientId || items.length === 0 || (type === 'quote' && !title)) {
+    if (!clientId || parsed.items.length === 0 || (type === 'quote' && !title)) {
       redirect(`/documents/new?type=${type}&error=required`)
     }
 
-    if (!Number.isFinite(taxRate) || taxRate < 0 ||
-        !Number.isFinite(discount) || discount < 0 || discount > subtotal) {
+    if (!Number.isFinite(taxRate) || taxRate < 0 || taxRate > 100 ||
+        !Number.isFinite(discount) || discount < 0 || discount > parsed.subtotal) {
       redirect(`/documents/new?type=${type}&error=tax`)
     }
 
@@ -149,21 +118,12 @@ async function createDocument(formData: FormData) {
 
     clientName = client.business_name?.trim() || client.name?.trim() || 'Cliente'
 
-    const taxableAmount = Number((subtotal - discount).toFixed(2))
-    tax = Number((taxableAmount * taxRate / 100).toFixed(2))
-    total = Number((taxableAmount + tax).toFixed(2))
-
-    documentNotes = [
-      type === 'quote' ? 'COTIZACIÓN — PARTIDAS' : 'FACTURA — PARTIDAS',
-      ...items.map((item, index) =>
-        `${index + 1}. ${item.description} | Cantidad: ${item.quantity} | Precio unitario: $${item.unitPrice.toFixed(2)} | Importe: $${item.amount.toFixed(2)}`
-      ),
-      `Subtotal: $${subtotal.toFixed(2)}`,
-      `Descuento: $${discount.toFixed(2)}`,
-      `Impuesto (${taxRate}%): $${tax.toFixed(2)}`,
-      `TOTAL: $${total.toFixed(2)}`,
-      notes ? `Notas y condiciones: ${notes}` : null,
-    ].filter(Boolean).join('\n')
+    // Items are stored as data (documents.items); notes keep only the user's notes.
+    items = parsed.items
+    subtotal = parsed.subtotal
+    ;({ tax, total } = computeTotals(subtotal, discount, taxRate))
+    metadata = { discount: Math.round(discount * 100) / 100, tax_rate: taxRate }
+    documentNotes = notes
   } else if (type === 'payment_reminder') {
     const invoiceId = text(formData, 'invoice_id')
     if (!invoiceId) redirect('/documents/new?type=payment_reminder&error=invoice')
@@ -218,40 +178,29 @@ async function createDocument(formData: FormData) {
     documentNotes = notes
   }
 
-  const prefix: Record<string, string> = {
-    invoice: 'FAC',
-    quote: 'COT',
-    letter: 'CARTA',
-    work_order: 'OT',
-    payment_reminder: 'REC',
-  }
-
-  const documentNumber = `${prefix[type]}-${new Date().getFullYear()}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`
-
-  const { data: document, error } = await supabase
-    .from('documents')
-    .insert({
-      company_id: companyId,
-      document_type: type,
-      title: type === 'invoice'
-        ? `Factura - ${clientName}`
-        : type === 'quote'
-          ? title
-          : type === 'payment_reminder'
-            ? `Recordatorio de pago - ${clientName}`
-            : title,
-      document_number: documentNumber,
-      client_id: clientId || null,
-      issue_date: issueDate,
-      due_date: dueDate || null,
-      subtotal,
-      tax,
-      total,
-      status: 'draft',
-      notes: documentNotes,
-    })
-    .select('id')
-    .single()
+  // The database assigns the consecutive number (0015); see lib/documents/numbering.
+  const { data: document, error } = await insertDocument(supabase, {
+    company_id: companyId,
+    created_by: user.id,
+    document_type: type,
+    title: type === 'invoice'
+      ? `Factura - ${clientName}`
+      : type === 'quote'
+        ? title
+        : type === 'payment_reminder'
+          ? `Recordatorio de pago - ${clientName}`
+          : title,
+    client_id: clientId || null,
+    issue_date: issueDate,
+    due_date: dueDate || null,
+    subtotal,
+    tax,
+    total,
+    status: 'draft',
+    notes: documentNotes || null,
+    items,
+    metadata,
+  })
 
   if (error || !document) {
     // Subscription inactive or plan limit (enforced in the database, 0010).
@@ -302,8 +251,32 @@ export default async function NewDocumentPage({
   const usage = membership?.company_id ? await fetchUsage(supabase, membership.company_id) : []
   const documentNotice = usageNotice(usage.find((u) => u.metric === 'documents'))
   const documentsBlocked = documentNotice?.level === 'blocked'
-  const validTypes = ['invoice', 'quote', 'letter', 'work_order', 'payment_reminder']
-  const selectedType = validTypes.includes(type) ? type : 'invoice'
+  const validTypes = FORM_TYPES
+  const isReceipt = type === 'receipt'
+  const unknownType = !isReceipt && !validTypes.includes(type)
+  const selectedType = validTypes.includes(type) ? type : isReceipt ? 'receipt' : 'invoice'
+
+  // Receipts: payments of this company that do not have a receipt yet.
+  let receiptCandidates: { id: string; amount: number; method: string | null; paidAt: string | null; reference: string | null; invoice: string }[] = []
+  if (isReceipt) {
+    const companyId = membership.company_id
+    const [{ data: payments }, { data: receipts }] = await Promise.all([
+      supabase.from('payments').select('id, document_id, amount, payment_method, reference, paid_at')
+        .eq('company_id', companyId).order('paid_at', { ascending: false }).limit(100),
+      supabase.from('documents').select('metadata').eq('company_id', companyId).eq('document_type', 'receipt'),
+    ])
+    const withReceipt = new Set((receipts ?? []).map((r) => String((r.metadata as Record<string, unknown> | null)?.payment_id ?? '')))
+    const pending = (payments ?? []).filter((p) => !withReceipt.has(p.id))
+    const docIds = [...new Set(pending.map((p) => p.document_id))]
+    const { data: docs } = docIds.length
+      ? await supabase.from('documents').select('id, document_number, title').in('id', docIds)
+      : { data: [] as { id: string; document_number: string | null; title: string | null }[] }
+    const docName = new Map((docs ?? []).map((d) => [d.id, d.document_number || d.title || 'Factura']))
+    receiptCandidates = pending.map((p) => ({
+      id: p.id, amount: Number(p.amount ?? 0), method: p.payment_method, paidAt: p.paid_at, reference: p.reference,
+      invoice: docName.get(p.document_id) ?? 'Factura',
+    }))
+  }
 
   const errorMessage: Record<string, string> = {
     required: 'Completa los campos obligatorios y añade al menos una partida.',
@@ -313,6 +286,11 @@ export default async function NewDocumentPage({
     invoice: 'Selecciona una factura pendiente válida para el recordatorio.',
     save: 'No se pudo guardar. Revisa los registros del servidor.',
     type: 'Ese tipo de documento no está permitido.',
+    payment: 'Elige un pago válido de tu empresa para crear el recibo.',
+    receipt_exists: 'Ese pago ya tiene su recibo.',
+    receipt_payment_required: 'Elige un pago válido de tu empresa para crear el recibo.',
+    receipt_amount_mismatch: 'El recibo debe ser por la cantidad exacta del pago.',
+    forbidden: 'Tu rol no permite crear este documento.',
     billing: `${BILLING_ERROR_MESSAGE.billing} Ve a "Plan" para activarlo.`,
     limit_documents: `${BILLING_ERROR_MESSAGE.limit_documents} Ve a "Plan" para mejorarlo.`,
   }
@@ -327,16 +305,18 @@ export default async function NewDocumentPage({
 
       <header className="card-hero p-7 sm:p-10">
         <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-accent">BUSINESSAI · DOCUMENTOS</p>
-        <h1 className="mt-3 font-display text-3xl font-semibold sm:text-4xl">{docTitle(selectedType)}</h1>
+        <h1 className="mt-3 font-display text-3xl font-semibold sm:text-4xl">{unknownType ? 'Documento' : docTitle(selectedType)}</h1>
         <p className="mt-2 text-sm text-muted">
-          {selectedType === 'quote'
+          {selectedType === 'receipt'
+            ? 'Emite el recibo de un pago ya registrado.'
+            : selectedType === 'quote'
             ? 'Prepara una propuesta comercial profesional con partidas y precios detallados.'
             : 'Crea y guarda documentos de tu empresa en un solo lugar.'}
         </p>
       </header>
 
-      <nav className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-        {validTypes.map((item) => (
+      <nav className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        {[...validTypes.slice(0, 2), 'receipt', ...validTypes.slice(2)].map((item) => (
           <Link key={item} href={`/documents/new?type=${item}`}
             className={`rounded-xl border px-3 py-3 text-center text-sm font-semibold transition ${
               selectedType === item
@@ -362,6 +342,46 @@ export default async function NewDocumentPage({
         </div>
       )}
 
+      {unknownType ? (
+        <section className="card p-8 text-center">
+          <h2 className="font-display text-2xl font-semibold text-fg">Tipo de documento no válido</h2>
+          <p className="mt-2 text-sm text-muted">El enlace no corresponde a ningún tipo de documento. Elige uno de los tipos de arriba.</p>
+          <Link href="/documents" className="btn-primary mt-5">Ver documentos</Link>
+        </section>
+      ) : isReceipt ? (
+        <section className="card space-y-5 p-6">
+          <div>
+            <h2 className="font-display text-2xl font-semibold tracking-tight text-fg">Recibo de un pago</h2>
+            <p className="mt-1 text-sm text-muted">
+              Un recibo confirma un pago registrado. Elige el pago; el recibo toma su cantidad, fecha, método y referencia.
+            </p>
+          </div>
+          {receiptCandidates.length === 0 ? (
+            <div className="alert-info p-4">
+              No hay pagos sin recibo. Registra un pago en una factura emitida y marca «Crear recibo».
+              <Link href="/payments/new" className="mt-3 block font-bold underline">Registrar un pago</Link>
+            </div>
+          ) : (
+            <ul className="divide-y divide-line">
+              {receiptCandidates.map((p) => (
+                <li key={p.id} className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-fg">${p.amount.toFixed(2)} · {paymentMethodLabel(p.method)}</p>
+                    <p className="mt-0.5 truncate text-sm text-muted">
+                      {p.invoice}{p.paidAt ? ` · ${new Date(p.paidAt).toLocaleDateString('es-PR', { timeZone: 'America/Puerto_Rico' })}` : ''}
+                      {p.reference ? ` · Ref. ${p.reference}` : ''}
+                    </p>
+                  </div>
+                  <form action={createReceipt}>
+                    <input type="hidden" name="payment_id" value={p.id} />
+                    <button type="submit" disabled={documentsBlocked} className="btn-primary btn-sm w-full sm:w-auto">Crear recibo</button>
+                  </form>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      ) : (
       <form action={createDocument} className="space-y-6">
         <input type="hidden" name="type" value={selectedType} />
 
@@ -543,6 +563,7 @@ export default async function NewDocumentPage({
           </button>
         </div>
       </form>
+      )}
     </main>
   )
 }

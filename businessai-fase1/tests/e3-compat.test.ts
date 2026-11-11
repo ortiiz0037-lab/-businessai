@@ -10,7 +10,12 @@ const enabled = stagingEnv.enabled
 const fx = enabled ? createFixture('e3-compat') : (null as unknown as ReturnType<typeof createFixture>)
 
 // The matrix declared by 0014a: owner = admin = all 18; member lacks these 5.
-const MEMBER_LACKS = ['billing.manage', 'clients.delete', 'company.branding.manage', 'company.settings.manage', 'documents.delete']
+// 0015 (detected by its documents.void permission) adds documents.void for
+// owner and admin, and takes billing.manage away from admin (owner decision).
+const MEMBER_LACKS = ['billing.manage', 'clients.delete', 'company.branding.manage', 'company.settings.manage', 'documents.delete', 'documents.void']
+const has0015 = (keys: string[]) => keys.includes('documents.void')
+const adminLacks = (keys: string[]) => (has0015(keys) ? ['billing.manage'] : [])
+const matrixRows = (keys: string[]) => (has0015(keys) ? 50 : 49)
 
 let A: Company, B: Company, O: Actor, AD: Actor, M: Actor, OB: Actor
 let clientId = ''
@@ -37,18 +42,18 @@ afterAll(async () => {
 }, 120000)
 
 describe.skipIf(!enabled)('permission catalog', () => {
-  it('authenticated users read the 18 permissions and the 49-row matrix', async () => {
+  it('authenticated users read the catalog and the matrix (0014a: 18 / 49; with 0015: 19 / 50)', async () => {
     const p = await M.client.from('permissions').select('key')
     expect(p.error).toBeNull()
     keys = (p.data ?? []).map((r) => r.key).sort()
-    expect(keys).toHaveLength(18)
+    expect(keys).toHaveLength(has0015(keys) ? 19 : 18)
     const rp = await M.client.from('role_permissions').select('role, permission_key')
     expect(rp.error).toBeNull()
     const by = (role: string) => (rp.data ?? []).filter((r) => r.role === role).map((r) => r.permission_key).sort()
     expect(by('owner')).toEqual(keys)
-    expect(by('admin')).toEqual(keys)
+    expect(by('admin')).toEqual(keys.filter((k) => !adminLacks(keys).includes(k)))
     expect(by('member')).toEqual(keys.filter((k) => !MEMBER_LACKS.includes(k)))
-    expect(rp.data).toHaveLength(49)
+    expect(rp.data).toHaveLength(matrixRows(keys))
   })
 
   it('nobody but the service role writes the catalog; anon cannot read it', async () => {
@@ -57,7 +62,7 @@ describe.skipIf(!enabled)('permission catalog', () => {
       await u.client.from('role_permissions').delete().eq('role', 'member')
       expect((await u.client.from('permissions').insert({ key: 'x.y', module: 'x', description_es: 'x', description_en: 'x' })).error).not.toBeNull()
     }
-    expect((await fx.admin.from('role_permissions').select('role')).data).toHaveLength(49)
+    expect((await fx.admin.from('role_permissions').select('role')).data).toHaveLength(matrixRows(keys))
     const anon = createClient(stagingEnv.enabled ? stagingEnv.url : '', stagingEnv.enabled ? stagingEnv.anonKey : '', opts)
     expect((await anon.from('permissions').select('key')).data ?? []).toEqual([])
     expect((await anon.from('role_permissions').select('role')).data ?? []).toEqual([])
@@ -70,7 +75,7 @@ describe.skipIf(!enabled)('has_permission()', () => {
     for (const [role, u] of [['owner', O], ['admin', AD], ['member', M]] as const) {
       for (const key of keys) {
         const { data, error } = await u.client.rpc('has_permission', { target: A.id, permission: key })
-        const expected = role !== 'member' || !MEMBER_LACKS.includes(key)
+        const expected = role === 'owner' || (role === 'admin' ? !adminLacks(keys).includes(key) : !MEMBER_LACKS.includes(key))
         if (error || data !== expected) mismatches.push(`${role}:${key}=${error ? error.message : data}`)
       }
     }

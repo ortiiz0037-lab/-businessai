@@ -22,7 +22,7 @@ type PlanRow = {
 }
 
 const ERRORS: Record<string, string> = {
-  forbidden: 'Solo el propietario o un administrador puede gestionar la suscripción.',
+  forbidden: 'Solo el propietario de la empresa puede gestionar la suscripción.',
   plan: 'Ese plan no está disponible.',
   price: 'El precio de ese plan no está configurado en Stripe para este entorno.',
   config: 'Los pagos no están configurados en este entorno.',
@@ -253,7 +253,7 @@ export default async function BillingPage({
       </section>
 
       {!company.canManageBilling && (
-        <p className="text-sm text-muted">Solo el propietario o un administrador puede cambiar el plan.</p>
+        <p className="text-sm text-muted">Solo el propietario de la empresa puede cambiar el plan o administrar la suscripción.</p>
       )}
       <p className="text-xs text-slate-500">
         Los pagos se procesan con Stripe; BusinessAI no ve ni guarda los datos de tu tarjeta. Puedes cancelar en

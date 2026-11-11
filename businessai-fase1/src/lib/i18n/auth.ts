@@ -3,7 +3,9 @@ import type { Locale } from '@/lib/i18n/landing'
 /** Texts of the sign-in / sign-up screens (es / en). Server validation messages stay in Spanish. */
 export type AuthCopy = {
   panel: { title: string; subtitle: string; points: { title: string; text: string }[]; footer: string }
-  login: { title: string; subtitle: string; email: string; password: string; submit: string; noAccount: string; signup: string; confirmError: string; pricing: string }
+  login: { title: string; subtitle: string; email: string; password: string; submit: string; noAccount: string; signup: string; confirmError: string; pricing: string; forgot: string }
+  forgot: { title: string; subtitle: string; email: string; submit: string; back: string }
+  reset: { title: string; subtitle: string; password: string; confirm: string; submit: string; expired: string; requestNew: string }
   signup: { title: string; subtitle: string; name: string; email: string; password: string; submit: string; haveAccount: string; login: string; chosen: (plan: string, days: number) => string; change: string; legal: [string, string, string, string] }
   switchTo: string
   switchLabel: string
@@ -25,7 +27,16 @@ const es: AuthCopy = {
     title: 'Bienvenido de nuevo', subtitle: 'Inicia sesión en tu espacio de trabajo.',
     email: 'Correo electrónico', password: 'Contraseña', submit: 'Iniciar sesión',
     noAccount: '¿No tienes cuenta?', signup: 'Crea una gratis', confirmError: 'El enlace de confirmación no es válido o expiró.',
-    pricing: 'Ver planes y precios',
+    pricing: 'Ver planes y precios', forgot: '¿Olvidaste tu contraseña?',
+  },
+  forgot: {
+    title: 'Recupera tu acceso', subtitle: 'Te enviaremos un enlace para crear una nueva contraseña.',
+    email: 'Correo electrónico', submit: 'Enviar enlace', back: 'Volver a iniciar sesión',
+  },
+  reset: {
+    title: 'Nueva contraseña', subtitle: 'Elige una contraseña nueva para tu cuenta.',
+    password: 'Nueva contraseña (mínimo 8 caracteres)', confirm: 'Repite la contraseña', submit: 'Guardar contraseña',
+    expired: 'El enlace no es válido o expiró.', requestNew: 'Solicitar un enlace nuevo',
   },
   signup: {
     title: 'Crea tu cuenta', subtitle: 'Empieza en un minuto. Después eliges tu plan.',
@@ -53,7 +64,16 @@ const en: AuthCopy = {
     title: 'Welcome back', subtitle: 'Sign in to your workspace.',
     email: 'Email', password: 'Password', submit: 'Sign in',
     noAccount: 'No account yet?', signup: 'Create one for free', confirmError: 'The confirmation link is invalid or has expired.',
-    pricing: 'See plans and pricing',
+    pricing: 'See plans and pricing', forgot: 'Forgot your password?',
+  },
+  forgot: {
+    title: 'Recover your access', subtitle: 'We will email you a link to create a new password.',
+    email: 'Email', submit: 'Send link', back: 'Back to sign in',
+  },
+  reset: {
+    title: 'New password', subtitle: 'Choose a new password for your account.',
+    password: 'New password (at least 8 characters)', confirm: 'Repeat the password', submit: 'Save password',
+    expired: 'The link is invalid or has expired.', requestNew: 'Request a new link',
   },
   signup: {
     title: 'Create your account', subtitle: 'Get started in a minute. You choose your plan next.',

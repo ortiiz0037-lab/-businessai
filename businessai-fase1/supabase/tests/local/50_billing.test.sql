@@ -176,6 +176,9 @@ do $$ declare st record; begin
     perform t.ok(false, 'unpaid: cannot create');
   exception when raise_exception then perform t.ok(true, 'unpaid: cannot create'); end;
 end $$;
+-- Leave an open balance on coA's invoice (the RLS suite paid it in full):
+-- with 0015 a payment can never exceed the balance.
+update public.documents set total = total + 100 where company_id = t.id('coA') and document_type = 'invoice';
 do $$ declare n int; begin
   perform t.as_user('userA'); set local role authenticated;
   select count(*) into n from public.documents where company_id = t.id('coA');

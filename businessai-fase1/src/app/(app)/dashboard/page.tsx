@@ -39,7 +39,8 @@ async function loadData(companyId: string) {
   }
 }
 
-export default async function DashboardPage() {
+export default async function DashboardPage({ searchParams }: { searchParams?: Promise<{ password?: string }> }) {
+  const passwordUpdated = (await searchParams)?.password === 'updated'
   const locale = await getLocale()
   const d = APP[locale].dashboard
   const supabase = await createClient()
@@ -60,7 +61,14 @@ export default async function DashboardPage() {
   const metrics = computeDashboard({ documents: data.documents, payments: data.payments, clients: data.clients, now: new Date() })
   const firstName = (user.user_metadata?.full_name as string | undefined)?.split(' ')[0] ?? null
   return (
-    <DashboardView locale={locale} m={metrics} companyName={active.companyName} firstName={firstName}
-      billing={data.billing} usage={data.usage} />
+    <>
+      {passwordUpdated && (
+        <p role="status" className="alert-success mb-6">
+          {locale === 'en' ? 'Your password was updated.' : 'Tu contraseña se actualizó.'}
+        </p>
+      )}
+      <DashboardView locale={locale} m={metrics} companyName={active.companyName} firstName={firstName}
+        billing={data.billing} usage={data.usage} />
+    </>
   )
 }

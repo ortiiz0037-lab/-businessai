@@ -32,6 +32,9 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
           { name: 'email', label: t.login.email, type: 'email', autoComplete: 'email', placeholder: 'tu@empresa.com' },
           { name: 'password', label: t.login.password, type: 'password', autoComplete: 'current-password' },
         ]} />
+      <p className="mt-4 text-right text-sm">
+        <Link href={withLang('/forgot-password')} className="font-semibold text-muted underline-offset-4 hover:text-fg hover:underline">{t.login.forgot}</Link>
+      </p>
     </AuthCard>
   )
 }
