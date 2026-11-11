@@ -31,7 +31,34 @@ export async function workforceRules(supabase: SupabaseClient, companyId: string
     dailyOvertimeAfter: data.daily_overtime_after_minutes ?? null,
     weeklyOvertimeAfter: data.weekly_overtime_after_minutes ?? null,
     graceMinutes: data.grace_minutes ?? 5,
+    mealAfterMinutes: data.meal_break_after_minutes ?? null,
+    mealMinMinutes: data.meal_break_min_minutes ?? null,
   }
+}
+
+export type RuleSet = {
+  id: string; name: string; jurisdiction: string | null; exempt: boolean; daily_overtime_after_minutes: number | null
+  weekly_overtime_after_minutes: number | null; overtime_multiplier: number; meal_break_after_minutes: number | null
+  meal_break_min_minutes: number | null; meal_alert_before_minutes: number; archived_at: string | null
+}
+
+/** Rules of one employee: its group (0022) over the company defaults. Mirrors public.wf_rules. */
+export function rulesFor(defaults: Rules, set: RuleSet | null | undefined): Rules {
+  if (!set || set.archived_at) return defaults
+  return {
+    ...defaults,
+    exempt: set.exempt,
+    dailyOvertimeAfter: set.daily_overtime_after_minutes,
+    weeklyOvertimeAfter: set.weekly_overtime_after_minutes,
+    mealAfterMinutes: set.meal_break_after_minutes,
+    mealMinMinutes: set.meal_break_min_minutes,
+  }
+}
+
+/** Rule groups of a company (empty without migration 0022). */
+export async function ruleSets(supabase: SupabaseClient, companyId: string): Promise<RuleSet[]> {
+  const { data, error } = await supabase.from('labor_rule_sets').select('*').eq('company_id', companyId).order('name')
+  return error ? [] : ((data ?? []) as RuleSet[])
 }
 
 export const LEAVE_TYPES = ['vacation', 'sick', 'personal', 'unpaid', 'day_off', 'other'] as const
@@ -70,7 +97,7 @@ const CODES = [
   'CORRECTION_NOT_FOUND', 'CORRECTION_NOT_PENDING', 'SELF_APPROVAL_FORBIDDEN', 'LEAVE_TYPE_INVALID', 'LEAVE_DATES_INVALID',
   'LEAVE_OVERLAP', 'LEAVE_NOT_FOUND', 'LEAVE_NOT_PENDING', 'SHIFT_OVERLAP', 'ACCESS_INVALID', 'ACCESS_EXPIRED',
   'ACCESS_EMAIL_MISMATCH', 'ACCESS_ALREADY_LINKED', 'COMPANY_IMMUTABLE',
-  'PIN_INVALID', 'PIN_TOO_SIMPLE', 'KIOSK_NAME_INVALID', 'KIOSK_LIMIT', 'KIOSK_NOT_FOUND', 'HISTORY_IMMUTABLE',
+  'RULE_SET_INVALID', 'JURISDICTION_INVALID', 'MEAL_ALERT_NOT_FOUND', 'PIN_INVALID', 'PIN_TOO_SIMPLE', 'KIOSK_NAME_INVALID', 'KIOSK_LIMIT', 'KIOSK_NOT_FOUND', 'HISTORY_IMMUTABLE',
 ] as const
 
 export function wfErrorCode(error: { message?: string | null; code?: string | null } | null): string {
@@ -109,8 +136,9 @@ const MESSAGES: Record<Locale, Record<string, string>> = {
     employee_number_taken: 'Ese número de empleado ya existe.', department_exists: 'Ya existe un departamento con ese nombre.',
     company_immutable: 'Los registros no se pueden mover a otra empresa.',
     unavailable: 'El módulo de personal todavía no está activado en esta base de datos.',
-    pin_invalid: 'El PIN debe tener entre 4 y 8 dígitos.', pin_too_simple: 'Ese PIN es demasiado fácil (por ejemplo 1234 o 0000). Elige otro.',
-    pin_mismatch: 'Los dos PIN no coinciden.',
+    pin_invalid: 'El PIN debe tener exactamente 6 dígitos.', pin_too_simple: 'Ese PIN es demasiado fácil (por ejemplo 123456 o 000000). Elige otro.',
+    pin_mismatch: 'Los dos PIN no coinciden.', rule_set_invalid: 'Ese grupo de reglas no pertenece a la empresa.',
+    jurisdiction_invalid: 'Esa jurisdicción no existe.', meal_alert_not_found: 'No encontramos esa alerta (o no te corresponde).',
     kiosk_name_invalid: 'Escribe un nombre para la tableta (máximo 60 caracteres).', kiosk_limit: 'Máximo 20 tabletas activas por empresa.',
     kiosk_not_found: 'No encontramos esa tableta.', history_immutable: 'Los registros de asistencia y su historial no se modifican.',
     confirm: 'Marca la casilla de confirmación.', save: 'No se pudo completar la acción. Inténtalo nuevamente.',
@@ -138,8 +166,9 @@ const MESSAGES: Record<Locale, Record<string, string>> = {
     employee_number_taken: 'That employee number already exists.', department_exists: 'A department with that name already exists.',
     company_immutable: 'Records cannot be moved to another company.',
     unavailable: 'The workforce module is not enabled in this database yet.',
-    pin_invalid: 'The PIN must have 4 to 8 digits.', pin_too_simple: 'That PIN is too easy (for example 1234 or 0000). Choose another.',
-    pin_mismatch: 'The two PINs do not match.',
+    pin_invalid: 'The PIN must have exactly 6 digits.', pin_too_simple: 'That PIN is too easy (for example 123456 or 000000). Choose another.',
+    pin_mismatch: 'The two PINs do not match.', rule_set_invalid: 'That rule group does not belong to the company.',
+    jurisdiction_invalid: 'That jurisdiction does not exist.', meal_alert_not_found: 'We could not find that alert (or it is not yours).',
     kiosk_name_invalid: 'Write a name for the tablet (60 characters max).', kiosk_limit: 'Up to 20 active tablets per company.',
     kiosk_not_found: 'We could not find that tablet.', history_immutable: 'Attendance records and their history are never changed.',
     confirm: 'Tick the confirmation box.', save: 'The action could not be completed. Please try again.',

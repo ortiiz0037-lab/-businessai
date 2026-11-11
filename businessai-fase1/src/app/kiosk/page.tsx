@@ -57,7 +57,7 @@ export default async function KioskPage({ searchParams }: { searchParams: Promis
               <input name="number" required inputMode="numeric" maxLength={30} autoComplete="off" className="field mt-2 text-2xl tracking-widest" />
             </label>
             <label className="field-label">PIN
-              <input name="pin" type="password" required inputMode="numeric" pattern="[0-9]{4,8}" maxLength={8} autoComplete="off" className="field mt-2 text-2xl tracking-widest" />
+              <input name="pin" type="password" required inputMode="numeric" pattern="[0-9]{6}" minLength={6} maxLength={6} autoComplete="off" className="field mt-2 text-2xl tracking-widest" />
             </label>
             <div className="grid grid-cols-2 gap-3">
               {kinds.map(([k, cls]) => (

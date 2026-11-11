@@ -98,6 +98,7 @@ export async function updateEmployee(formData: FormData) {
     ...fields,
     ...(['active', 'inactive', 'terminated'].includes(status) ? { status } : {}),
     termination_date: /^\d{4}-\d{2}-\d{2}$/.test(text(formData, 'termination_date')) ? text(formData, 'termination_date') : null,
+    ...(formData.has('rule_set_id') ? { rule_set_id: UUID.test(text(formData, 'rule_set_id')) ? text(formData, 'rule_set_id') : null } : {}),
   }
   if (!fields.first_name || !fields.last_name) go(`/workforce/employees/${id}`, { error: 'invalid' })
   const { data, error } = await supabase.from('employees').update(update).eq('id', id).select('id')
@@ -272,6 +273,12 @@ export async function saveWorkforceSettings(formData: FormData) {
     overtime_multiplier: Number(text(formData, 'overtime_multiplier') || 1.5),
     grace_minutes: Number(text(formData, 'grace_minutes') || 5),
     updated_at: new Date().toISOString(),
+    // Meal rules (0022): only sent when the form has them.
+    ...(formData.has('meal_after_hours') ? {
+      meal_break_after_minutes: num('meal_after_hours') === null ? null : Math.round(num('meal_after_hours')! * 60),
+      meal_break_min_minutes: num('meal_min_minutes'),
+      meal_alert_before_minutes: num('meal_alert_before') ?? 15,
+    } : {}),
   }
   const { error } = await supabase.from('workforce_settings').upsert(row, { onConflict: 'company_id' })
   if (error) go('/workforce/settings', { error: wfErrorCode(error) })
@@ -365,7 +372,7 @@ export async function kioskPunch(formData: FormData) {
   const token = (await cookies()).get('ba_kiosk')?.value ?? ''
   const supabase = await createClient()
   const { data, error } = await supabase.rpc('kiosk_punch', {
-    raw_token: token, emp_number: text(formData, 'number').slice(0, 30), emp_pin: text(formData, 'pin').slice(0, 8), punch_kind: kind,
+    raw_token: token, emp_number: text(formData, 'number').slice(0, 30), emp_pin: text(formData, 'pin').slice(0, 6), punch_kind: kind,
   })
   const row = Array.isArray(data) ? (data[0] as { status: string; first_name: string | null; kind: string | null; punched_at: string | null } | undefined) : undefined
   if (error || !row) redirect('/kiosk?status=unavailable')
@@ -374,4 +381,61 @@ export async function kioskPunch(formData: FormData) {
     sp.set('name', row.first_name.slice(0, 40)); sp.set('kind', row.kind); sp.set('at', row.punched_at)
   }
   redirect(`/kiosk?${sp}`)
+}
+
+// ------------------------------------------------------------- rules per group, jurisdictions, meal alerts (0022)
+export async function applyJurisdiction(formData: FormData) {
+  const { supabase, companyId } = await company()
+  const set = text(formData, 'rule_set_id')
+  const { error } = await supabase.rpc('apply_jurisdiction_template', { target: companyId, code: text(formData, 'code'), rule_set: UUID.test(set) ? set : null })
+  if (error) go('/workforce/settings', { error: wfErrorCode(error) })
+  refresh()
+  go('/workforce/settings', { done: 'template' })
+}
+
+function ruleSetFields(f: FormData) {
+  const n = (k: string) => (text(f, k) === '' ? null : Number(text(f, k)))
+  const hours = (k: string) => (n(k) === null ? null : Math.round(n(k)! * 60))
+  return {
+    name: text(f, 'name').slice(0, 80),
+    jurisdiction: text(f, 'jurisdiction') || null,
+    exempt: text(f, 'exempt') === 'yes',
+    daily_overtime_after_minutes: hours('daily_hours'),
+    weekly_overtime_after_minutes: hours('weekly_hours'),
+    overtime_multiplier: n('overtime_multiplier') ?? 1.5,
+    meal_break_after_minutes: hours('meal_after_hours'),
+    meal_break_min_minutes: n('meal_min_minutes'),
+    meal_alert_before_minutes: n('meal_alert_before') ?? 15,
+    notes: opt(f, 'notes', 500),
+  }
+}
+
+export async function saveRuleSet(formData: FormData) {
+  const { supabase, companyId } = await company()
+  const id = text(formData, 'id')
+  const fields = ruleSetFields(formData)
+  if (!fields.name) go('/workforce/settings', { error: 'invalid' })
+  const { error } = UUID.test(id)
+    ? await supabase.from('labor_rule_sets').update({ ...fields, updated_at: new Date().toISOString() }).eq('id', id)
+    : await supabase.from('labor_rule_sets').insert({ company_id: companyId, ...fields })
+  if (error) go('/workforce/settings', { error: wfErrorCode(error) })
+  refresh()
+  go('/workforce/settings', { done: 'group' })
+}
+
+export async function archiveRuleSet(formData: FormData) {
+  const { supabase } = await session()
+  const { error } = await supabase.from('labor_rule_sets').update({ archived_at: text(formData, 'restore') === 'yes' ? null : new Date().toISOString() }).eq('id', text(formData, 'id'))
+  if (error) go('/workforce/settings', { error: wfErrorCode(error) })
+  refresh()
+  go('/workforce/settings', { done: 'group' })
+}
+
+export async function acknowledgeMealAlert(formData: FormData) {
+  const back = backTo(formData, '/workforce')
+  const { supabase } = await session()
+  const { error } = await supabase.rpc('acknowledge_meal_alert', { alert: text(formData, 'id'), ack_note: opt(formData, 'note', 300) })
+  if (error) go(back, { error: wfErrorCode(error) })
+  refresh()
+  go(back, { done: 'meal_ack' })
 }

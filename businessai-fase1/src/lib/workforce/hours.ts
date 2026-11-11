@@ -19,8 +19,33 @@ export type Rules = {
   dailyOvertimeAfter: number | null // minutes
   weeklyOvertimeAfter: number | null
   graceMinutes: number
+  /** Exempt from overtime (rule group): every worked minute is regular. */
+  exempt?: boolean
+  /** Meal period rule: a break of at least mealMinMinutes before mealAfterMinutes of continuous work. */
+  mealAfterMinutes?: number | null
+  mealMinMinutes?: number | null
 }
 export const DEFAULT_RULES: Rules = { timezone: 'America/Puerto_Rico', weekStartsOn: 1, dailyOvertimeAfter: 480, weeklyOvertimeAfter: 2400, graceMinutes: 5 }
+
+/**
+ * Meal period missed in a session? Continuous work longer than `after`
+ * minutes without a break of at least `min` minutes (a shorter break does
+ * not reset the count). Mirrors public.wf_meal_eval (migration 0022).
+ */
+export function mealMissed(punches: Punch[], after: number | null | undefined, min: number | null | undefined, now: Date = new Date()): boolean {
+  if (!after || !min) return false
+  const sorted = [...punches].sort((a, b) => a.at.localeCompare(b.at))
+  let seg: number | null = null
+  let brk: number | null = null
+  for (const p of sorted) {
+    const t = Date.parse(p.at)
+    if (p.kind === 'in') { seg = t; brk = null }
+    else if (p.kind === 'break_start' && seg !== null) { if (t - seg >= after * MIN) return true; brk = t }
+    else if (p.kind === 'break_end' && seg !== null && brk !== null) { if (t - brk >= min * MIN) seg = t; brk = null }
+    else if (p.kind === 'out' && seg !== null) { if (brk === null && t - seg >= after * MIN) return true; seg = null; brk = null }
+  }
+  return seg !== null && brk === null && now.getTime() - seg >= after * MIN
+}
 
 export type Session = { start: string; end: string | null; breakMinutes: number; workedMinutes: number; open: boolean; day: string }
 export type DayRow = {
@@ -38,10 +63,12 @@ export type DayRow = {
   openSession: boolean
   /** A session longer than LONG_SESSION_MINUTES (probably a forgotten clock-out): review it. */
   needsReview: boolean
+  /** A session of this day missed the meal period (when meal rules are set). */
+  mealMissed: boolean
 }
 export type Totals = {
   workedMinutes: number; regularMinutes: number; overtimeMinutes: number; breakMinutes: number; scheduledMinutes: number
-  lateDays: number; lateMinutes: number; absences: number; leaveDays: number; openSessions: number; reviewDays: number
+  lateDays: number; lateMinutes: number; absences: number; leaveDays: number; openSessions: number; reviewDays: number; mealMissedDays: number
 }
 
 const MIN = 60_000
@@ -120,7 +147,7 @@ export function attendance(input: {
   const allDays = daysBetween(computeFrom, input.to).map((day): DayRow => {
     const daySessions = list.filter((s) => s.day === day)
     const worked = daySessions.reduce((n, s) => n + s.workedMinutes, 0)
-    const daily = rules.dailyOvertimeAfter !== null ? Math.max(0, worked - rules.dailyOvertimeAfter) : 0
+    const daily = !rules.exempt && rules.dailyOvertimeAfter !== null ? Math.max(0, worked - rules.dailyOvertimeAfter) : 0
     const dayShifts = input.shifts.filter((s) => localDay(s.starts_at, rules.timezone) === day)
     const scheduled = dayShifts.reduce((n, s) => n + Math.max(0, minutes(Date.parse(s.starts_at), Date.parse(s.ends_at)) - s.break_minutes), 0)
     const leave = input.leaves.find((l) => l.starts_on <= day && day <= l.ends_on) ?? null
@@ -148,10 +175,12 @@ export function attendance(input: {
       leave: leave?.leave_type ?? null,
       openSession: daySessions.some((s) => s.open),
       needsReview: daySessions.some((s) => s.workedMinutes + s.breakMinutes > LONG_SESSION_MINUTES),
+      mealMissed: daySessions.some((s) => mealMissed(
+        input.punches.filter((p) => p.at >= s.start && (s.end === null || p.at <= s.end)), rules.mealAfterMinutes, rules.mealMinMinutes, now)),
     }
   })
   // Weekly overtime over the regular minutes, week by week, in day order.
-  if (rules.weeklyOvertimeAfter !== null) {
+  if (rules.weeklyOvertimeAfter !== null && !rules.exempt) {
     const limit = rules.weeklyOvertimeAfter
     const running = new Map<string, number>()   // regular minutes so far in each week
     for (const d of allDays) {
@@ -176,7 +205,8 @@ export function attendance(input: {
     leaveDays: t.leaveDays + (d.leave ? 1 : 0),
     openSessions: t.openSessions + (d.openSession ? 1 : 0),
     reviewDays: t.reviewDays + (d.needsReview ? 1 : 0),
-  }), { workedMinutes: 0, regularMinutes: 0, overtimeMinutes: 0, breakMinutes: 0, scheduledMinutes: 0, lateDays: 0, lateMinutes: 0, absences: 0, leaveDays: 0, openSessions: 0, reviewDays: 0 })
+    mealMissedDays: t.mealMissedDays + (d.mealMissed ? 1 : 0),
+  }), { workedMinutes: 0, regularMinutes: 0, overtimeMinutes: 0, breakMinutes: 0, scheduledMinutes: 0, lateDays: 0, lateMinutes: 0, absences: 0, leaveDays: 0, openSessions: 0, reviewDays: 0, mealMissedDays: 0 })
   return { days, totals }
 }
 

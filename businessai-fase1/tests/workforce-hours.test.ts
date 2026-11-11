@@ -163,3 +163,32 @@ describe('review 1: no hour is counted twice (night shifts, weeks, partial perio
     expect(r.days[0].workedMinutes).toBe(540)
   })
 })
+
+import { mealMissed } from '@/lib/workforce/hours'
+import { rulesFor, type RuleSet } from '@/lib/workforce/context'
+describe('owner decisions: rules per employee / group, meal periods', () => {
+  const tenHours = [0, 1, 2, 3, 4].flatMap((i) => workDay(addDays('2026-11-09', i), '07:00', '17:00'))
+  const group = (over: Partial<RuleSet>): RuleSet => ({ id: 'g', name: 'G', jurisdiction: 'CUSTOM', exempt: false, daily_overtime_after_minutes: null,
+    weekly_overtime_after_minutes: 2640, overtime_multiplier: 1.5, meal_break_after_minutes: null, meal_break_min_minutes: null, meal_alert_before_minutes: 15, archived_at: null, ...over })
+  it('an exempt group has no overtime at all', () => {
+    const r = attendance({ punches: tenHours, shifts: [], leaves: [], rules: rulesFor(DEFAULT_RULES, group({ exempt: true })), from: '2026-11-09', to: '2026-11-15', now: NOW })
+    expect(r.totals).toMatchObject({ workedMinutes: 3000, regularMinutes: 3000, overtimeMinutes: 0 })
+  })
+  it('a group agreement (no daily overtime, 44 h weekly) replaces the company defaults', () => {
+    const r = attendance({ punches: tenHours, shifts: [], leaves: [], rules: rulesFor(DEFAULT_RULES, group({})), from: '2026-11-09', to: '2026-11-15', now: NOW })
+    expect(r.totals).toMatchObject({ regularMinutes: 2640, overtimeMinutes: 360 })
+  })
+  it('an archived group falls back to the company defaults', () => {
+    expect(rulesFor(DEFAULT_RULES, group({ archived_at: '2026-01-01', exempt: true }))).toBe(DEFAULT_RULES)
+  })
+  it('meal periods (same rules as the database): missed, met, short break, no rule', () => {
+    const d = '2026-11-09'
+    expect(mealMissed(workDay(d, '08:00', '14:00'), 300, 60, NOW)).toBe(true)                        // 6 h without a meal
+    expect(mealMissed(workDay(d, '08:00', '17:00', ['12:00', '13:00']), 300, 60, NOW)).toBe(false)    // meal at 4 h
+    expect(mealMissed(workDay(d, '08:00', '17:00', ['08:10', '08:25']), 300, 60, NOW)).toBe(true)     // 15-min break is not a meal
+    expect(mealMissed(workDay(d, '08:00', '17:00', ['13:30', '14:30']), 300, 60, NOW)).toBe(true)     // meal too late (after 5 h)
+    expect(mealMissed(workDay(d, '08:00', '18:00'), null, null, NOW)).toBe(false)                     // no meal rule configured
+    const r = attendance({ punches: workDay(d, '08:00', '14:00'), shifts: [], leaves: [], rules: { ...DEFAULT_RULES, mealAfterMinutes: 300, mealMinMinutes: 60 }, from: d, to: d, now: NOW })
+    expect(r.totals.mealMissedDays).toBe(1)
+  })
+})

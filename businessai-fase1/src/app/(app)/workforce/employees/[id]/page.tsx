@@ -5,7 +5,7 @@ import { SubmitButton } from '@/components/submit-button'
 import { NoWorkforceAccess, WorkforceNav } from '@/components/workforce-nav'
 import { workforcePage } from '@/lib/workforce/page'
 import { addDays, attendance, hhmm, localDay, periodFor, weekStart, type Punch } from '@/lib/workforce/hours'
-import { leaveLabel, localTime, punchLabel, wfMessage } from '@/lib/workforce/context'
+import { leaveLabel, localTime, punchLabel, ruleSets, wfMessage } from '@/lib/workforce/context'
 import { clearEmployeePin, createEmployeeAccess, decideCorrection, requestCorrection, revokeEmployeeAccess, setEmployeePin, updateEmployee } from '@/app/actions/workforce'
 
 export const dynamic = 'force-dynamic'
@@ -45,6 +45,8 @@ export default async function EmployeePage({ params, searchParams }: { params: P
     access.manages ? supabase.rpc('employee_pay', { emp: id }) : Promise.resolve({ data: null }),
     supabase.from('workforce_events').select('id, entity, action, details, created_at').eq('employee_id', id).order('created_at', { ascending: false }).limit(25),
   ])
+  const sets = access.manages ? await ruleSets(supabase, companyId) : []
+  const { data: groupRow } = sets.length ? await supabase.from('employees').select('rule_set_id').eq('id', id).maybeSingle() : { data: null }
   const { data: pinData } = await supabase.rpc('employee_pin_status', { emp: id })
   const pin = Array.isArray(pinData) ? (pinData[0] as { pin_set: boolean; set_at: string | null; locked_until: string | null } | undefined) : undefined
   const all = (punchData ?? []) as P[]
@@ -202,6 +204,14 @@ export default async function EmployeePage({ params, searchParams }: { params: P
               </label>
               {field('hire_date', tr('Ingreso', 'Hire date'), { type: 'date' })}
               {field('termination_date', tr('Fecha de baja', 'Termination date'), { type: 'date' })}
+              {sets.length > 0 && (
+                <label className="field-label">{tr('Grupo de reglas', 'Rule group')}
+                  <select name="rule_set_id" defaultValue={(groupRow as { rule_set_id: string | null } | null)?.rule_set_id ?? ''} className="field mt-1">
+                    <option value="">{tr('Valores de la empresa', 'Company defaults')}</option>
+                    {sets.filter((g) => !g.archived_at).map((g) => <option key={g.id} value={g.id}>{g.name}{g.exempt ? ` · ${tr('exento', 'exempt')}` : ''}</option>)}
+                  </select>
+                </label>
+              )}
               <label className="field-label">{tr('Pago', 'Pay')}
                 <select name="pay_type" defaultValue={emp.pay_type} className="field mt-1"><option value="hourly">{tr('Por hora', 'Hourly')}</option><option value="salary">{tr('Salario', 'Salary')}</option></select>
               </label>
@@ -236,8 +246,8 @@ export default async function EmployeePage({ params, searchParams }: { params: P
             </p>
             <form action={setEmployeePin} className="grid grid-cols-2 gap-2" autoComplete="off">
               <input type="hidden" name="employee_id" value={id} /><input type="hidden" name="back" value={back} />
-              <input name="pin" type="password" inputMode="numeric" pattern="[0-9]{4,8}" required autoComplete="new-password" placeholder={tr('PIN nuevo', 'New PIN')} aria-label={tr('PIN nuevo', 'New PIN')} className="field" />
-              <input name="pin_confirm" type="password" inputMode="numeric" pattern="[0-9]{4,8}" required autoComplete="new-password" placeholder={tr('Repetir PIN', 'Repeat PIN')} aria-label={tr('Repetir PIN', 'Repeat PIN')} className="field" />
+              <input name="pin" type="password" inputMode="numeric" pattern="[0-9]{6}" minLength={6} maxLength={6} required autoComplete="new-password" placeholder={tr('PIN nuevo', 'New PIN')} aria-label={tr('PIN nuevo', 'New PIN')} className="field" />
+              <input name="pin_confirm" type="password" inputMode="numeric" pattern="[0-9]{6}" minLength={6} maxLength={6} required autoComplete="new-password" placeholder={tr('Repetir PIN', 'Repeat PIN')} aria-label={tr('Repetir PIN', 'Repeat PIN')} className="field" />
               <button type="submit" className="btn-secondary btn-sm col-span-2">{pin?.pin_set ? tr('Cambiar PIN (desbloquea)', 'Change PIN (unlocks)') : tr('Asignar PIN', 'Set PIN')}</button>
             </form>
             {pin?.pin_set && (

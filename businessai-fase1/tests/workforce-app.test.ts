@@ -54,8 +54,8 @@ describe('database errors → messages', () => {
 describe('CSV export', () => {
   const row: ReportRow = {
     id: '1', name: 'Pérez, Ana', number: '7', department: 'Taller',
-    totals: { workedMinutes: 2880, regularMinutes: 2400, overtimeMinutes: 480, breakMinutes: 300, scheduledMinutes: 2400, lateDays: 1, lateMinutes: 20, absences: 0, leaveDays: 0, openSessions: 0, reviewDays: 0 },
-    days: [{ day: '2026-11-09', firstIn: '2026-11-09T12:00:00Z', lastOut: '2026-11-09T21:00:00Z', workedMinutes: 480, breakMinutes: 60, regularMinutes: 480, overtimeMinutes: 0, scheduledMinutes: 480, lateMinutes: 0, absent: false, leave: null, openSession: false, needsReview: false }],
+    totals: { workedMinutes: 2880, regularMinutes: 2400, overtimeMinutes: 480, breakMinutes: 300, scheduledMinutes: 2400, lateDays: 1, lateMinutes: 20, absences: 0, leaveDays: 0, openSessions: 0, reviewDays: 0, mealMissedDays: 0 },
+    days: [{ day: '2026-11-09', firstIn: '2026-11-09T12:00:00Z', lastOut: '2026-11-09T21:00:00Z', workedMinutes: 480, breakMinutes: 60, regularMinutes: 480, overtimeMinutes: 0, scheduledMinutes: 480, lateMinutes: 0, absent: false, leave: null, openSession: false, needsReview: false, mealMissed: false }],
   }
   it('summary per employee with Spanish headers', () => {
     const csv = reportCsv([row], false, 'es')

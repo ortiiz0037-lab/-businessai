@@ -5,7 +5,9 @@ import { workforcePage } from '@/lib/workforce/page'
 import { wfMessage } from '@/lib/workforce/context'
 import { roleLabel } from '@/lib/team'
 import { cookies } from 'next/headers'
-import { createDepartment, createKiosk, revokeKiosk, saveWorkforceSettings, setSupervisor } from '@/app/actions/workforce'
+import { applyJurisdiction, archiveRuleSet, createDepartment, createKiosk, revokeKiosk, saveRuleSet, saveWorkforceSettings, setSupervisor } from '@/app/actions/workforce'
+import { ruleSets } from '@/lib/workforce/context'
+import { hhmm } from '@/lib/workforce/hours'
 
 export const dynamic = 'force-dynamic'
 const ZONES = ['America/Puerto_Rico', 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'America/Santo_Domingo', 'America/Mexico_City', 'America/Bogota', 'Europe/Madrid', 'UTC']
@@ -16,12 +18,16 @@ export default async function WorkforceSettingsPage({ searchParams }: { searchPa
   const { locale, tr, supabase, companyId, access, rules } = await workforcePage()
   if (!access.manages) return <NoWorkforceAccess tr={tr} unavailable={!access.available} />
   const [{ data: settings }, { data: deptData }, { data: supData }, { data: members }, { data: kioskData }] = await Promise.all([
-    supabase.from('workforce_settings').select('overtime_multiplier').eq('company_id', companyId).maybeSingle(),
+    supabase.from('workforce_settings').select('*').eq('company_id', companyId).maybeSingle(),
     supabase.from('departments').select('id, name').eq('company_id', companyId).is('archived_at', null).order('name'),
     supabase.from('department_supervisors').select('department_id, user_id').eq('company_id', companyId),
     supabase.rpc('company_members', { target: companyId }),
     supabase.from('time_clock_kiosks').select('id, name, created_at, revoked_at, last_used_at').eq('company_id', companyId).order('created_at', { ascending: false }),
   ])
+  const [sets, { data: jurData }] = await Promise.all([ruleSets(supabase, companyId), supabase.from('labor_jurisdictions').select('*').order('code')])
+  const jurisdictions = (jurData ?? []) as { code: string; name_es: string; name_en: string; note_es: string; note_en: string }[]
+  const ws = (settings ?? {}) as { jurisdiction?: string | null; meal_break_after_minutes?: number | null; meal_break_min_minutes?: number | null; meal_alert_before_minutes?: number | null; overtime_multiplier?: number | null }
+  const hrs = (m: number | null | undefined) => (m === null || m === undefined ? '' : String(m / 60))
   const kiosks = (kioskData ?? []) as { id: string; name: string; created_at: string; revoked_at: string | null; last_used_at: string | null }[]
   const setupLink = (await cookies()).get('ba_kiosk_setup')?.value ?? null
   const depts = (deptData ?? []) as { id: string; name: string }[]
@@ -29,7 +35,7 @@ export default async function WorkforceSettingsPage({ searchParams }: { searchPa
   const team = ((members ?? []) as { user_id: string; email: string | null; role: string; status: string }[]).filter((m) => m.status === 'active')
   const email = (id: string) => team.find((m) => m.user_id === id)?.email ?? id.slice(0, 8)
   const weekDays = locale === 'en' ? ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] : ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
-  const done: Record<string, string> = { kiosk: tr('Tableta registrada.', 'Tablet registered.'), kiosk_revoked: tr('Tableta desactivada.', 'Tablet deactivated.'),
+  const done: Record<string, string> = { template: tr('Plantilla aplicada; revisa los valores.', 'Template applied; review the values.'), group: tr('Grupo guardado.', 'Group saved.'), kiosk: tr('Tableta registrada.', 'Tablet registered.'), kiosk_revoked: tr('Tableta desactivada.', 'Tablet deactivated.'),
     saved: tr('Reglas guardadas.', 'Rules saved.'), department: tr('Departamento creado.', 'Department created.'), supervisor: tr('Supervisores actualizados.', 'Supervisors updated.') }
 
   return (
@@ -62,10 +68,69 @@ export default async function WorkforceSettingsPage({ searchParams }: { searchPa
           <label className="field-label">{tr('Extra después de (horas a la semana; vacío = no aplica)', 'Overtime after (hours a week; empty = none)')}
             <input name="weekly_hours" inputMode="decimal" defaultValue={rules.weeklyOvertimeAfter === null ? '' : rules.weeklyOvertimeAfter / 60} className="field mt-1" /></label>
           <label className="field-label">{tr('Multiplicador de horas extra', 'Overtime multiplier')}
-            <input name="overtime_multiplier" inputMode="decimal" defaultValue={settings?.overtime_multiplier ?? 1.5} className="field mt-1" /></label>
+            <input name="overtime_multiplier" inputMode="decimal" defaultValue={ws.overtime_multiplier ?? 1.5} className="field mt-1" /></label>
+          {jurisdictions.length > 0 && (
+            <>
+              <label className="field-label">{tr('Comida antes de (horas de trabajo continuo; vacío = sin regla)', 'Meal before (hours of continuous work; empty = no rule)')}
+                <input name="meal_after_hours" inputMode="decimal" defaultValue={hrs(ws.meal_break_after_minutes)} className="field mt-1" /></label>
+              <label className="field-label">{tr('Duración mínima de la comida (min)', 'Minimum meal length (min)')}
+                <input name="meal_min_minutes" type="number" min={10} max={180} defaultValue={ws.meal_break_min_minutes ?? ''} className="field mt-1" /></label>
+              <label className="field-label">{tr('Avisar antes (min)', 'Alert before (min)')}
+                <input name="meal_alert_before" type="number" min={0} max={120} defaultValue={ws.meal_alert_before_minutes ?? 15} className="field mt-1" /></label>
+            </>
+          )}
           <div className="sm:col-span-2 lg:col-span-3"><SubmitButton pendingLabel={tr('Guardando…', 'Saving…')} className="sm:w-auto">{tr('Guardar reglas', 'Save rules')}</SubmitButton></div>
         </form>
       </section>
+
+      {jurisdictions.length > 0 && (
+        <section className="card p-5" aria-labelledby="jur-title">
+          <h2 id="jur-title" className="font-display text-lg font-semibold text-fg">{tr('Jurisdicción y grupos de reglas', 'Jurisdiction and rule groups')}</h2>
+          <p className="mt-1 text-sm text-muted">{tr(`Jurisdicción actual de la empresa: ${ws.jurisdiction ?? 'sin elegir'}. Las plantillas solo copian valores de referencia que puedes cambiar; nunca se aplican solas.`,
+            `Current company jurisdiction: ${ws.jurisdiction ?? 'not chosen'}. Templates only copy reference values you can change; they are never applied on their own.`)}</p>
+          <form action={applyJurisdiction} className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+            <select name="code" aria-label={tr('Plantilla', 'Template')} className="field">
+              {jurisdictions.map((j) => <option key={j.code} value={j.code}>{locale === 'en' ? j.name_en : j.name_es}</option>)}
+            </select>
+            <select name="rule_set_id" aria-label={tr('Aplicar a', 'Apply to')} className="field">
+              <option value="">{tr('Valores de la empresa', 'Company defaults')}</option>
+              {sets.filter((g) => !g.archived_at).map((g) => <option key={g.id} value={g.id}>{tr('Grupo', 'Group')}: {g.name}</option>)}
+            </select>
+            <button type="submit" className="btn-secondary">{tr('Aplicar plantilla', 'Apply template')}</button>
+          </form>
+          <ul className="mt-2 space-y-1 text-xs text-muted">{jurisdictions.map((j) => <li key={j.code}><strong>{j.code}</strong>: {locale === 'en' ? j.note_en : j.note_es}</li>)}</ul>
+
+          <h3 className="mt-5 font-semibold text-fg">{tr('Grupos de reglas', 'Rule groups')}</h3>
+          <p className="text-xs text-muted">{tr('Para empleados exentos, acuerdos especiales u otras condiciones. Un empleado sin grupo usa los valores de la empresa. Horas vacías = no aplica.',
+            'For exempt employees, special agreements or other conditions. An employee without a group uses the company defaults. Empty hours = does not apply.')}</p>
+          <div className="mt-3 space-y-3">
+            {[...sets, null].map((g) => (
+              <form key={g?.id ?? 'new'} action={saveRuleSet} className={`grid gap-2 rounded-xl border p-3 sm:grid-cols-4 ${g?.archived_at ? 'border-line opacity-60' : 'border-line'}`}>
+                {g && <input type="hidden" name="id" value={g.id} />}
+                <label className="field-label sm:col-span-2">{g ? tr('Grupo', 'Group') : tr('Nuevo grupo', 'New group')}<input name="name" required maxLength={80} defaultValue={g?.name ?? ''} className="field mt-1" /></label>
+                <label className="field-label">{tr('Jurisdicción', 'Jurisdiction')}
+                  <select name="jurisdiction" defaultValue={g?.jurisdiction ?? ''} className="field mt-1"><option value="">—</option>{jurisdictions.map((j) => <option key={j.code} value={j.code}>{j.code}</option>)}</select></label>
+                <label className="field-label">{tr('Exento de extras', 'Overtime exempt')}
+                  <select name="exempt" defaultValue={g?.exempt ? 'yes' : 'no'} className="field mt-1"><option value="no">{tr('No', 'No')}</option><option value="yes">{tr('Sí', 'Yes')}</option></select></label>
+                <label className="field-label">{tr('Extra/día (h)', 'OT/day (h)')}<input name="daily_hours" inputMode="decimal" defaultValue={hrs(g?.daily_overtime_after_minutes)} className="field mt-1" /></label>
+                <label className="field-label">{tr('Extra/semana (h)', 'OT/week (h)')}<input name="weekly_hours" inputMode="decimal" defaultValue={hrs(g?.weekly_overtime_after_minutes)} className="field mt-1" /></label>
+                <label className="field-label">{tr('Comida antes de (h)', 'Meal before (h)')}<input name="meal_after_hours" inputMode="decimal" defaultValue={hrs(g?.meal_break_after_minutes)} className="field mt-1" /></label>
+                <label className="field-label">{tr('Comida mín. (min)', 'Meal min (min)')}<input name="meal_min_minutes" type="number" min={10} max={180} defaultValue={g?.meal_break_min_minutes ?? ''} className="field mt-1" /></label>
+                <div className="flex items-end gap-2 sm:col-span-4">
+                  <button type="submit" className="btn-primary btn-sm">{g ? tr('Guardar', 'Save') : tr('Crear grupo', 'Create group')}</button>
+                  {g && <span className="text-xs text-muted">{g.exempt ? tr('Exento', 'Exempt') : `${g.daily_overtime_after_minutes ? hhmm(g.daily_overtime_after_minutes) : '—'} / ${g.weekly_overtime_after_minutes ? hhmm(g.weekly_overtime_after_minutes) : '—'}`}</span>}
+                </div>
+              </form>
+            ))}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {sets.map((g) => (
+              <form key={g.id} action={archiveRuleSet}><input type="hidden" name="id" value={g.id} /><input type="hidden" name="restore" value={g.archived_at ? 'yes' : 'no'} />
+                <button type="submit" className="btn-secondary btn-sm">{g.archived_at ? tr(`Restaurar ${g.name}`, `Restore ${g.name}`) : tr(`Archivar ${g.name}`, `Archive ${g.name}`)}</button></form>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="card p-5" aria-labelledby="kiosk-title">
         <h2 id="kiosk-title" className="font-display text-lg font-semibold text-fg">{tr('Tabletas compartidas (modo PIN)', 'Shared tablets (PIN mode)')}</h2>

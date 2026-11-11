@@ -6,19 +6,23 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { fetchAllPages } from '@/lib/supabase/paged'
+import { ruleSets, rulesFor } from '@/lib/workforce/context'
 import { addDays, attendance, hhmm, toCsv, weekStart, type DayRow, type Punch, type Rules, type Totals } from '@/lib/workforce/hours'
 
 export type ReportRow = { id: string; name: string; number: string | null; department: string | null; totals: Totals; days: DayRow[] }
 
 export async function buildReport(supabase: SupabaseClient, input: { companyId: string; from: string; to: string; rules: Rules; department?: string | null; employee?: string | null }) {
-  let q = supabase.from('employees').select('id, first_name, last_name, employee_number, department_id').eq('company_id', input.companyId).neq('status', 'terminated')
+  const sets = await ruleSets(supabase, input.companyId)
+  const withGroups = sets.length > 0
+  let q = supabase.from('employees').select(withGroups ? 'id, first_name, last_name, employee_number, department_id, rule_set_id' : 'id, first_name, last_name, employee_number, department_id')
+    .eq('company_id', input.companyId).neq('status', 'terminated')
   if (input.department) q = q.eq('department_id', input.department)
   if (input.employee) q = q.eq('id', input.employee)
   const [{ data: emps }, { data: depts }] = await Promise.all([
     q.order('first_name').limit(500),
     supabase.from('departments').select('id, name').eq('company_id', input.companyId),
   ])
-  const employees = (emps ?? []) as { id: string; first_name: string; last_name: string; employee_number: string | null; department_id: string | null }[]
+  const employees = (emps ?? []) as unknown as { id: string; first_name: string; last_name: string; employee_number: string | null; department_id: string | null; rule_set_id?: string | null }[]
   const deptName = new Map(((depts ?? []) as { id: string; name: string }[]).map((d) => [d.id, d.name]))
   const ids = employees.map((e) => e.id)
   if (!ids.length) return [] as ReportRow[]
@@ -37,7 +41,7 @@ export async function buildReport(supabase: SupabaseClient, input: { companyId: 
   return employees.map((e): ReportRow => {
     const r = attendance({
       punches: punches.rows.filter((p) => p.employee_id === e.id), shifts: shifts.rows.filter((s) => s.employee_id === e.id),
-      leaves: leaves.rows.filter((l) => l.employee_id === e.id), rules: input.rules, from: input.from, to: input.to,
+      leaves: leaves.rows.filter((l) => l.employee_id === e.id), rules: rulesFor(input.rules, sets.find((x) => x.id === e.rule_set_id)), from: input.from, to: input.to,
     })
     return { id: e.id, name: `${e.first_name} ${e.last_name}`, number: e.employee_number, department: e.department_id ? deptName.get(e.department_id) ?? null : null, totals: r.totals, days: r.days }
   })
@@ -48,10 +52,10 @@ export function reportCsv(rows: ReportRow[], detail: boolean, locale: 'es' | 'en
   const en = locale === 'en'
   if (!detail) {
     return toCsv([
-      en ? ['Employee', 'Number', 'Department', 'Worked', 'Regular', 'Overtime', 'Breaks', 'Scheduled', 'Late days', 'Late minutes', 'Absences', 'Leave days', 'Open sessions', 'Days to review (>16 h)']
-         : ['Empleado', 'Número', 'Departamento', 'Trabajado', 'Regular', 'Extra', 'Descansos', 'Programado', 'Días tarde', 'Minutos tarde', 'Ausencias', 'Días de permiso', 'Sesiones abiertas', 'Días a revisar (>16 h)'],
+      en ? ['Employee', 'Number', 'Department', 'Worked', 'Regular', 'Overtime', 'Breaks', 'Scheduled', 'Late days', 'Late minutes', 'Absences', 'Leave days', 'Open sessions', 'Days to review (>16 h)', 'Missed meal periods']
+         : ['Empleado', 'Número', 'Departamento', 'Trabajado', 'Regular', 'Extra', 'Descansos', 'Programado', 'Días tarde', 'Minutos tarde', 'Ausencias', 'Días de permiso', 'Sesiones abiertas', 'Días a revisar (>16 h)', 'Comidas incumplidas'],
       ...rows.map((r) => [r.name, r.number, r.department, hhmm(r.totals.workedMinutes), hhmm(r.totals.regularMinutes), hhmm(r.totals.overtimeMinutes),
-        hhmm(r.totals.breakMinutes), hhmm(r.totals.scheduledMinutes), r.totals.lateDays, r.totals.lateMinutes, r.totals.absences, r.totals.leaveDays, r.totals.openSessions, r.totals.reviewDays]),
+        hhmm(r.totals.breakMinutes), hhmm(r.totals.scheduledMinutes), r.totals.lateDays, r.totals.lateMinutes, r.totals.absences, r.totals.leaveDays, r.totals.openSessions, r.totals.reviewDays, r.totals.mealMissedDays]),
     ])
   }
   return toCsv([

@@ -139,12 +139,12 @@ export default async function ClockPage({ searchParams }: { searchParams: Promis
 
       <details className="card p-5">
         <summary className="cursor-pointer font-display text-lg font-semibold text-fg">{tr('Mi PIN para la tableta de la empresa', 'My PIN for the company tablet')}</summary>
-        <p className="mt-2 text-xs text-muted">{tr('Con tu número de empleado y este PIN puedes ponchar en la tableta compartida. No lo compartas. Entre 4 y 8 dígitos; no se aceptan PIN fáciles como 1234.',
-          'With your employee number and this PIN you can punch on the shared tablet. Do not share it. 4 to 8 digits; easy PINs like 1234 are refused.')}</p>
+        <p className="mt-2 text-xs text-muted">{tr('Con tu número de empleado y este PIN puedes ponchar en la tableta compartida. No lo compartas. Exactamente 6 dígitos; no se aceptan PIN fáciles como 123456.',
+          'With your employee number and this PIN you can punch on the shared tablet. Do not share it. Exactly 6 digits; easy PINs like 123456 are refused.')}</p>
         <form action={setEmployeePin} className="mt-3 grid grid-cols-2 gap-2" autoComplete="off">
           <input type="hidden" name="employee_id" value={emp.id} /><input type="hidden" name="back" value={back} />
-          <input name="pin" type="password" inputMode="numeric" pattern="[0-9]{4,8}" required autoComplete="new-password" placeholder="PIN" aria-label="PIN" className="field" />
-          <input name="pin_confirm" type="password" inputMode="numeric" pattern="[0-9]{4,8}" required autoComplete="new-password" placeholder={tr('Repetir', 'Repeat')} aria-label={tr('Repetir PIN', 'Repeat PIN')} className="field" />
+          <input name="pin" type="password" inputMode="numeric" pattern="[0-9]{6}" minLength={6} maxLength={6} required autoComplete="new-password" placeholder="PIN" aria-label="PIN" className="field" />
+          <input name="pin_confirm" type="password" inputMode="numeric" pattern="[0-9]{6}" minLength={6} maxLength={6} required autoComplete="new-password" placeholder={tr('Repetir', 'Repeat')} aria-label={tr('Repetir PIN', 'Repeat PIN')} className="field" />
           <div className="col-span-2"><SubmitButton pendingLabel="…">{tr('Guardar PIN', 'Save PIN')}</SubmitButton></div>
         </form>
       </details>

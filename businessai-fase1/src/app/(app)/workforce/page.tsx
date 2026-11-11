@@ -6,7 +6,7 @@ import { NoWorkforceAccess, WorkforceNav } from '@/components/workforce-nav'
 import { workforcePage } from '@/lib/workforce/page'
 import { attendance, hhmm, localDay, type Punch } from '@/lib/workforce/hours'
 import { localTime, nextPunches, punchLabel, stateLabel, wfMessage } from '@/lib/workforce/context'
-import { punchAction } from '@/app/actions/workforce'
+import { acknowledgeMealAlert, punchAction } from '@/app/actions/workforce'
 
 export const dynamic = 'force-dynamic'
 
@@ -31,6 +31,12 @@ export default async function WorkforceLivePage({ searchParams }: { searchParams
     supabase.from('leave_requests').select('id', { count: 'exact', head: true }).eq('company_id', companyId).eq('status', 'pending'),
   ])
   const employees = (empData ?? []) as Emp[]
+  // Meal periods (0022): evaluated while this panel is open; kept as history.
+  await supabase.rpc('refresh_meal_alerts', { target: companyId })
+  const { data: alertData } = await supabase.from('meal_alerts').select('id, employee_id, kind, due_at, detected_at')
+    .eq('company_id', companyId).is('acknowledged_at', null).order('detected_at', { ascending: false }).limit(50)
+  const mealAlerts = (alertData ?? []) as { id: string; employee_id: string; kind: string; due_at: string; detected_at: string }[]
+  const empName = (eid: string) => { const x = employees.find((e) => e.id === eid); return x ? `${x.first_name} ${x.last_name}` : '—' }
   const stateOf = new Map(((nowData ?? []) as { employee_id: string; state: string; since: string | null }[]).map((r) => [r.employee_id, r]))
   const punches = (punchData ?? []) as (Punch & { employee_id: string })[]
   const shifts = (shiftData ?? []) as { employee_id: string; starts_at: string; ends_at: string; break_minutes: number }[]
@@ -73,6 +79,29 @@ export default async function WorkforceLivePage({ searchParams }: { searchParams
         <Link href="/workforce/requests" className="alert-info block p-4">
           {tr(`${pendingCorr ?? 0} correcciones y ${pendingLeave ?? 0} ausencias esperan aprobación →`, `${pendingCorr ?? 0} corrections and ${pendingLeave ?? 0} leave requests await approval →`)}
         </Link>
+      )}
+
+      {mealAlerts.length > 0 && (
+        <section className="card p-5" aria-labelledby="meal-title">
+          <h2 id="meal-title" className="font-display text-lg font-semibold text-fg">{tr('Alertas de periodo de comida', 'Meal period alerts')} <span className="badge-warning">{mealAlerts.length}</span></h2>
+          <ul className="mt-2 divide-y divide-line text-sm">
+            {mealAlerts.map((a) => (
+              <li key={a.id} className="flex flex-col gap-2 py-2 sm:flex-row sm:items-center sm:justify-between">
+                <span>
+                  <span className={a.kind === 'missed' ? 'badge-danger' : 'badge-warning'}>{a.kind === 'missed' ? tr('Incumplido', 'Missed') : tr('Se aproxima', 'Approaching')}</span>{' '}
+                  <strong className="text-fg">{empName(a.employee_id)}</strong> · {tr('comida antes de las', 'meal due by')} {localTime(a.due_at, rules.timezone, locale)}
+                </span>
+                <form action={acknowledgeMealAlert} className="flex gap-2">
+                  <input type="hidden" name="id" value={a.id} /><input type="hidden" name="back" value="/workforce" />
+                  <input name="note" maxLength={300} placeholder={tr('Nota (opcional)', 'Note (optional)')} aria-label={tr('Nota', 'Note')} className="field w-40 py-1.5 text-sm" />
+                  <button type="submit" className="btn-secondary btn-sm">{tr('Enterado', 'Acknowledge')}</button>
+                </form>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs text-muted">{tr('Las alertas se evalúan con cada ponche y mientras este panel está abierto. El aviso queda en el historial con quién lo atendió.',
+            'Alerts are evaluated with every punch and while this panel is open. The acknowledgement stays in the history with who handled it.')}</p>
+        </section>
       )}
 
       <section className="card overflow-hidden" aria-labelledby="now-title">

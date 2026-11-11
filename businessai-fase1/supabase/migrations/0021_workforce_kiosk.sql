@@ -10,8 +10,8 @@
 --    it in an httpOnly cookie. Nobody signs in on the tablet: it carries no
 --    user account, so a stolen tablet exposes no account and no data.
 --    Revoking the kiosk stops it immediately.
--- 2. PINs. An employee punches at a kiosk with employee number + a 4–8 digit
---    PIN (set by the employee at /clock or by a manager). The PIN is stored
+-- 2. PINs. An employee punches at a kiosk with employee number + a 6-digit
+--    PIN (owner decision: exactly 6 digits, mandatory) (set by the employee at /clock or by a manager). The PIN is stored
 --    as a salted, iterated SHA-256 (5,000 rounds) in a table no API role can
 --    read. Trivial PINs (all equal digits, ascending / descending runs) are
 --    refused.
@@ -118,7 +118,7 @@ begin
   if e.status <> 'active' then
     raise exception 'EMPLOYEE_INACTIVE' using errcode = 'P0001';
   end if;
-  if pin is null or pin !~ '^[0-9]{4,8}$' then
+  if pin is null or pin !~ '^[0-9]{6}$' then
     raise exception 'PIN_INVALID' using errcode = 'P0001';
   end if;
   if public.wf_pin_trivial(pin) then
@@ -239,7 +239,7 @@ begin
     select * into p from public.employee_pins where employee_id = e.id for update;
   end if;
   if e.id is null or p.employee_id is null or (p.locked_until is not null and p.locked_until > now())
-     or emp_pin is null or emp_pin !~ '^[0-9]{4,8}$' or public.wf_pin_hash(p.salt, emp_pin) <> p.pin_hash then
+     or emp_pin is null or emp_pin !~ '^[0-9]{6}$' or public.wf_pin_hash(p.salt, emp_pin) <> p.pin_hash then
     -- Count the failure (stored: this function returns, it does not raise).
     update public.time_clock_kiosks
        set failed_count = case when failed_window_start is null or failed_window_start <= now() - interval '10 minutes' then 1 else failed_count + 1 end,
@@ -371,7 +371,9 @@ begin
      or has_table_privilege('anon', 'public.time_punches', 'SELECT') then
     raise exception 'BA0021 self-check failed: PINs or kiosk tokens readable';
   end if;
-  if (select count(*) from pg_trigger where not tgisinternal and tgname = 'ba_wf_append_only') <> 4 then
+  if (select count(*) from pg_trigger where not tgisinternal and tgname = 'ba_wf_append_only'
+        and tgrelid in ('public.workforce_events'::regclass, 'public.time_punches'::regclass,
+                        'public.punch_corrections'::regclass, 'public.leave_requests'::regclass)) <> 4 then
     raise exception 'BA0021 self-check failed: append-only triggers';
   end if;
 end $$;

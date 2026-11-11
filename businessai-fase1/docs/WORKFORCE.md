@@ -47,7 +47,7 @@ Ambas son **borradores con `STAGING-GATE`: no aplicadas en ningún entorno.**
    la base de datos solo su SHA-256.
 2. La tableta **no inicia sesión con ninguna cuenta**: si se pierde no expone
    cuentas ni datos; se desactiva con un clic y deja de funcionar al instante.
-3. Cada empleado poncha con **número de empleado + PIN de 4–8 dígitos**. El
+3. Cada empleado poncha con **número de empleado + PIN de exactamente 6 dígitos** (obligatorio, decisión del propietario). El
    PIN se guarda con sal aleatoria y 5 000 iteraciones de SHA-256 en una tabla
    que ningún rol de la API puede leer. Se rechazan PIN triviales (1234, 0000,
    9876…).
@@ -59,9 +59,9 @@ Ambas son **borradores con `STAGING-GATE`: no aplicadas en ningún entorno.**
 5. Privacidad: la tableta solo recibe nombre de pila, tipo de ponche y hora;
    la confirmación se borra a los 6 segundos. No puede listar ni leer nada.
 
-Límites conocidos: un PIN de 4 dígitos es débil por naturaleza; el bloqueo lo
-compensa en línea, pero quien acceda directamente a la base de datos podría
-probar PIN offline. Recomendación: PIN de 6 dígitos. Un compañero que conozca
+Límites conocidos: un PIN de 6 dígitos (1 000 000 combinaciones) sigue siendo
+corto; el bloqueo lo protege en línea, pero quien acceda directamente a la base
+de datos podría probar PIN offline. Un compañero que conozca
 el PIN de otro puede ponchar por él (igual que con tarjetas): las correcciones
 y el historial quedan como evidencia.
 
@@ -92,11 +92,28 @@ de reglas y los informes lo indican. Todavía **no** se calculan: periodos de
 comida obligatorios, importes de horas extra (el multiplicador se guarda para
 la futura nómina), ni reglas por empleado.
 
+## Reglas por empleado, jurisdicciones y comidas (0022)
+
+* **Jurisdicciones:** catálogo de plantillas de **referencia** (Puerto Rico,
+  EE. UU. federal, California, personalizada). Una plantilla solo copia
+  valores a la empresa o a un grupo cuando un administrador la aplica; todo
+  sigue siendo editable. Nada se asume: sin plantilla no hay reglas de comida.
+* **Grupos de reglas:** cada empleado usa los valores de la empresa o un
+  grupo (exentos, convenios, turnos especiales) con sus propias horas extra
+  diarias/semanales, multiplicador, exención y reglas de comida. La base de
+  datos (`wf_rules`) y los informes usan las mismas reglas.
+* **Alertas de comida:** trabajo continuo sin una pausa de al menos la
+  duración mínima antes del límite produce “se aproxima” (N minutos antes) e
+  “incumplido”. Una pausa corta no cuenta como comida. Se evalúan con cada
+  ponche y mientras el panel en vivo está abierto; quedan en un historial que
+  no se borra, con quién las atendió. Las ven los supervisores del empleado,
+  los administradores y el propio empleado; nadie atiende su propia alerta.
+  **Limitación:** sin un programador (Supabase Cron, no configurado) una
+  alerta “se aproxima” solo se genera si alguien tiene el panel abierto o hay
+  un ponche; no se envían correos (Resend no configurado).
+
 ## Decisiones pendientes
 
 | Tema | Hoy | Decidir |
 |---|---|---|
-| Reglas por empleado (exentos, pre-2017) | Una regla por empresa | ¿Reglas por empleado o por grupo? |
-| Periodo de comida obligatorio | No se valida | ¿Alertar cuando falte? |
-| Longitud mínima del PIN | 4 dígitos | ¿Exigir 6? |
 | Turnos nocturnos | Cuentan el día en que empiezan | Confirmar para nómina |

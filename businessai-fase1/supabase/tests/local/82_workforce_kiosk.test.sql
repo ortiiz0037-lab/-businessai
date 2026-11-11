@@ -70,15 +70,17 @@ insert into public.employees (id, company_id, first_name, last_name, employee_nu
 
 -- ------------------------------------------------------ PINs
 do $$ begin
-  perform kt.ok(kt.err('u1', format('select public.set_employee_pin(%L, %L)', kt.id('e1'), '1234')) like '%PIN_TOO_SIMPLE%', 'a sequential PIN is refused');
-  perform kt.ok(kt.err('u1', format('select public.set_employee_pin(%L, %L)', kt.id('e1'), '0000')) like '%PIN_TOO_SIMPLE%', 'a repeated-digit PIN is refused');
-  perform kt.ok(kt.err('u1', format('select public.set_employee_pin(%L, %L)', kt.id('e1'), '9876')) like '%PIN_TOO_SIMPLE%', 'a descending PIN is refused');
-  perform kt.ok(kt.err('u1', format('select public.set_employee_pin(%L, %L)', kt.id('e1'), '12a4')) like '%PIN_INVALID%', 'only 4–8 digits');
-  perform kt.ok(kt.err('u1', format('select public.set_employee_pin(%L, %L)', kt.id('e1'), '4829')) = '', 'the employee sets its own PIN');
-  perform kt.ok(kt.err('u1', format('select public.set_employee_pin(%L, %L)', kt.id('e2'), '5917')) like '%EMPLOYEE_NOT_FOUND%', 'an employee cannot set another employee''s PIN');
-  perform kt.ok(kt.err('sup', format('select public.set_employee_pin(%L, %L)', kt.id('e1'), '5917')) like '%EMPLOYEE_NOT_FOUND%', 'a supervisor cannot set PINs (manager or the employee only)');
-  perform kt.ok(kt.err('owner', format('select public.set_employee_pin(%L, %L)', kt.id('e2'), '4829')) = '', 'the owner sets employee 2''s PIN (same digits as employee 1)');
-  perform kt.ok((select count(distinct pin_hash) from public.employee_pins) = 2 and not exists (select 1 from public.employee_pins where pin_hash like '%4829%'),
+  perform kt.ok(kt.err('u1', format('select public.set_employee_pin(%L, %L)', kt.id('e1'), '123456')) like '%PIN_TOO_SIMPLE%', 'a sequential PIN is refused');
+  perform kt.ok(kt.err('u1', format('select public.set_employee_pin(%L, %L)', kt.id('e1'), '000000')) like '%PIN_TOO_SIMPLE%', 'a repeated-digit PIN is refused');
+  perform kt.ok(kt.err('u1', format('select public.set_employee_pin(%L, %L)', kt.id('e1'), '987654')) like '%PIN_TOO_SIMPLE%', 'a descending PIN is refused');
+  perform kt.ok(kt.err('u1', format('select public.set_employee_pin(%L, %L)', kt.id('e1'), '12a456')) like '%PIN_INVALID%', 'only digits');
+  perform kt.ok(kt.err('u1', format('select public.set_employee_pin(%L, %L)', kt.id('e1'), '4829')) like '%PIN_INVALID%', 'owner decision: a 4-digit PIN is refused (exactly 6)');
+  perform kt.ok(kt.err('u1', format('select public.set_employee_pin(%L, %L)', kt.id('e1'), '48291573')) like '%PIN_INVALID%', '… and so is an 8-digit PIN');
+  perform kt.ok(kt.err('u1', format('select public.set_employee_pin(%L, %L)', kt.id('e1'), '482915')) = '', 'the employee sets its own PIN');
+  perform kt.ok(kt.err('u1', format('select public.set_employee_pin(%L, %L)', kt.id('e2'), '591736')) like '%EMPLOYEE_NOT_FOUND%', 'an employee cannot set another employee''s PIN');
+  perform kt.ok(kt.err('sup', format('select public.set_employee_pin(%L, %L)', kt.id('e1'), '591736')) like '%EMPLOYEE_NOT_FOUND%', 'a supervisor cannot set PINs (manager or the employee only)');
+  perform kt.ok(kt.err('owner', format('select public.set_employee_pin(%L, %L)', kt.id('e2'), '482915')) = '', 'the owner sets employee 2''s PIN (same digits as employee 1)');
+  perform kt.ok((select count(distinct pin_hash) from public.employee_pins) = 2 and not exists (select 1 from public.employee_pins where pin_hash like '%482915%'),
                 'salted hashes: the same PIN gives different hashes and never appears in clear');
   perform kt.ok(kt.err('owner', 'select * from public.employee_pins') like '%permission denied%', 'nobody reads PIN hashes through the API (not even the owner)');
   perform kt.ok(kt.val('sup', format('select pin_set::text from public.employee_pin_status(%L)', kt.id('e1'))) = 'true', 'a supervisor sees only whether a PIN is set');
@@ -101,29 +103,29 @@ do $$ declare tok text; tokB text; r text; i int; begin
   perform kt.ok(kt.err('owner', 'select token_hash from public.time_clock_kiosks') like '%permission denied%', 'the kiosk token hash is not readable through the API');
   perform kt.ok(kt.val('', format('select company_name || '' / '' || kiosk_name from public.kiosk_info(%L)', tok)) = 'Quiosco A / Tablet de la entrada', 'the tablet shows its company and name');
   perform kt.ok(kt.val('', format('select count(*) from public.kiosk_info(%L)', repeat('0', 64))) = '0', 'a guessed token shows nothing');
-  perform kt.ok(kt.kiosk(tok, '7', '4829', 'in') = 'ok|Ana|in', 'Ana punches in at the tablet with number + PIN (no account on the tablet)');
+  perform kt.ok(kt.kiosk(tok, '7', '482915', 'in') = 'ok|Ana|in', 'Ana punches in at the tablet with number + PIN (no account on the tablet)');
   perform kt.ok((select source = 'kiosk' and recorded_by is null and kiosk_id is not null from public.time_punches where employee_id = kt.id('e1')),
                 'the punch is recorded as a kiosk punch, with the kiosk');
   perform kt.ok(exists (select 1 from public.workforce_events where employee_id = kt.id('e1') and details ->> 'source' = 'kiosk' and details ? 'kiosk_id'),
                 'the history names the kiosk');
-  perform kt.ok(kt.kiosk(tok, '7', '4829', 'in') = 'sequence|Ana|', 'no duplicate entry from the tablet');
+  perform kt.ok(kt.kiosk(tok, '7', '482915', 'in') = 'sequence|Ana|', 'no duplicate entry from the tablet');
   perform kt.ok(kt.err('', 'select count(*) from public.time_punches') like '%permission denied%', 'the tablet (anon) cannot read punches');
   perform kt.ok(kt.err('', 'select count(*) from public.employees') like '%permission denied%', 'the tablet (anon) cannot list employees');
-  perform kt.ok(kt.kiosk(tok, '7', '1111', 'out') = 'invalid||', 'wrong PIN: generic answer');
-  perform kt.ok(kt.kiosk(tok, '999', '4829', 'out') = 'invalid||', 'unknown number: the same answer (no employee enumeration)');
-  perform kt.ok(kt.kiosk(tokB, '8', '4829', 'in') = 'invalid||', 'isolation: B''s tablet cannot punch A''s employee with A''s PIN');
-  for i in 1 .. 4 loop perform kt.kiosk(tok, '7', '1111', 'out'); end loop;
+  perform kt.ok(kt.kiosk(tok, '7', '111222', 'out') = 'invalid||', 'wrong PIN: generic answer');
+  perform kt.ok(kt.kiosk(tok, '999', '482915', 'out') = 'invalid||', 'unknown number: the same answer (no employee enumeration)');
+  perform kt.ok(kt.kiosk(tokB, '8', '482915', 'in') = 'invalid||', 'isolation: B''s tablet cannot punch A''s employee with A''s PIN');
+  for i in 1 .. 4 loop perform kt.kiosk(tok, '7', '111222', 'out'); end loop;
   perform kt.ok((select locked_until > now() from public.employee_pins where employee_id = kt.id('e1')), 'five wrong PINs lock the employee PIN (the counter is really stored)');
-  perform kt.ok(kt.kiosk(tok, '7', '4829', 'out') = 'invalid||', 'while locked even the right PIN gets the generic answer');
+  perform kt.ok(kt.kiosk(tok, '7', '482915', 'out') = 'invalid||', 'while locked even the right PIN gets the generic answer');
   perform kt.ok(exists (select 1 from public.workforce_events where action = 'pin_locked' and employee_id = kt.id('e1')), 'the lock is recorded');
-  perform kt.ok(kt.err('owner', format('select public.set_employee_pin(%L, %L)', kt.id('e1'), '3857')) = '', 'a manager resets the PIN (unlocks)');
-  perform kt.ok(kt.kiosk(tok, '7', '3857', 'out') = 'ok|Ana|out', 'Ana punches out with the new PIN');
-  for i in 1 .. 20 loop perform kt.kiosk(tok, '555', '0001', 'in'); end loop;
-  perform kt.ok(kt.kiosk(tok, '8', '4829', 'in') = 'kiosk_locked||', 'twenty failures lock the tablet for 10 minutes');
+  perform kt.ok(kt.err('owner', format('select public.set_employee_pin(%L, %L)', kt.id('e1'), '385720')) = '', 'a manager resets the PIN (unlocks)');
+  perform kt.ok(kt.kiosk(tok, '7', '385720', 'out') = 'ok|Ana|out', 'Ana punches out with the new PIN');
+  for i in 1 .. 20 loop perform kt.kiosk(tok, '555', '000123', 'in'); end loop;
+  perform kt.ok(kt.kiosk(tok, '8', '482915', 'in') = 'kiosk_locked||', 'twenty failures lock the tablet for 10 minutes');
   update public.time_clock_kiosks set failed_window_start = now() - interval '11 minutes' where name = 'Tablet de la entrada';
-  perform kt.ok(kt.kiosk(tok, '8', '4829', 'in') = 'ok|Beto|in', 'after the window the tablet works again');
+  perform kt.ok(kt.kiosk(tok, '8', '482915', 'in') = 'ok|Beto|in', 'after the window the tablet works again');
   perform kt.ok(kt.err('owner', format('select public.revoke_kiosk(%L)', (select id from public.time_clock_kiosks where name = 'Tablet de la entrada'))) = '', 'the owner revokes the tablet');
-  perform kt.ok(kt.kiosk(tok, '8', '4829', 'out') = 'kiosk_invalid||', 'a revoked tablet stops at once');
+  perform kt.ok(kt.kiosk(tok, '8', '482915', 'out') = 'kiosk_invalid||', 'a revoked tablet stops at once');
 end $$;
 
 -- ------------------------------------------------------ evidence is append-only (also for maintenance)

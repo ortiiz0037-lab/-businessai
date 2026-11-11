@@ -80,6 +80,7 @@ ORDER=(
   0019_crm
   0020_workforce
   0021_workforce_kiosk
+  0022_workforce_rules
 )
 EXPECTED_VERIFY="10,0,2,0,f,0,2,3,t,t,t,"
 
