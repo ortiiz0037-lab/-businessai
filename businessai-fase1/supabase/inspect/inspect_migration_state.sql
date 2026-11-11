@@ -10,7 +10,7 @@
 -- writes. It works whatever is applied: tables that may not exist are only
 -- looked up by name (to_regclass / to_regprocedure), never queried.
 --
--- One row per migration (0001–0004 together, then 0005 … 0020):
+-- One row per migration (0001–0004 together, then 0005 … 0021):
 --   status   applied | not applied | PARTIAL — review | n/a
 --   evidence what was measured (counts, flags) — compare it with the
 --            "applied when" column.
@@ -101,6 +101,9 @@ e as (
     -- 0020
     to_regclass('public.employees') is not null as t_employees,
     to_regprocedure('public.punch(uuid, text, text)') is not null as f_punch,
+    -- 0021
+    to_regclass('public.time_clock_kiosks') is not null as t_kiosks,
+    (select count(*) from pg_trigger where not tgisinternal and tgname = 'ba_wf_append_only') as append_only_trg,
     -- staging bookkeeping (absent in Production)
     to_regclass('ba_meta.applied_migrations') is not null as t_record,
     to_regclass('ba_meta.environment') is not null        as t_marker
@@ -205,7 +208,13 @@ r(ord, migration, applied_when, status, evidence) as (
     format('employees=%s punch=%s', t_employees, f_punch)
   from e
   union all
-  select 16, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
+  select 16, '0021_workforce_kiosk', 'kiosks + 4 append-only triggers',
+    case when t_kiosks and append_only_trg = 4 then 'applied'
+         when not t_kiosks and append_only_trg = 0 then 'not applied' else 'PARTIAL — review' end,
+    format('time_clock_kiosks=%s append_only_triggers=%s/4', t_kiosks, append_only_trg)
+  from e
+  union all
+  select 17, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
     case when t_record or t_marker then 'present (staging?)' else 'absent' end,
     format('ba_meta.applied_migrations=%s ba_meta.environment=%s', t_record, t_marker)
   from e

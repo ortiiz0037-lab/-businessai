@@ -9,9 +9,11 @@ wf_race_setup() { # $1 db: company on Basic (3 employees), one linked employee
     insert into public.company_subscriptions (company_id, stripe_customer_id, stripe_subscription_id, plan, status)
       values ('f2000000-0000-4000-8000-000000000001', 'cus_wfr', 'sub_wfr', 'basic', 'active') on conflict do nothing;
     insert into public.memberships (company_id, user_id, role) values ('f2000000-0000-4000-8000-000000000001', 'f1000000-0000-4000-8000-000000000001', 'owner') on conflict do nothing;
-    delete from public.workforce_events where company_id = 'f2000000-0000-4000-8000-000000000001';
-    delete from public.time_punches where company_id = 'f2000000-0000-4000-8000-000000000001';
-    delete from public.employees where company_id = 'f2000000-0000-4000-8000-000000000001';
+    delete from public.companies where id = 'f2000000-0000-4000-8000-000000000001';   -- cascade: the only way evidence goes (0021)
+    insert into public.companies (id, name, created_by) values ('f2000000-0000-4000-8000-000000000001', 'Carrera WF', 'f1000000-0000-4000-8000-000000000001');
+    insert into public.company_subscriptions (company_id, stripe_customer_id, stripe_subscription_id, plan, status)
+      values ('f2000000-0000-4000-8000-000000000001', 'cus_wfr', 'sub_wfr', 'basic', 'active');
+    insert into public.memberships (company_id, user_id, role) values ('f2000000-0000-4000-8000-000000000001', 'f1000000-0000-4000-8000-000000000001', 'owner');
     insert into public.employees (id, company_id, first_name, last_name, user_id, email)
       values ('f3000000-0000-4000-8000-000000000001', 'f2000000-0000-4000-8000-000000000001', 'Obrero', 'Uno', 'f1000000-0000-4000-8000-000000000002', 'worker@race.test');" >/dev/null
 }
@@ -45,4 +47,29 @@ wf_race_hire() {
   wf_session "$1" $b "insert into public.employees (company_id, first_name, last_name) values ('f2000000-0000-4000-8000-000000000001', 'Tres', 'B')" 0.3 0 >"$WORK/wf4.out" & local p2=$!
   wait $p1 || true; wait $p2 || true
   echo "$(cat "$WORK/wf3.out" "$WORK/wf4.out" | grep -c SESSION_OK)|$(psqlq -d "$1" -tAc "select count(*) from public.employees where company_id = 'f2000000-0000-4000-8000-000000000001' and status = 'active'")|$(cat "$WORK/wf3.out" "$WORK/wf4.out" | grep -o 'PLAN_LIMIT_EMPLOYEES' | head -1)"
+}
+# Plan limits under concurrency for any plan: preload (limit − 1) active
+# employees (+ 2 inactive), then two managers act at the same time.
+# $1 db, $2 plan, $3 limit, $4 mode (hire | reactivate) → "ok sessions|active|error"
+wf_race_limit() {
+  wf_race_setup "$1"
+  psqlq -d "$1" -c "update public.company_subscriptions set plan = '$2' where company_id = 'f2000000-0000-4000-8000-000000000001';
+    update public.employees set status = 'terminated' where company_id = 'f2000000-0000-4000-8000-000000000001';
+    insert into public.employees (company_id, first_name, last_name)
+      select 'f2000000-0000-4000-8000-000000000001', 'Pre' || g, 'X' from generate_series(1, $3 - 1) g;
+    insert into public.employees (id, company_id, first_name, last_name, status) values
+      ('f3000000-0000-4000-8000-0000000000a1', 'f2000000-0000-4000-8000-000000000001', 'Inactivo', 'A', 'inactive'),
+      ('f3000000-0000-4000-8000-0000000000a2', 'f2000000-0000-4000-8000-000000000001', 'Inactivo', 'B', 'inactive');" >/dev/null
+  local b=f1000000-0000-4000-8000-000000000001 q1 q2
+  if [ "$4" = reactivate ]; then
+    q1="update public.employees set status = 'active' where id = 'f3000000-0000-4000-8000-0000000000a1'"
+    q2="update public.employees set status = 'active' where id = 'f3000000-0000-4000-8000-0000000000a2'"
+  else
+    q1="insert into public.employees (company_id, first_name, last_name) values ('f2000000-0000-4000-8000-000000000001', 'Nuevo', 'A')"
+    q2="insert into public.employees (company_id, first_name, last_name) values ('f2000000-0000-4000-8000-000000000001', 'Nuevo', 'B')"
+  fi
+  wf_session "$1" $b "$q1" 0 1.5 >"$WORK/wf5.out" & local p1=$!
+  wf_session "$1" $b "$q2" 0.3 0 >"$WORK/wf6.out" & local p2=$!
+  wait $p1 || true; wait $p2 || true
+  echo "$(cat "$WORK/wf5.out" "$WORK/wf6.out" | grep -c SESSION_OK)|$(psqlq -d "$1" -tAc "select count(*) from public.employees where company_id = 'f2000000-0000-4000-8000-000000000001' and status = 'active'")|$(cat "$WORK/wf5.out" "$WORK/wf6.out" | grep -o 'PLAN_LIMIT_EMPLOYEES' | head -1)"
 }

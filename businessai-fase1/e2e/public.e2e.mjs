@@ -57,7 +57,7 @@ const VIEWPORTS = [
   ['iPad', devices['iPad (gen 7)']],
   ['desktop', { viewport: { width: 1440, height: 900 } }],
 ]
-const PUBLIC_PAGES = ['/', '/precios', '/login', '/signup', '/forgot-password', '/terminos', '/privacidad', '/invite?token=' + 'f'.repeat(64), '/clock/link?token=' + 'e'.repeat(64)]
+const PUBLIC_PAGES = ['/', '/precios', '/login', '/signup', '/forgot-password', '/terminos', '/privacidad', '/invite?token=' + 'f'.repeat(64), '/clock/link?token=' + 'e'.repeat(64), '/kiosk', '/kiosk/setup?token=' + 'd'.repeat(64)]
 const PROTECTED = ['/dashboard', '/documents', '/documents/new', '/payments', '/payments/new', '/clients', '/billing', '/settings/company',
   '/settings/team', '/clients/00000000-0000-4000-8000-000000000000', '/clients/00000000-0000-4000-8000-000000000000/edit',
   '/clock', '/workforce', '/workforce/employees', '/workforce/schedule', '/workforce/requests', '/workforce/reports', '/workforce/settings']
@@ -103,6 +103,13 @@ try {
   check(await page.locator('meta[name="referrer"][content="no-referrer"]').count() === 1, 'the employee link page sends no referrer')
   const csv = await fetch(`${BASE}/api/workforce/report?from=2026-01-01&to=2026-01-07`, { redirect: 'manual' })
   check(csv.status === 401 || csv.status === 307 || csv.status === 302, `the CSV export refuses anonymous requests (${csv.status})`)
+  // Shared tablet: public, but without an activation it shows no form and no data.
+  await page.goto(`${BASE}/kiosk?lang=es`)
+  check(await page.getByText('Tableta no activada').count() > 0 && await page.locator('input[name="pin"]').count() === 0,
+    'a tablet that was not activated shows no punch form')
+  check(await page.locator('meta[name="referrer"][content="no-referrer"]').count() === 1, 'the kiosk page sends no referrer')
+  await page.goto(`${BASE}/kiosk/setup?token=${'d'.repeat(64)}&lang=en`)
+  check(await page.getByText('The link is not valid').count() > 0, 'an unknown tablet activation link is refused')
   // Protected pages: never rendered without a session.
   for (const path of PROTECTED) {
     await page.goto(`${BASE}${path}`)

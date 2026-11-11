@@ -22,7 +22,8 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
     supabase.from('departments').select('id, name').eq('company_id', companyId).order('name'),
     supabase.from('employees').select('id, first_name, last_name').eq('company_id', companyId).neq('status', 'terminated').order('first_name').limit(500),
   ])
-  const depts = (deptData ?? []) as { id: string; name: string }[]
+  // Supervisors only see (and filter by) their own departments; RLS limits the rows anyway.
+  const depts = ((deptData ?? []) as { id: string; name: string }[]).filter((d) => access.manages || access.supervisedDepartments.includes(d.id))
   const emps = (empData ?? []) as { id: string; first_name: string; last_name: string }[]
   const dept = depts.some((d) => d.id === params.dept) ? params.dept! : ''
   const emp = emps.some((e) => e.id === params.emp) ? params.emp! : ''
@@ -85,8 +86,8 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
         )}
       </section>
       <p className="text-xs text-muted">
-        {tr(`Periodo ${f.date(from)} – ${f.date(to)} en la zona ${rules.timezone}. Horas extra: más de ${rules.dailyOvertimeAfter ? hhmm(rules.dailyOvertimeAfter) : '—'} al día y de ${rules.weeklyOvertimeAfter ? hhmm(rules.weeklyOvertimeAfter) : '—'} a la semana. Para semanas exactas, empieza el periodo el primer día de la semana.`,
-          `Period ${f.date(from)} – ${f.date(to)} in ${rules.timezone}. Overtime: over ${rules.dailyOvertimeAfter ? hhmm(rules.dailyOvertimeAfter) : '—'} a day and ${rules.weeklyOvertimeAfter ? hhmm(rules.weeklyOvertimeAfter) : '—'} a week. For exact weeks, start the period on the first day of a week.`)}
+        {tr(`Periodo ${f.date(from)} – ${f.date(to)} en la zona ${rules.timezone}. Horas extra: más de ${rules.dailyOvertimeAfter ? hhmm(rules.dailyOvertimeAfter) : '—'} al día y de ${rules.weeklyOvertimeAfter ? hhmm(rules.weeklyOvertimeAfter) : '—'} a la semana. Las horas extra semanales siempre cuentan la semana completa. Los cálculos siguen las reglas configuradas; no son asesoría legal.`,
+          `Period ${f.date(from)} – ${f.date(to)} in ${rules.timezone}. Overtime: over ${rules.dailyOvertimeAfter ? hhmm(rules.dailyOvertimeAfter) : '—'} a day and ${rules.weeklyOvertimeAfter ? hhmm(rules.weeklyOvertimeAfter) : '—'} a week. Weekly overtime always counts the whole week. Calculations follow your configured rules; they are not legal advice.`)}
       </p>
     </div>
   )

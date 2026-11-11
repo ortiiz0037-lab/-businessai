@@ -300,3 +300,78 @@ export async function setSupervisor(formData: FormData) {
   refresh()
   go('/workforce/settings', { done: 'supervisor' })
 }
+
+// ------------------------------------------------------------- PIN mode (0021)
+export async function setEmployeePin(formData: FormData) {
+  const back = backTo(formData, '/clock')
+  const emp = text(formData, 'employee_id')
+  const pin = text(formData, 'pin')
+  if (pin !== text(formData, 'pin_confirm')) go(back, { error: 'pin_mismatch' })
+  const { supabase } = await session()
+  const { error } = await supabase.rpc('set_employee_pin', { emp, pin })
+  if (error) go(back, { error: wfErrorCode(error) })
+  refresh()
+  go(back, { done: 'pin_set' })
+}
+
+export async function clearEmployeePin(formData: FormData) {
+  const back = backTo(formData, '/workforce/employees')
+  const { supabase } = await session()
+  const { error } = await supabase.rpc('clear_employee_pin', { emp: text(formData, 'employee_id') })
+  if (error) go(back, { error: wfErrorCode(error) })
+  refresh()
+  go(back, { done: 'pin_cleared' })
+}
+
+export async function createKiosk(formData: FormData) {
+  const { supabase, companyId } = await company()
+  const { data, error } = await supabase.rpc('create_kiosk', { target: companyId, kiosk_name: text(formData, 'name') })
+  if (error || typeof data !== 'string') go('/workforce/settings', { error: wfErrorCode(error) })
+  const origin = resolveAppOrigin(process.env, (await headers()).get('host'))
+  if (!origin) go('/workforce/settings', { error: 'save' })
+  const { cookies } = await import('next/headers')
+  // Shown once to the manager, to open on the tablet; never in the URL.
+  ;(await cookies()).set('ba_kiosk_setup', `${origin}/kiosk/setup?token=${data}`, {
+    httpOnly: true, secure: true, sameSite: 'lax', path: '/workforce/settings', maxAge: 600,
+  })
+  refresh()
+  go('/workforce/settings', { done: 'kiosk' })
+}
+
+export async function revokeKiosk(formData: FormData) {
+  const { supabase } = await session()
+  const { error } = await supabase.rpc('revoke_kiosk', { kiosk: text(formData, 'id') })
+  if (error) go('/workforce/settings', { error: wfErrorCode(error) })
+  refresh()
+  go('/workforce/settings', { done: 'kiosk_revoked' })
+}
+
+/** Activates THIS tablet: stores the kiosk token in an httpOnly cookie (no account). */
+export async function activateKiosk(formData: FormData) {
+  const token = text(formData, 'token')
+  if (!/^[0-9a-f]{64}$/.test(token)) redirect('/kiosk?status=kiosk_invalid')
+  const supabase = await createClient()
+  const { data } = await supabase.rpc('kiosk_info', { raw_token: token })
+  if (!Array.isArray(data) || !data.length) redirect('/kiosk?status=kiosk_invalid')
+  const { cookies } = await import('next/headers')
+  ;(await cookies()).set('ba_kiosk', token, { httpOnly: true, secure: true, sameSite: 'strict', path: '/kiosk', maxAge: 60 * 60 * 24 * 400 })
+  redirect('/kiosk')
+}
+
+/** A punch at the shared tablet: employee number + PIN; the tablet learns only the first name. */
+export async function kioskPunch(formData: FormData) {
+  const kind = text(formData, 'kind')
+  const { cookies } = await import('next/headers')
+  const token = (await cookies()).get('ba_kiosk')?.value ?? ''
+  const supabase = await createClient()
+  const { data, error } = await supabase.rpc('kiosk_punch', {
+    raw_token: token, emp_number: text(formData, 'number').slice(0, 30), emp_pin: text(formData, 'pin').slice(0, 8), punch_kind: kind,
+  })
+  const row = Array.isArray(data) ? (data[0] as { status: string; first_name: string | null; kind: string | null; punched_at: string | null } | undefined) : undefined
+  if (error || !row) redirect('/kiosk?status=unavailable')
+  const sp = new URLSearchParams({ status: row.status })
+  if (row.status === 'ok' && row.first_name && row.kind && row.punched_at) {
+    sp.set('name', row.first_name.slice(0, 40)); sp.set('kind', row.kind); sp.set('at', row.punched_at)
+  }
+  redirect(`/kiosk?${sp}`)
+}

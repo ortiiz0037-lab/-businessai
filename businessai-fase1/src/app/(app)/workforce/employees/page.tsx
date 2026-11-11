@@ -20,7 +20,7 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
   const status = ['active', 'inactive', 'terminated', 'all'].includes(params.status ?? '') ? params.status! : 'active'
   const page = Math.max(1, Math.min(1000, Number.parseInt(params.page ?? '1', 10) || 1))
   const { data: deptData } = await supabase.from('departments').select('id, name').eq('company_id', companyId).is('archived_at', null).order('name')
-  const depts = (deptData ?? []) as { id: string; name: string }[]
+  const depts = ((deptData ?? []) as { id: string; name: string }[]).filter((d) => access.manages || access.supervisedDepartments.includes(d.id))
   const dept = depts.some((d) => d.id === params.dept) ? params.dept! : ''
   let query = supabase.from('employees').select('id, employee_number, first_name, last_name, email, department_id, position, status, user_id', { count: 'exact' })
     .eq('company_id', companyId)

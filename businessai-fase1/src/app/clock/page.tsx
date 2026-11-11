@@ -9,7 +9,7 @@ import { SubmitButton } from '@/components/submit-button'
 import { HtmlLang } from '@/components/html-lang'
 import { attendance, hhmm, localDay, weekStart, addDays } from '@/lib/workforce/hours'
 import { LEAVE_TYPES, leaveLabel, localTime, nextPunches, punchLabel, stateLabel, wfMessage, workforceRules } from '@/lib/workforce/context'
-import { cancelCorrection, cancelLeave, punchAction, requestCorrection, requestLeave } from '@/app/actions/workforce'
+import { cancelCorrection, cancelLeave, punchAction, requestCorrection, requestLeave, setEmployeePin } from '@/app/actions/workforce'
 import { signOut } from '@/app/actions/auth'
 
 export const dynamic = 'force-dynamic'
@@ -75,7 +75,7 @@ export default async function ClockPage({ searchParams }: { searchParams: Promis
     punch_break_start: tr('Descanso iniciado.', 'Break started.'), punch_break_end: tr('Descanso terminado.', 'Break ended.'),
     correction_requested: tr('Corrección enviada a tu supervisor.', 'Correction sent to your supervisor.'),
     leave_requested: tr('Solicitud enviada a tu supervisor.', 'Request sent to your supervisor.'),
-    cancelled: tr('Solicitud cancelada.', 'Request cancelled.'), linked: tr('Tu cuenta quedó vinculada. Ya puedes ponchar.', 'Your account is linked. You can punch now.'),
+    cancelled: tr('Solicitud cancelada.', 'Request cancelled.'), pin_set: tr('Tu PIN quedó guardado.', 'Your PIN was saved.'), linked: tr('Tu cuenta quedó vinculada. Ya puedes ponchar.', 'Your account is linked. You can punch now.'),
   }
   const big: Record<string, string> = { in: 'btn-accent', out: 'btn-danger', break_start: 'btn-secondary', break_end: 'btn-primary' }
 
@@ -136,6 +136,18 @@ export default async function ClockPage({ searchParams }: { searchParams: Promis
           </ul>
         )}
       </section>
+
+      <details className="card p-5">
+        <summary className="cursor-pointer font-display text-lg font-semibold text-fg">{tr('Mi PIN para la tableta de la empresa', 'My PIN for the company tablet')}</summary>
+        <p className="mt-2 text-xs text-muted">{tr('Con tu número de empleado y este PIN puedes ponchar en la tableta compartida. No lo compartas. Entre 4 y 8 dígitos; no se aceptan PIN fáciles como 1234.',
+          'With your employee number and this PIN you can punch on the shared tablet. Do not share it. 4 to 8 digits; easy PINs like 1234 are refused.')}</p>
+        <form action={setEmployeePin} className="mt-3 grid grid-cols-2 gap-2" autoComplete="off">
+          <input type="hidden" name="employee_id" value={emp.id} /><input type="hidden" name="back" value={back} />
+          <input name="pin" type="password" inputMode="numeric" pattern="[0-9]{4,8}" required autoComplete="new-password" placeholder="PIN" aria-label="PIN" className="field" />
+          <input name="pin_confirm" type="password" inputMode="numeric" pattern="[0-9]{4,8}" required autoComplete="new-password" placeholder={tr('Repetir', 'Repeat')} aria-label={tr('Repetir PIN', 'Repeat PIN')} className="field" />
+          <div className="col-span-2"><SubmitButton pendingLabel="…">{tr('Guardar PIN', 'Save PIN')}</SubmitButton></div>
+        </form>
+      </details>
 
       {upcoming.length > 0 && (
         <section className="card p-5" aria-labelledby="sched-title">

@@ -54,8 +54,8 @@ describe('database errors → messages', () => {
 describe('CSV export', () => {
   const row: ReportRow = {
     id: '1', name: 'Pérez, Ana', number: '7', department: 'Taller',
-    totals: { workedMinutes: 2880, regularMinutes: 2400, overtimeMinutes: 480, breakMinutes: 300, scheduledMinutes: 2400, lateDays: 1, lateMinutes: 20, absences: 0, leaveDays: 0, openSessions: 0 },
-    days: [{ day: '2026-11-09', firstIn: '2026-11-09T12:00:00Z', lastOut: '2026-11-09T21:00:00Z', workedMinutes: 480, breakMinutes: 60, regularMinutes: 480, overtimeMinutes: 0, scheduledMinutes: 480, lateMinutes: 0, absent: false, leave: null, openSession: false }],
+    totals: { workedMinutes: 2880, regularMinutes: 2400, overtimeMinutes: 480, breakMinutes: 300, scheduledMinutes: 2400, lateDays: 1, lateMinutes: 20, absences: 0, leaveDays: 0, openSessions: 0, reviewDays: 0 },
+    days: [{ day: '2026-11-09', firstIn: '2026-11-09T12:00:00Z', lastOut: '2026-11-09T21:00:00Z', workedMinutes: 480, breakMinutes: 60, regularMinutes: 480, overtimeMinutes: 0, scheduledMinutes: 480, lateMinutes: 0, absent: false, leave: null, openSession: false, needsReview: false }],
   }
   it('summary per employee with Spanish headers', () => {
     const csv = reportCsv([row], false, 'es')
@@ -66,5 +66,18 @@ describe('CSV export', () => {
     const csv = reportCsv([row], true, 'en')
     expect(csv.split('\r\n')[0]).toContain('Employee,Number,Department,Day,First in')
     expect(csv.split('\r\n')[1]).toContain('2026-11-09')
+  })
+})
+
+import { kioskMessage } from '@/lib/workforce/context'
+describe('kiosk answers (0021)', () => {
+  it('one message for wrong number, wrong PIN or lock: no employee enumeration', () => {
+    expect(kioskMessage('invalid', 'es')).toMatch(/Número o PIN incorrecto/)
+    expect(kioskMessage('unknown-status', 'en')).toBe(kioskMessage('invalid', 'en'))
+    expect(kioskMessage('kiosk_locked', 'en')).toMatch(/10 minutes/)
+  })
+  it('PIN errors in both languages', () => {
+    expect(wfMessage('pin_too_simple', 'es')).toMatch(/1234/)
+    expect(wfMessage('history_immutable', 'en')).toMatch(/never changed/)
   })
 })

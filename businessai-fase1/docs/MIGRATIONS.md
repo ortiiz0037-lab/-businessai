@@ -30,7 +30,8 @@ Las pruebas de `tests/staging-scripts.test.ts` hacen cumplir 3 y 4.
 | 0018 | `0018_team.sql` | **Borrador, no aplicada en ningún entorno.** Equipo: invitaciones (token de 256 bits, solo se guarda su SHA-256; 1–30 días; correo de la cuenta = correo invitado), revocación, roles (`members.invite` propietario/admin solo para miembros; `members.manage` solo propietario), suspender/reactivar, quitar, salir, transferir propiedad, historial `team_events`. Corrige el trigger de límite de miembros de 0011 (leía el estado como el invitado y rechazaba toda aceptación). Marca `STAGING-GATE` |
 | 0019 | `0019_crm.sql` | **Borrador, no aplicada en ningún entorno.** Clientes archivados (`clients.archive` propietario/admin; la BD escribe quién y cuándo), no borrar clientes con documentos, sin documentos nuevos para clientes archivados, historial `client_events`, idioma por documento (`documents.language`). Marca `STAGING-GATE` |
 | 0020 | `0020_workforce.sql` | **Borrador, no aplicada en ningún entorno.** Empleados (no consumen usuarios; límite por plan Básico 3 / Pro 25 / Premium 100), departamentos y supervisores, reloj ponchador con hora del servidor y secuencia entrada/descanso/salida bajo bloqueo, correcciones con aprobación (nunca la propia), vacaciones y permisos, turnos sin solapamiento, historial `workforce_events`, panel en vivo, acceso del empleado con enlace de un solo uso. Marca `STAGING-GATE` |
-| **0021** | — | **Siguiente número libre** |
+| 0021 | `0021_workforce_kiosk.sql` | **Borrador, no aplicada en ningún entorno.** Modo PIN para tabletas compartidas (quiosco sin cuenta; token de 256 bits; PIN con sal e iteraciones; bloqueos por intentos; respuesta única sin enumeración; la tableta no lee datos), evidencia de asistencia solo-anexar (también para service_role) y quién cancela una corrección. Marca `STAGING-GATE` |
+| **0022** | — | **Siguiente número libre** |
 
 ### Borradores y `staging:migrate` (hallazgo I12)
 

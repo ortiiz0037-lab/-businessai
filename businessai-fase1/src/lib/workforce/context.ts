@@ -70,6 +70,7 @@ const CODES = [
   'CORRECTION_NOT_FOUND', 'CORRECTION_NOT_PENDING', 'SELF_APPROVAL_FORBIDDEN', 'LEAVE_TYPE_INVALID', 'LEAVE_DATES_INVALID',
   'LEAVE_OVERLAP', 'LEAVE_NOT_FOUND', 'LEAVE_NOT_PENDING', 'SHIFT_OVERLAP', 'ACCESS_INVALID', 'ACCESS_EXPIRED',
   'ACCESS_EMAIL_MISMATCH', 'ACCESS_ALREADY_LINKED', 'COMPANY_IMMUTABLE',
+  'PIN_INVALID', 'PIN_TOO_SIMPLE', 'KIOSK_NAME_INVALID', 'KIOSK_LIMIT', 'KIOSK_NOT_FOUND', 'HISTORY_IMMUTABLE',
 ] as const
 
 export function wfErrorCode(error: { message?: string | null; code?: string | null } | null): string {
@@ -108,6 +109,10 @@ const MESSAGES: Record<Locale, Record<string, string>> = {
     employee_number_taken: 'Ese número de empleado ya existe.', department_exists: 'Ya existe un departamento con ese nombre.',
     company_immutable: 'Los registros no se pueden mover a otra empresa.',
     unavailable: 'El módulo de personal todavía no está activado en esta base de datos.',
+    pin_invalid: 'El PIN debe tener entre 4 y 8 dígitos.', pin_too_simple: 'Ese PIN es demasiado fácil (por ejemplo 1234 o 0000). Elige otro.',
+    pin_mismatch: 'Los dos PIN no coinciden.',
+    kiosk_name_invalid: 'Escribe un nombre para la tableta (máximo 60 caracteres).', kiosk_limit: 'Máximo 20 tabletas activas por empresa.',
+    kiosk_not_found: 'No encontramos esa tableta.', history_immutable: 'Los registros de asistencia y su historial no se modifican.',
     confirm: 'Marca la casilla de confirmación.', save: 'No se pudo completar la acción. Inténtalo nuevamente.',
   },
   en: {
@@ -133,6 +138,10 @@ const MESSAGES: Record<Locale, Record<string, string>> = {
     employee_number_taken: 'That employee number already exists.', department_exists: 'A department with that name already exists.',
     company_immutable: 'Records cannot be moved to another company.',
     unavailable: 'The workforce module is not enabled in this database yet.',
+    pin_invalid: 'The PIN must have 4 to 8 digits.', pin_too_simple: 'That PIN is too easy (for example 1234 or 0000). Choose another.',
+    pin_mismatch: 'The two PINs do not match.',
+    kiosk_name_invalid: 'Write a name for the tablet (60 characters max).', kiosk_limit: 'Up to 20 active tablets per company.',
+    kiosk_not_found: 'We could not find that tablet.', history_immutable: 'Attendance records and their history are never changed.',
     confirm: 'Tick the confirmation box.', save: 'The action could not be completed. Please try again.',
   },
 }
@@ -163,3 +172,24 @@ export function zonedToIso(day: string, time: string, timeZone: string): string 
 export function localTime(iso: string, timeZone: string, locale: Locale): string {
   return new Intl.DateTimeFormat(locale === 'en' ? 'en-US' : 'es-PR', { timeZone, hour: 'numeric', minute: '2-digit' }).format(new Date(iso))
 }
+
+/** Kiosk answers (kiosk_punch status) → message. One message for every credential failure. */
+export function kioskMessage(status: string, locale: Locale): string {
+  const es: Record<string, string> = {
+    invalid: 'Número o PIN incorrecto, o acceso bloqueado temporalmente. Inténtalo de nuevo o avisa a tu supervisor.',
+    kiosk_invalid: 'Esta tableta no está activada o fue desactivada. Pide a un administrador que la active.',
+    kiosk_locked: 'Demasiados intentos fallidos en esta tableta. Espera 10 minutos.',
+    sequence: 'Ese ponche no corresponde ahora (por ejemplo, ya marcaste la entrada).',
+    unavailable: 'El reloj ponchador no está disponible ahora.',
+  }
+  const en: Record<string, string> = {
+    invalid: 'Wrong number or PIN, or access temporarily locked. Try again or tell your supervisor.',
+    kiosk_invalid: 'This tablet is not activated or was deactivated. Ask an admin to activate it.',
+    kiosk_locked: 'Too many failed attempts on this tablet. Wait 10 minutes.',
+    sequence: 'That punch does not apply now (for example, you already clocked in).',
+    unavailable: 'The time clock is not available right now.',
+  }
+  return (locale === 'en' ? en : es)[status] ?? (locale === 'en' ? en : es).invalid
+}
+
+export const KIOSK_COOKIE = 'ba_kiosk'

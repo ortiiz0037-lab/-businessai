@@ -4,9 +4,9 @@ import { redirect } from 'next/navigation'
 import { SubmitButton } from '@/components/submit-button'
 import { NoWorkforceAccess, WorkforceNav } from '@/components/workforce-nav'
 import { workforcePage } from '@/lib/workforce/page'
-import { addDays, attendance, hhmm, localDay, periodFor, type Punch } from '@/lib/workforce/hours'
+import { addDays, attendance, hhmm, localDay, periodFor, weekStart, type Punch } from '@/lib/workforce/hours'
 import { leaveLabel, localTime, punchLabel, wfMessage } from '@/lib/workforce/context'
-import { createEmployeeAccess, decideCorrection, requestCorrection, revokeEmployeeAccess, updateEmployee } from '@/app/actions/workforce'
+import { clearEmployeePin, createEmployeeAccess, decideCorrection, requestCorrection, revokeEmployeeAccess, setEmployeePin, updateEmployee } from '@/app/actions/workforce'
 
 export const dynamic = 'force-dynamic'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -34,7 +34,7 @@ export default async function EmployeePage({ params, searchParams }: { params: P
   const today = localDay(new Date(), rules.timezone)
   const periodKind = (['week', 'last_week', 'two_weeks', 'month'] as const).find((k) => k === query.period) ?? 'week'
   const period = periodFor(periodKind, today, rules.weekStartsOn)
-  const since = new Date(Date.parse(`${addDays(period.from, -1)}T00:00:00Z`)).toISOString()
+  const since = new Date(Date.parse(`${addDays(weekStart(period.from, rules.weekStartsOn), -1)}T00:00:00Z`)).toISOString()
   const until = new Date(Date.parse(`${addDays(period.to, 2)}T00:00:00Z`)).toISOString()
   const [{ data: punchData }, { data: shiftData }, { data: leaveData }, { data: corrData }, { data: deptData }, { data: pay }, { data: events }] = await Promise.all([
     supabase.from('time_punches').select('id, kind, at, source, recorded_by, voided_at, void_reason').eq('employee_id', id).gte('at', since).lt('at', until).order('at'),
@@ -45,6 +45,8 @@ export default async function EmployeePage({ params, searchParams }: { params: P
     access.manages ? supabase.rpc('employee_pay', { emp: id }) : Promise.resolve({ data: null }),
     supabase.from('workforce_events').select('id, entity, action, details, created_at').eq('employee_id', id).order('created_at', { ascending: false }).limit(25),
   ])
+  const { data: pinData } = await supabase.rpc('employee_pin_status', { emp: id })
+  const pin = Array.isArray(pinData) ? (pinData[0] as { pin_set: boolean; set_at: string | null; locked_until: string | null } | undefined) : undefined
   const all = (punchData ?? []) as P[]
   const valid = all.filter((p) => !p.voided_at)
   const leaves = (leaveData ?? []) as { id: string; leave_type: string; starts_on: string; ends_on: string; partial_minutes: number | null; status: string }[]
@@ -59,6 +61,7 @@ export default async function EmployeePage({ params, searchParams }: { params: P
     link: tr('Enlace de acceso creado.', 'Access link created.'), unlinked: tr('Acceso del empleado retirado.', 'Employee access removed.'),
     correction_requested: tr('Corrección registrada; queda pendiente de aprobación.', 'Correction recorded; it awaits approval.'),
     approved: tr('Aprobado.', 'Approved.'), rejected: tr('Rechazado.', 'Rejected.'),
+    pin_set: tr('PIN guardado.', 'PIN saved.'), pin_cleared: tr('PIN eliminado.', 'PIN removed.'),
   }
   const st = (s: string) => ({ pending: tr('Pendiente', 'Pending'), approved: tr('Aprobada', 'Approved'), rejected: tr('Rechazada', 'Rejected'), cancelled: tr('Cancelada', 'Cancelled') } as Record<string, string>)[s] ?? s
   const field = (name: keyof Emp, label: string, props: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
@@ -224,6 +227,22 @@ export default async function EmployeePage({ params, searchParams }: { params: P
                   <button type="submit" className="btn-primary btn-sm" disabled={!emp.email}>{tr('Crear enlace de acceso', 'Create access link')}</button></form>
                 {!emp.email && <p className="text-xs text-warning">{tr('Añade el correo del empleado primero.', 'Add the employee email first.')}</p>}
               </>
+            )}
+            <h3 className="pt-2 font-semibold text-fg">{tr('PIN para tabletas', 'Tablet PIN')}</h3>
+            <p className="text-sm text-muted">
+              {!emp.employee_number ? tr('Asigna un número de empleado para usar el modo PIN.', 'Assign an employee number to use PIN mode.')
+                : pin?.pin_set ? tr(`PIN configurado${pin.locked_until ? ' · bloqueado por intentos fallidos' : ''}. Número para la tableta: ${emp.employee_number}.`, `PIN set${pin.locked_until ? ' · locked after failed attempts' : ''}. Tablet number: ${emp.employee_number}.`)
+                : tr('Sin PIN. El empleado puede crearlo en su reloj, o puedes asignarlo aquí.', 'No PIN. The employee can create it on their clock, or you can set it here.')}
+            </p>
+            <form action={setEmployeePin} className="grid grid-cols-2 gap-2" autoComplete="off">
+              <input type="hidden" name="employee_id" value={id} /><input type="hidden" name="back" value={back} />
+              <input name="pin" type="password" inputMode="numeric" pattern="[0-9]{4,8}" required autoComplete="new-password" placeholder={tr('PIN nuevo', 'New PIN')} aria-label={tr('PIN nuevo', 'New PIN')} className="field" />
+              <input name="pin_confirm" type="password" inputMode="numeric" pattern="[0-9]{4,8}" required autoComplete="new-password" placeholder={tr('Repetir PIN', 'Repeat PIN')} aria-label={tr('Repetir PIN', 'Repeat PIN')} className="field" />
+              <button type="submit" className="btn-secondary btn-sm col-span-2">{pin?.pin_set ? tr('Cambiar PIN (desbloquea)', 'Change PIN (unlocks)') : tr('Asignar PIN', 'Set PIN')}</button>
+            </form>
+            {pin?.pin_set && (
+              <form action={clearEmployeePin}><input type="hidden" name="employee_id" value={id} /><input type="hidden" name="back" value={back} />
+                <button type="submit" className="btn-secondary btn-sm">{tr('Eliminar PIN', 'Remove PIN')}</button></form>
             )}
             <h3 className="pt-2 font-semibold text-fg">{tr('Historial de cambios', 'Change history')}</h3>
             <ul className="max-h-64 space-y-1 overflow-y-auto text-xs text-slate-400">

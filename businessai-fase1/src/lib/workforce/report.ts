@@ -6,7 +6,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { fetchAllPages } from '@/lib/supabase/paged'
-import { addDays, attendance, hhmm, toCsv, type DayRow, type Punch, type Rules, type Totals } from '@/lib/workforce/hours'
+import { addDays, attendance, hhmm, toCsv, weekStart, type DayRow, type Punch, type Rules, type Totals } from '@/lib/workforce/hours'
 
 export type ReportRow = { id: string; name: string; number: string | null; department: string | null; totals: Totals; days: DayRow[] }
 
@@ -22,7 +22,8 @@ export async function buildReport(supabase: SupabaseClient, input: { companyId: 
   const deptName = new Map(((depts ?? []) as { id: string; name: string }[]).map((d) => [d.id, d.name]))
   const ids = employees.map((e) => e.id)
   if (!ids.length) return [] as ReportRow[]
-  const from = new Date(Date.parse(`${addDays(input.from, -1)}T00:00:00Z`)).toISOString()
+  // From the start of the week of `from` (weekly overtime needs the whole week).
+  const from = new Date(Date.parse(`${addDays(weekStart(input.from, input.rules.weekStartsOn), -1)}T00:00:00Z`)).toISOString()
   const to = new Date(Date.parse(`${addDays(input.to, 2)}T00:00:00Z`)).toISOString()
   const [punches, shifts, leaves] = await Promise.all([
     fetchAllPages<Punch & { employee_id: string }>((a, b) => supabase.from('time_punches').select('id, employee_id, kind, at').in('employee_id', ids)
@@ -31,7 +32,7 @@ export async function buildReport(supabase: SupabaseClient, input: { companyId: 
       .select('id, employee_id, starts_at, ends_at, break_minutes').in('employee_id', ids).gte('starts_at', from).lt('starts_at', to).order('id').range(a, b)),
     fetchAllPages<{ employee_id: string; leave_type: string; starts_on: string; ends_on: string; partial_minutes: number | null }>((a, b) => supabase.from('leave_requests')
       .select('id, employee_id, leave_type, starts_on, ends_on, partial_minutes').in('employee_id', ids).eq('status', 'approved')
-      .lte('starts_on', input.to).gte('ends_on', input.from).order('id').range(a, b)),
+      .lte('starts_on', input.to).gte('ends_on', weekStart(input.from, input.rules.weekStartsOn)).order('id').range(a, b)),
   ])
   return employees.map((e): ReportRow => {
     const r = attendance({
@@ -47,10 +48,10 @@ export function reportCsv(rows: ReportRow[], detail: boolean, locale: 'es' | 'en
   const en = locale === 'en'
   if (!detail) {
     return toCsv([
-      en ? ['Employee', 'Number', 'Department', 'Worked', 'Regular', 'Overtime', 'Breaks', 'Scheduled', 'Late days', 'Late minutes', 'Absences', 'Leave days', 'Open sessions']
-         : ['Empleado', 'Número', 'Departamento', 'Trabajado', 'Regular', 'Extra', 'Descansos', 'Programado', 'Días tarde', 'Minutos tarde', 'Ausencias', 'Días de permiso', 'Sesiones abiertas'],
+      en ? ['Employee', 'Number', 'Department', 'Worked', 'Regular', 'Overtime', 'Breaks', 'Scheduled', 'Late days', 'Late minutes', 'Absences', 'Leave days', 'Open sessions', 'Days to review (>16 h)']
+         : ['Empleado', 'Número', 'Departamento', 'Trabajado', 'Regular', 'Extra', 'Descansos', 'Programado', 'Días tarde', 'Minutos tarde', 'Ausencias', 'Días de permiso', 'Sesiones abiertas', 'Días a revisar (>16 h)'],
       ...rows.map((r) => [r.name, r.number, r.department, hhmm(r.totals.workedMinutes), hhmm(r.totals.regularMinutes), hhmm(r.totals.overtimeMinutes),
-        hhmm(r.totals.breakMinutes), hhmm(r.totals.scheduledMinutes), r.totals.lateDays, r.totals.lateMinutes, r.totals.absences, r.totals.leaveDays, r.totals.openSessions]),
+        hhmm(r.totals.breakMinutes), hhmm(r.totals.scheduledMinutes), r.totals.lateDays, r.totals.lateMinutes, r.totals.absences, r.totals.leaveDays, r.totals.openSessions, r.totals.reviewDays]),
     ])
   }
   return toCsv([

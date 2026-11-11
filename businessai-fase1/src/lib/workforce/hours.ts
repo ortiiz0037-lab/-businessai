@@ -36,13 +36,16 @@ export type DayRow = {
   absent: boolean
   leave: string | null
   openSession: boolean
+  /** A session longer than LONG_SESSION_MINUTES (probably a forgotten clock-out): review it. */
+  needsReview: boolean
 }
 export type Totals = {
   workedMinutes: number; regularMinutes: number; overtimeMinutes: number; breakMinutes: number; scheduledMinutes: number
-  lateDays: number; lateMinutes: number; absences: number; leaveDays: number; openSessions: number
+  lateDays: number; lateMinutes: number; absences: number; leaveDays: number; openSessions: number; reviewDays: number
 }
 
 const MIN = 60_000
+export const LONG_SESSION_MINUTES = 16 * 60
 
 /** 'YYYY-MM-DD' of an instant in a time zone. */
 export function localDay(iso: string | Date, timeZone: string): string {
@@ -110,7 +113,11 @@ export function attendance(input: {
   const now = input.now ?? new Date()
   const today = localDay(now, rules.timezone)
   const list = sessions(input.punches, rules.timezone, now)
-  const days = daysBetween(input.from, input.to).map((day): DayRow => {
+  // Weekly overtime needs the whole week: compute from the first day of the
+  // week that contains `from`, then return only [from, to]. The caller must
+  // pass the punches from that week start (see weekStart / buildReport).
+  const computeFrom = weekStart(input.from, rules.weekStartsOn)
+  const allDays = daysBetween(computeFrom, input.to).map((day): DayRow => {
     const daySessions = list.filter((s) => s.day === day)
     const worked = daySessions.reduce((n, s) => n + s.workedMinutes, 0)
     const daily = rules.dailyOvertimeAfter !== null ? Math.max(0, worked - rules.dailyOvertimeAfter) : 0
@@ -140,15 +147,14 @@ export function attendance(input: {
       absent,
       leave: leave?.leave_type ?? null,
       openSession: daySessions.some((s) => s.open),
+      needsReview: daySessions.some((s) => s.workedMinutes + s.breakMinutes > LONG_SESSION_MINUTES),
     }
   })
   // Weekly overtime over the regular minutes, week by week, in day order.
   if (rules.weeklyOvertimeAfter !== null) {
     const limit = rules.weeklyOvertimeAfter
-    // Regular minutes already worked earlier in the same week but before `from`
-    // are not known here; reports always start on a week boundary (see periodFor).
     const running = new Map<string, number>()   // regular minutes so far in each week
-    for (const d of days) {
+    for (const d of allDays) {
       const wk = weekStart(d.day, rules.weekStartsOn)
       const before = running.get(wk) ?? 0
       const regular = Math.min(d.regularMinutes, Math.max(0, limit - before))
@@ -157,6 +163,7 @@ export function attendance(input: {
       running.set(wk, before + regular)
     }
   }
+  const days = allDays.filter((d) => d.day >= input.from)
   const totals = days.reduce<Totals>((t, d) => ({
     workedMinutes: t.workedMinutes + d.workedMinutes,
     regularMinutes: t.regularMinutes + d.regularMinutes,
@@ -168,7 +175,8 @@ export function attendance(input: {
     absences: t.absences + (d.absent ? 1 : 0),
     leaveDays: t.leaveDays + (d.leave ? 1 : 0),
     openSessions: t.openSessions + (d.openSession ? 1 : 0),
-  }), { workedMinutes: 0, regularMinutes: 0, overtimeMinutes: 0, breakMinutes: 0, scheduledMinutes: 0, lateDays: 0, lateMinutes: 0, absences: 0, leaveDays: 0, openSessions: 0 })
+    reviewDays: t.reviewDays + (d.needsReview ? 1 : 0),
+  }), { workedMinutes: 0, regularMinutes: 0, overtimeMinutes: 0, breakMinutes: 0, scheduledMinutes: 0, lateDays: 0, lateMinutes: 0, absences: 0, leaveDays: 0, openSessions: 0, reviewDays: 0 })
   return { days, totals }
 }
 

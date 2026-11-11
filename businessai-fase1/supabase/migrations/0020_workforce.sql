@@ -430,6 +430,10 @@ declare
   r jsonb := to_jsonb(coalesce(new, old));
   changed text[];
 begin
+  -- The whole company is being deleted (cascade): nothing to record.
+  if tg_op = 'DELETE' and not exists (select 1 from public.companies c where c.id = (r ->> 'company_id')::uuid) then
+    return null;
+  end if;
   if tg_op = 'UPDATE' then
     select coalesce(array_agg(n.key order by n.key), '{}') into changed
     from jsonb_each(to_jsonb(new)) n join jsonb_each(to_jsonb(old)) o using (key)

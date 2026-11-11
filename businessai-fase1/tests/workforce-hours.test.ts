@@ -109,3 +109,57 @@ describe('formatting and export', () => {
       'Nombre,Horas\r\n"Pérez, Ana",8:00\r\n"\'=HYPERLINK(""x"")",1\r\n')
   })
 })
+
+describe('review 1: no hour is counted twice (night shifts, weeks, partial periods)', () => {
+  const total = (r: ReturnType<typeof attendance>) => r.totals.regularMinutes + r.totals.overtimeMinutes
+  it('regular + overtime always equals the hours worked', () => {
+    const punches = [0, 1, 2, 3, 4, 5].flatMap((i) => workDay(addDays('2026-11-09', i), '07:00', '17:30'))
+    const r = attendance({ punches, shifts: [], leaves: [], rules: DEFAULT_RULES, from: '2026-11-09', to: '2026-11-15', now: NOW })
+    expect(total(r)).toBe(r.totals.workedMinutes)
+    for (const d of r.days) expect(d.regularMinutes + d.overtimeMinutes).toBe(d.workedMinutes)
+  })
+  it('a night shift crossing midnight counts once, on the day it started (not split, not repeated)', () => {
+    const punches: Punch[] = [{ kind: 'in', at: pr('2026-11-10', '22:00') }, { kind: 'out', at: pr('2026-11-11', '08:00') }]
+    const r = attendance({ punches, shifts: [], leaves: [], rules: DEFAULT_RULES, from: '2026-11-09', to: '2026-11-15', now: NOW })
+    expect(r.days.find((d) => d.day === '2026-11-10')).toMatchObject({ workedMinutes: 600, regularMinutes: 480, overtimeMinutes: 120 })
+    expect(r.days.find((d) => d.day === '2026-11-11')).toMatchObject({ workedMinutes: 0 })
+    expect(r.totals.workedMinutes).toBe(600)
+  })
+  it('a night shift crossing into the next WEEK counts once, in the week it started', () => {
+    // Sunday 22:00 → Monday 06:00, weeks start on Monday
+    const punches: Punch[] = [{ kind: 'in', at: pr('2026-11-15', '22:00') }, { kind: 'out', at: pr('2026-11-16', '06:00') }]
+    const a = attendance({ punches, shifts: [], leaves: [], rules: DEFAULT_RULES, from: '2026-11-09', to: '2026-11-15', now: NOW })
+    const b = attendance({ punches, shifts: [], leaves: [], rules: DEFAULT_RULES, from: '2026-11-16', to: '2026-11-22', now: NOW })
+    expect(a.totals.workedMinutes).toBe(480)
+    expect(b.totals.workedMinutes).toBe(0)
+    const both = attendance({ punches, shifts: [], leaves: [], rules: DEFAULT_RULES, from: '2026-11-09', to: '2026-11-22', now: NOW })
+    expect(both.totals.workedMinutes).toBe(a.totals.workedMinutes + b.totals.workedMinutes)
+  })
+  it('splitting a period in two gives the same totals as the whole period', () => {
+    const punches = [0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12].flatMap((i) => workDay(addDays('2026-11-09', i), '07:00', '17:00'))
+    const whole = attendance({ punches, shifts: [], leaves: [], rules: DEFAULT_RULES, from: '2026-11-09', to: '2026-11-22', now: NOW })
+    const w1 = attendance({ punches, shifts: [], leaves: [], rules: DEFAULT_RULES, from: '2026-11-09', to: '2026-11-15', now: NOW })
+    const w2 = attendance({ punches, shifts: [], leaves: [], rules: DEFAULT_RULES, from: '2026-11-16', to: '2026-11-22', now: NOW })
+    expect(w1.totals.overtimeMinutes + w2.totals.overtimeMinutes).toBe(whole.totals.overtimeMinutes)
+    expect(w1.totals.regularMinutes + w2.totals.regularMinutes).toBe(whole.totals.regularMinutes)
+  })
+  it('a period starting mid-week still counts the earlier days of that week toward the 40 hours', () => {
+    // Mon–Fri 8 h = 40 h; Saturday 8 h is all weekly overtime even if the report starts on Saturday
+    const punches = [0, 1, 2, 3, 4, 5].flatMap((i) => workDay(addDays('2026-11-09', i), '08:00', '16:00'))
+    const r = attendance({ punches, shifts: [], leaves: [], rules: DEFAULT_RULES, from: '2026-11-14', to: '2026-11-14', now: NOW })
+    expect(r.days).toHaveLength(1)
+    expect(r.days[0]).toMatchObject({ day: '2026-11-14', workedMinutes: 480, regularMinutes: 0, overtimeMinutes: 480 })
+  })
+  it('a forgotten clock-out (session over 16 h) is flagged for review, never silently accepted', () => {
+    const punches: Punch[] = [{ kind: 'in', at: pr('2026-11-09', '08:00') }, { kind: 'out', at: pr('2026-11-10', '09:00') }]
+    const r = attendance({ punches, shifts: [], leaves: [], rules: DEFAULT_RULES, from: '2026-11-09', to: '2026-11-10', now: NOW })
+    expect(r.days[0].needsReview).toBe(true)
+    expect(r.totals.reviewDays).toBe(1)
+  })
+  it('daylight saving: hours are real elapsed time (New York, 2026-11-01 has 25 hours)', () => {
+    const rules = { ...DEFAULT_RULES, timezone: 'America/New_York' }
+    const punches: Punch[] = [{ kind: 'in', at: '2026-11-01T04:30:00Z' }, { kind: 'out', at: '2026-11-01T13:30:00Z' }]   // 00:30 EDT → 08:30 EST
+    const r = attendance({ punches, shifts: [], leaves: [], rules, from: '2026-11-01', to: '2026-11-01', now: NOW })
+    expect(r.days[0].workedMinutes).toBe(540)
+  })
+})

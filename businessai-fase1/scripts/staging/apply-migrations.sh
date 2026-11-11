@@ -79,6 +79,7 @@ ORDER=(
   0018_team
   0019_crm
   0020_workforce
+  0021_workforce_kiosk
 )
 EXPECTED_VERIFY="10,0,2,0,f,0,2,3,t,t,t,"
 
