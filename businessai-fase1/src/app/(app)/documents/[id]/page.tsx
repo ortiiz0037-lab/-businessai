@@ -6,8 +6,11 @@ import { StatusBadge } from '@/components/ui/status'
 import { getSignatureDisplayUrl } from '@/lib/branding-assets'
 import { documentItems } from '@/lib/documents/items'
 import { balanceOf, documentActions, effectiveStatus, todayIn, type Role } from '@/lib/documents/lifecycle'
-import { PAYMENT_ERROR_MESSAGE, PAYMENT_METHODS, paymentMethodLabel } from '@/lib/documents/payments'
-import { BILLING_ERROR_MESSAGE } from '@/lib/billing/state'
+import { PAYMENT_METHODS, paymentErrorMessage, paymentMethodLabel } from '@/lib/documents/payments'
+import { billingErrorMessage } from '@/lib/billing/state'
+import { intlTag, type Locale } from '@/lib/i18n/app'
+import { getLocale } from '@/lib/i18n/server'
+import { translator, type Tr } from '@/lib/i18n/t'
 import { createReceipt, deleteDraft, registerPayment, setDocumentStatus, voidDocument } from '@/app/actions/documents'
 import { lifecycleAvailable, newIdempotencyKey } from '@/lib/documents/capabilities'
 import { SubmitButton } from '@/components/submit-button'
@@ -72,75 +75,76 @@ function money(value: number | string | null | undefined) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(value ?? 0))
 }
 
-function formatDate(value: string | null | undefined) {
+function formatDate(value: string | null | undefined, locale: Locale) {
   if (!value) return '—'
   const date = new Date(`${value.slice(0, 10)}T12:00:00`)
   if (Number.isNaN(date.getTime())) return value
-  return new Intl.DateTimeFormat('es-PR', { year: 'numeric', month: 'long', day: 'numeric' }).format(date)
+  return new Intl.DateTimeFormat(intlTag(locale), { year: 'numeric', month: 'long', day: 'numeric' }).format(date)
 }
 
-function formatTimestamp(value: string | null | undefined) {
+function formatTimestamp(value: string | null | undefined, locale: Locale) {
   if (!value) return '—'
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
-  return new Intl.DateTimeFormat('es-PR', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'America/Puerto_Rico' }).format(date)
+  return new Intl.DateTimeFormat(intlTag(locale), { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'America/Puerto_Rico' }).format(date)
 }
 
-function documentType(value: string | null | undefined) {
+function documentType(value: string | null | undefined, tr: Tr) {
   const types: Record<string, string> = {
-    invoice: 'Factura',
-    factura: 'Factura',
-    quote: 'Cotización',
-    quotation: 'Cotización',
-    receipt: 'Recibo',
-    recibo: 'Recibo',
-    work_order: 'Orden de trabajo',
-    'orden de trabajo': 'Orden de trabajo',
-    letter: 'Carta comercial',
-    reminder: 'Recordatorio de pago',
-    payment_reminder: 'Recordatorio de pago',
-    contract: 'Contrato / plantilla',
-    report: 'Reporte',
+    invoice: tr('Factura', 'Invoice'),
+    factura: tr('Factura', 'Invoice'),
+    quote: tr('Cotización', 'Quote'),
+    quotation: tr('Cotización', 'Quote'),
+    receipt: tr('Recibo', 'Receipt'),
+    recibo: tr('Recibo', 'Receipt'),
+    work_order: tr('Orden de trabajo', 'Work order'),
+    'orden de trabajo': tr('Orden de trabajo', 'Work order'),
+    letter: tr('Carta comercial', 'Business letter'),
+    reminder: tr('Recordatorio de pago', 'Payment reminder'),
+    payment_reminder: tr('Recordatorio de pago', 'Payment reminder'),
+    contract: tr('Contrato / plantilla', 'Contract / template'),
+    report: tr('Reporte', 'Report'),
   }
-  return types[value ?? ''] ?? value ?? 'Documento'
+  return types[value ?? ''] ?? value ?? tr('Documento', 'Document')
 }
 
-const DONE_MESSAGE: Record<string, string> = {
-  sent: 'Documento marcado como enviado.',
-  accepted: 'Cotización marcada como aceptada.',
-  rejected: 'Cotización marcada como rechazada.',
-  cancelled: 'Documento anulado. Se conserva en el historial con el motivo.',
-  payment: 'Pago registrado.',
-  receipt: 'Recibo creado.',
-}
+const doneMessages = (tr: Tr): Record<string, string> => ({
+  sent: tr('Documento marcado como enviado.', 'Document marked as sent.'),
+  accepted: tr('Cotización marcada como aceptada.', 'Quote marked as accepted.'),
+  rejected: tr('Cotización marcada como rechazada.', 'Quote marked as rejected.'),
+  cancelled: tr('Documento anulado. Se conserva en el historial con el motivo.', 'Document voided. It is kept in the history with the reason.'),
+  payment: tr('Pago registrado.', 'Payment recorded.'),
+  receipt: tr('Recibo creado.', 'Receipt created.'),
+})
 
-const ACTION_ERROR: Record<string, string> = {
-  transition: 'Esa acción no está disponible para este documento.',
-  changed: 'El documento cambió mientras tanto. Revisa su estado e inténtalo de nuevo.',
-  forbidden: 'Solo el propietario o un administrador de la empresa puede hacer esto.',
-  confirm: 'Marca la casilla de confirmación para eliminar el borrador.',
-  issued: 'Un documento emitido no se elimina: anúlalo para conservar la trazabilidad.',
-  document_issued: 'Un documento emitido no se elimina: anúlalo para conservar la trazabilidad.',
-  document_cancelled: 'Un documento anulado no se puede reabrir.',
-  document_void_forbidden: 'Solo el propietario o un administrador puede anular documentos.',
-  void_reason: 'Escribe el motivo de la anulación (entre 3 y 300 caracteres).',
-  void_has_payments: 'Esta factura tiene pagos registrados: no se puede anular. Los pagos se conservan como historial.',
-  document_has_payments: 'Esta factura tiene pagos registrados: no se puede anular. Los pagos se conservan como historial.',
-  void_reason_required: 'Escribe el motivo de la anulación (entre 3 y 300 caracteres).',
-  document_transition: 'Ese cambio de estado no está permitido para este tipo de documento.',
-  document_not_paid: 'La factura solo pasa a pagada cuando los pagos cubren el total.',
-  document_field_locked: 'El número y el tipo de un documento no se cambian.',
-  company_immutable: 'Un documento no se puede mover a otra empresa.',
-  receipt_client_mismatch: 'El recibo debe ser para el cliente de la factura.',
-  receipt_exists: 'Ese pago ya tiene un recibo vigente.',
-  audit: 'No se pudo registrar el historial del borrador; no se eliminó nada. Inténtalo nuevamente.',
-  save: 'No se pudo completar la acción. Inténtalo nuevamente.',
-  ...BILLING_ERROR_MESSAGE,
-}
+const actionErrors = (tr: Tr): Record<string, string> => ({
+  transition: tr('Esa acción no está disponible para este documento.', 'That action is not available for this document.'),
+  changed: tr('El documento cambió mientras tanto. Revisa su estado e inténtalo de nuevo.', 'The document changed in the meantime. Check its status and try again.'),
+  forbidden: tr('Solo el propietario o un administrador de la empresa puede hacer esto.', 'Only the company owner or an admin can do this.'),
+  confirm: tr('Marca la casilla de confirmación para eliminar el borrador.', 'Tick the confirmation box to delete the draft.'),
+  issued: tr('Un documento emitido no se elimina: anúlalo para conservar la trazabilidad.', 'An issued document is not deleted: void it to keep the record.'),
+  document_issued: tr('Un documento emitido no se modifica ni se elimina: anúlalo para conservar la trazabilidad.', 'An issued document cannot be changed or deleted: void it to keep the record.'),
+  document_cancelled: tr('Un documento anulado no se puede reabrir.', 'A voided document cannot be reopened.'),
+  document_void_forbidden: tr('Solo el propietario o un administrador puede anular documentos.', 'Only the owner or an admin can void documents.'),
+  void_reason: tr('Escribe el motivo de la anulación (entre 3 y 300 caracteres).', 'Write the reason for voiding (3 to 300 characters).'),
+  void_has_payments: tr('Esta factura tiene pagos registrados: no se puede anular. Los pagos se conservan como historial.', 'This invoice has recorded payments: it cannot be voided. Payments are kept as history.'),
+  document_has_payments: tr('Esta factura tiene pagos registrados: no se puede anular. Los pagos se conservan como historial.', 'This invoice has recorded payments: it cannot be voided. Payments are kept as history.'),
+  void_reason_required: tr('Escribe el motivo de la anulación (entre 3 y 300 caracteres).', 'Write the reason for voiding (3 to 300 characters).'),
+  document_transition: tr('Ese cambio de estado no está permitido para este tipo de documento.', 'That status change is not allowed for this document type.'),
+  document_not_paid: tr('La factura solo pasa a pagada cuando los pagos cubren el total.', 'An invoice is paid only when payments cover the total.'),
+  document_field_locked: tr('El número y el tipo de un documento no se cambian.', 'A document\'s number and type cannot be changed.'),
+  company_immutable: tr('Un documento no se puede mover a otra empresa.', 'A document cannot be moved to another company.'),
+  receipt_client_mismatch: tr('El recibo debe ser para el cliente de la factura.', 'The receipt must be for the invoice\'s client.'),
+  receipt_exists: tr('Ese pago ya tiene un recibo vigente.', 'That payment already has a valid receipt.'),
+  receipt_amount_mismatch: tr('El recibo debe ser por la cantidad exacta del pago.', 'The receipt must be for the exact payment amount.'),
+  receipt_payment_required: tr('El recibo necesita un pago válido de tu empresa.', 'The receipt needs a valid payment of your company.'),
+  audit: tr('No se pudo registrar el historial del borrador; no se eliminó nada. Inténtalo nuevamente.', 'The draft history could not be recorded; nothing was deleted. Please try again.'),
+  save: tr('No se pudo completar la acción. Inténtalo nuevamente.', 'The action could not be completed. Please try again.'),
+})
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-function DocumentUnavailable({ title, message }: { title: string; message: string }) {
+function DocumentUnavailable({ title, message, tr }: { title: string; message: string; tr: Tr }) {
   return (
     <main className="mx-auto max-w-4xl px-4 py-12">
       <div className="rounded-3xl border border-danger/40 bg-danger/10 p-8 text-center">
@@ -148,8 +152,8 @@ function DocumentUnavailable({ title, message }: { title: string; message: strin
         <h1 className="mt-4 text-2xl font-bold text-fg">{title}</h1>
         <p className="mt-2 text-sm text-slate-400">{message}</p>
         <div className="mt-6 flex flex-wrap justify-center gap-3">
-          <Link href="/documents" className="btn-primary">← Volver a Documentos</Link>
-          <Link href="/payments" className="btn-secondary">Ir a Pagos</Link>
+          <Link href="/documents" className="btn-primary">{tr('← Volver a Documentos', '← Back to Documents')}</Link>
+          <Link href="/payments" className="btn-secondary">{tr('Ir a Pagos', 'Go to Payments')}</Link>
         </div>
       </div>
     </main>
@@ -165,6 +169,11 @@ export default async function DocumentDetailPage({
 }) {
   const { id } = await params
   const query = searchParams ? await searchParams : undefined
+  const locale = await getLocale()
+  const tr = translator(locale)
+  const DONE_MESSAGE = doneMessages(tr)
+  const ACTION_ERROR = actionErrors(tr)
+  const billingText = (code: string | undefined) => (code ? billingErrorMessage(code, locale) : null)
 
   // Broken links (e.g. /documents/null from a payment without document) are
   // detected before querying, so they are not mistaken for a database error.
@@ -172,8 +181,9 @@ export default async function DocumentDetailPage({
     console.warn('DOCUMENT_LOOKUP_INVALID_ID', { id })
     return (
       <DocumentUnavailable
-        title="Documento no encontrado"
-        message="El enlace no corresponde a un documento válido. Es posible que el pago no esté vinculado a ningún documento."
+        tr={tr}
+        title={tr('Documento no encontrado', 'Document not found')}
+        message={tr('El enlace no corresponde a un documento válido. Es posible que el pago no esté vinculado a ningún documento.', 'The link does not match a valid document. The payment may not be linked to any document.')}
       />
     )
   }
@@ -190,8 +200,9 @@ export default async function DocumentDetailPage({
     console.error('DOCUMENT_LOOKUP_ERROR', { id, code: error.code, message: error.message })
     return (
       <DocumentUnavailable
-        title="No se pudo cargar el documento"
-        message="Ocurrió un error al consultar el documento. Inténtalo nuevamente en unos minutos."
+        tr={tr}
+        title={tr('No se pudo cargar el documento', 'The document could not be loaded')}
+        message={tr('Ocurrió un error al consultar el documento. Inténtalo nuevamente en unos minutos.', 'An error occurred while loading the document. Please try again in a few minutes.')}
       />
     )
   }
@@ -199,8 +210,9 @@ export default async function DocumentDetailPage({
   if (!document) {
     return (
       <DocumentUnavailable
-        title="Documento no encontrado"
-        message="No pudimos encontrar este documento o no tienes acceso a él. Puede que haya sido eliminado."
+        tr={tr}
+        title={tr('Documento no encontrado', 'Document not found')}
+        message={tr('No pudimos encontrar este documento o no tienes acceso a él. Puede que haya sido eliminado.', 'We could not find this document or you do not have access to it. It may have been deleted.')}
       />
     )
   }
@@ -214,7 +226,7 @@ export default async function DocumentDetailPage({
 
   if (membershipError || !membership?.company_id) {
     return (
-      <DocumentUnavailable title="Documento no encontrado" message="No pudimos encontrar este documento o no tienes acceso a él." />
+      <DocumentUnavailable tr={tr} title={tr('Documento no encontrado', 'Document not found')} message={tr('No pudimos encontrar este documento o no tienes acceso a él.', 'We could not find this document or you do not have access to it.')} />
     )
   }
 
@@ -250,7 +262,7 @@ export default async function DocumentDetailPage({
   if (payments.length) {
     const { data: receipts } = await supabase
       .from('documents').select('id, document_number, metadata')
-      .eq('company_id', companyId).eq('document_type', 'receipt')
+      .eq('company_id', companyId).eq('document_type', 'receipt').neq('status', 'cancelled')
       .in('metadata->>payment_id', payments.map((p) => p.id))
     for (const r of receipts ?? []) {
       const pid = String((r.metadata as Record<string, unknown> | null)?.payment_id ?? '')
@@ -278,8 +290,8 @@ export default async function DocumentDetailPage({
   const lines = documentItems({ items: doc.items, metadata: doc.metadata, notes: doc.notes })
 
   const errorText =
-    (query?.actionError && (ACTION_ERROR[query.actionError] ?? ACTION_ERROR.save)) ||
-    (query?.paymentError && (PAYMENT_ERROR_MESSAGE[query.paymentError] ?? (BILLING_ERROR_MESSAGE as Record<string, string>)[query.paymentError] ?? PAYMENT_ERROR_MESSAGE.save)) ||
+    (query?.actionError && (ACTION_ERROR[query.actionError] ?? billingText(query.actionError) ?? ACTION_ERROR.save)) ||
+    (query?.paymentError && (paymentErrorMessage(query.paymentError, locale) ?? billingText(query.paymentError) ?? paymentErrorMessage('save', locale))) ||
     null
 
   return (
@@ -288,16 +300,16 @@ export default async function DocumentDetailPage({
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <Link href="/documents" className="text-sm font-semibold text-muted transition hover:text-fg">
-              ← Volver a Documentos
+              {tr('← Volver a Documentos', '← Back to Documents')}
             </Link>
             <h1 className="mt-3 font-display text-3xl font-semibold tracking-tight text-fg">
-              {documentType(doc.document_type)} {doc.document_number ? <span className="text-muted">· {doc.document_number}</span> : null}
+              {documentType(doc.document_type, tr)} {doc.document_number ? <span className="text-muted">· {doc.document_number}</span> : null}
             </h1>
-            <p className="mt-1 text-sm text-muted">Revisa la información antes de enviarla al cliente.</p>
+            <p className="mt-1 text-sm text-muted">{tr('Revisa la información antes de enviarla al cliente.', 'Review the information before sending it to the client.')}</p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <StatusBadge status={shownStatus} />
+            <StatusBadge status={shownStatus} locale={locale} />
             <PrintButton />
           </div>
         </div>
@@ -305,7 +317,7 @@ export default async function DocumentDetailPage({
         {query?.done && DONE_MESSAGE[query.done] && (
           <div role="status" className="alert-success mb-5 p-4">
             {DONE_MESSAGE[query.done]}
-            {query.receiptError && ` El recibo no se pudo crear: ${ACTION_ERROR[query.receiptError] ?? 'inténtalo desde la lista de pagos.'}`}
+            {query.receiptError && ` ${tr('El recibo no se pudo crear:', 'The receipt could not be created:')} ${ACTION_ERROR[query.receiptError] ?? billingText(query.receiptError) ?? tr('inténtalo desde la lista de pagos.', 'try again from the payment list.')}`}
           </div>
         )}
 
@@ -315,8 +327,8 @@ export default async function DocumentDetailPage({
 
         {shownStatus === 'cancelled' && (
           <div role="status" className="alert-warning mb-5 p-4">
-            Documento anulado{voidInfo?.voided_at ? ` el ${formatTimestamp(voidInfo.voided_at)}` : ''}.
-            {voidInfo?.reason ? ` Motivo: ${voidInfo.reason}` : ''} Se conserva en el historial y no se puede reabrir.
+            {tr('Documento anulado', 'Document voided')}{voidInfo?.voided_at ? ` ${tr('el', 'on')} ${formatTimestamp(voidInfo.voided_at, locale)}` : ''}.
+            {voidInfo?.reason ? ` ${tr('Motivo', 'Reason')}: ${voidInfo.reason}` : ''} {tr('Se conserva en el historial y no se puede reabrir.', 'It is kept in the history and cannot be reopened.')}
           </div>
         )}
 
@@ -328,7 +340,7 @@ export default async function DocumentDetailPage({
                 <input type="hidden" name="id" value={doc.id} />
                 <input type="hidden" name="status" value="sent" />
                 <button type="submit" className="btn-accent btn-sm w-full sm:w-auto">
-                  {isQuote ? 'Marcar cotización como enviada' : 'Marcar como enviada'}
+                  {isQuote ? tr('Marcar cotización como enviada', 'Mark quote as sent') : tr('Marcar como enviada', 'Mark as sent')}
                 </button>
               </form>
             )}
@@ -336,28 +348,28 @@ export default async function DocumentDetailPage({
               <form action={setDocumentStatus}>
                 <input type="hidden" name="id" value={doc.id} />
                 <input type="hidden" name="status" value="accepted" />
-                <button type="submit" className="btn-primary btn-sm w-full sm:w-auto">Cliente la aceptó</button>
+                <button type="submit" className="btn-primary btn-sm w-full sm:w-auto">{tr('Cliente la aceptó', 'Client accepted')}</button>
               </form>
             )}
             {actions.reject && (
               <form action={setDocumentStatus}>
                 <input type="hidden" name="id" value={doc.id} />
                 <input type="hidden" name="status" value="rejected" />
-                <button type="submit" className="btn-secondary btn-sm w-full sm:w-auto">Cliente la rechazó</button>
+                <button type="submit" className="btn-secondary btn-sm w-full sm:w-auto">{tr('Cliente la rechazó', 'Client rejected')}</button>
               </form>
             )}
             {actions.void && (
               <details className="card w-full p-4 lg:max-w-md">
-                <summary className="cursor-pointer text-sm font-semibold text-fg">Anular documento</summary>
+                <summary className="cursor-pointer text-sm font-semibold text-fg">{tr('Anular documento', 'Void document')}</summary>
                 <form action={voidDocument} className="mt-3 space-y-3">
                   <input type="hidden" name="id" value={doc.id} />
                   <p className="text-xs text-muted">
-                    El documento queda anulado y se conserva en el historial con su número. No se puede reabrir.
+                    {tr('El documento queda anulado y se conserva en el historial con su número. No se puede reabrir.', 'The document is voided and kept in the history with its number. It cannot be reopened.')}
                   </p>
-                  <label className="field-label">Motivo *
-                    <input name="reason" required minLength={3} maxLength={300} className="field mt-2" placeholder="Ej. Emitida con datos incorrectos" />
+                  <label className="field-label">{tr('Motivo *', 'Reason *')}
+                    <input name="reason" required minLength={3} maxLength={300} className="field mt-2" placeholder={tr('Ej. Emitida con datos incorrectos', 'e.g. Issued with wrong details')} />
                   </label>
-                  <button type="submit" className="btn-danger btn-sm w-full sm:w-auto">Anular</button>
+                  <button type="submit" className="btn-danger btn-sm w-full sm:w-auto">{tr('Anular', 'Void')}</button>
                 </form>
               </details>
             )}
@@ -366,9 +378,9 @@ export default async function DocumentDetailPage({
                 <input type="hidden" name="id" value={doc.id} />
                 <label className="flex items-center gap-2 text-xs text-slate-300">
                   <input type="checkbox" name="confirm_delete" value="yes" required className="h-4 w-4 accent-red-600" />
-                  Confirmo eliminar este borrador
+                  {tr('Confirmo eliminar este borrador', 'I confirm deleting this draft')}
                 </label>
-                <button type="submit" className="btn-danger btn-sm">Eliminar borrador</button>
+                <button type="submit" className="btn-danger btn-sm">{tr('Eliminar borrador', 'Delete draft')}</button>
               </form>
             )}
           </div>
@@ -383,11 +395,11 @@ export default async function DocumentDetailPage({
                 <p className="mt-1 text-xl font-bold tabular-nums text-fg">{money(total)}</p>
               </div>
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted">Pagado</p>
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted">{tr('Pagado', 'Paid')}</p>
                 <p className="mt-1 text-xl font-bold tabular-nums text-success">{money(paid)}</p>
               </div>
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted">Balance pendiente</p>
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted">{tr('Balance pendiente', 'Open balance')}</p>
                 <p className={`mt-1 text-xl font-bold tabular-nums ${balance > 0 ? 'text-warning' : 'text-fg'}`}>{money(balance)}</p>
               </div>
             </div>
@@ -396,39 +408,39 @@ export default async function DocumentDetailPage({
               <form action={registerPayment} className="mt-6 space-y-4 border-t border-line pt-5">
                 <input type="hidden" name="document_id" value={doc.id} />
                 <input type="hidden" name="idempotency_key" value={newIdempotencyKey()} />
-                <h2 className="font-display text-lg font-semibold text-fg">Registrar pago</h2>
+                <h2 className="font-display text-lg font-semibold text-fg">{tr('Registrar pago', 'Record payment')}</h2>
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                  <label className="field-label">Cantidad *
+                  <label className="field-label">{tr('Cantidad *', 'Amount *')}
                     <input name="amount" required inputMode="decimal" defaultValue={balance.toFixed(2)} className="field mt-2" />
                   </label>
-                  <label className="field-label">Método *
+                  <label className="field-label">{tr('Método *', 'Method *')}
                     <select name="method" required defaultValue="" className="field mt-2">
-                      <option value="" disabled>Seleccionar</option>
-                      {PAYMENT_METHODS.map((m) => <option key={m} value={m}>{paymentMethodLabel(m)}</option>)}
+                      <option value="" disabled>{tr('Seleccionar', 'Select')}</option>
+                      {PAYMENT_METHODS.map((m) => <option key={m} value={m}>{paymentMethodLabel(m, locale)}</option>)}
                     </select>
                   </label>
-                  <label className="field-label">Fecha *
+                  <label className="field-label">{tr('Fecha *', 'Date *')}
                     <input name="date" type="date" required defaultValue={today} max={today} min={doc.issue_date ?? undefined} className="field mt-2" />
                   </label>
-                  <label className="field-label">Referencia
-                    <input name="reference" maxLength={120} className="field mt-2" placeholder="Nº de cheque, confirmación…" />
+                  <label className="field-label">{tr('Referencia', 'Reference')}
+                    <input name="reference" maxLength={120} className="field mt-2" placeholder={tr('Nº de cheque, confirmación…', 'Check no., confirmation…')} />
                   </label>
                 </div>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <label className="flex items-center gap-2 text-sm text-slate-300">
                     <input type="checkbox" name="create_receipt" defaultChecked className="h-4 w-4 accent-blue-600" />
-                    Crear el recibo de este pago
+                    {tr('Crear el recibo de este pago', 'Create the receipt for this payment')}
                   </label>
-                  <SubmitButton pendingLabel="Registrando…" className="w-full sm:w-auto">Registrar pago</SubmitButton>
+                  <SubmitButton pendingLabel={tr('Registrando…', 'Recording…')} className="w-full sm:w-auto">{tr('Registrar pago', 'Record payment')}</SubmitButton>
                 </div>
-                <p className="text-xs text-muted">Pagos parciales permitidos hasta el balance pendiente. Los pagos registrados no se editan ni se borran.</p>
+                <p className="text-xs text-muted">{tr('Pagos parciales permitidos hasta el balance pendiente. Los pagos registrados no se editan ni se borran.', 'Partial payments are allowed up to the open balance. Recorded payments are never edited or deleted.')}</p>
               </form>
             )}
 
             <div className="mt-6 border-t border-line pt-5">
-              <h2 className="font-display text-lg font-semibold text-fg">Historial de pagos</h2>
+              <h2 className="font-display text-lg font-semibold text-fg">{tr('Historial de pagos', 'Payment history')}</h2>
               {payments.length === 0 ? (
-                <p className="mt-2 text-sm text-muted">Todavía no hay pagos registrados.</p>
+                <p className="mt-2 text-sm text-muted">{tr('Todavía no hay pagos registrados.', 'No payments recorded yet.')}</p>
               ) : (
                 <ul className="mt-3 divide-y divide-line">
                   {payments.map((p) => {
@@ -436,17 +448,17 @@ export default async function DocumentDetailPage({
                     return (
                       <li key={p.id} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
                         <div className="min-w-0">
-                          <p className="font-semibold tabular-nums text-fg">{money(p.amount)} · {paymentMethodLabel(p.payment_method)}</p>
+                          <p className="font-semibold tabular-nums text-fg">{money(p.amount)} · {paymentMethodLabel(p.payment_method, locale)}</p>
                           <p className="truncate text-xs text-muted">
-                            {formatTimestamp(p.paid_at)}{p.reference ? ` · Ref. ${p.reference}` : ''}
+                            {formatTimestamp(p.paid_at, locale)}{p.reference ? ` · Ref. ${p.reference}` : ''}
                           </p>
                         </div>
                         {receipt ? (
-                          <Link href={`/documents/${receipt.id}`} className="btn-secondary btn-sm">Ver recibo {receipt.number ?? ''}</Link>
+                          <Link href={`/documents/${receipt.id}`} className="btn-secondary btn-sm">{tr('Ver recibo', 'View receipt')} {receipt.number ?? ''}</Link>
                         ) : (
                           <form action={createReceipt}>
                             <input type="hidden" name="payment_id" value={p.id} />
-                            <button type="submit" className="btn-secondary btn-sm w-full sm:w-auto">Crear recibo</button>
+                            <SubmitButton variant="primary" pendingLabel={tr('Creando…', 'Creating…')} className="w-full sm:w-auto">{tr('Crear recibo', 'Create receipt')}</SubmitButton>
                           </form>
                         )}
                       </li>
@@ -460,7 +472,7 @@ export default async function DocumentDetailPage({
 
         {isReceipt && receiptInvoiceId && (
           <div className="mb-5">
-            <Link href={`/documents/${receiptInvoiceId}`} className="btn-secondary btn-sm">Ver la factura de este pago</Link>
+            <Link href={`/documents/${receiptInvoiceId}`} className="btn-secondary btn-sm">{tr('Ver la factura de este pago', 'View the invoice of this payment')}</Link>
           </div>
         )}
 
@@ -469,11 +481,11 @@ export default async function DocumentDetailPage({
             <div className="flex flex-col gap-8 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 {companyData?.logo_url ? (
-                  <img src={companyData.logo_url} alt="Logo de la empresa" className="mb-5 h-16 max-w-[220px] object-contain object-left" />
+                  <img src={companyData.logo_url} alt={tr('Logo de la empresa', 'Company logo')} className="mb-5 h-16 max-w-[220px] object-contain object-left" />
                 ) : (
                   <div className="mb-5 inline-flex h-12 items-center rounded-xl bg-white/10 px-4 text-sm font-bold tracking-wide">BUSINESSAI</div>
                 )}
-                <h2 className="text-2xl font-bold">{companyData?.display_name || companyData?.legal_name || 'Tu empresa'}</h2>
+                <h2 className="text-2xl font-bold">{companyData?.display_name || companyData?.legal_name || tr('Tu empresa', 'Your company')}</h2>
                 {companyData?.legal_name && companyData.display_name !== companyData.legal_name && (
                   <p className="mt-1 text-sm text-white/70">{companyData.legal_name}</p>
                 )}
@@ -488,17 +500,17 @@ export default async function DocumentDetailPage({
               </div>
 
               <div className="sm:text-right">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">{documentType(doc.document_type)}</p>
-                <p className="mt-2 text-2xl font-bold">{doc.document_number || 'Documento'}</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/60">{documentType(doc.document_type, tr)}</p>
+                <p className="mt-2 text-2xl font-bold">{doc.document_number || tr('Documento', 'Document')}</p>
                 {shownStatus === 'cancelled' && (
-                  <p className="mt-2 inline-block rounded-md border border-white/60 px-2 py-0.5 text-xs font-bold uppercase tracking-widest">Anulado</p>
+                  <p className="mt-2 inline-block rounded-md border border-white/60 px-2 py-0.5 text-xs font-bold uppercase tracking-widest">{tr('Anulado', 'Voided')}</p>
                 )}
                 <div className="mt-5 space-y-1 text-sm text-white/75">
-                  <p>Fecha: <span className="font-semibold text-white">{formatDate(doc.issue_date)}</span></p>
+                  <p>{tr('Fecha', 'Date')}: <span className="font-semibold text-white">{formatDate(doc.issue_date, locale)}</span></p>
                   {doc.due_date && (
                     <p>
-                      {isQuote ? 'Válida hasta' : 'Vencimiento'}:{' '}
-                      <span className="font-semibold text-white">{formatDate(doc.due_date)}</span>
+                      {isQuote ? tr('Válida hasta', 'Valid until') : tr('Vencimiento', 'Due')}:{' '}
+                      <span className="font-semibold text-white">{formatDate(doc.due_date, locale)}</span>
                     </p>
                   )}
                 </div>
@@ -508,63 +520,63 @@ export default async function DocumentDetailPage({
 
           {isLetter ? (
             <section className="px-6 py-10 sm:px-10">
-              <h3 className="text-2xl font-bold text-slate-900">{doc.title || 'Carta comercial'}</h3>
-              <p className="mt-2 text-sm text-slate-500">Fecha: {formatDate(doc.issue_date)}</p>
-              <p className="mt-6 text-sm text-slate-700">Para: {clientData?.business_name || clientData?.name || 'Destinatario'}</p>
-              <div className="mt-8 whitespace-pre-wrap text-base leading-8 text-slate-700">{doc.notes || 'Contenido de la carta no especificado.'}</div>
+              <h3 className="text-2xl font-bold text-slate-900">{doc.title || tr('Carta comercial', 'Business letter')}</h3>
+              <p className="mt-2 text-sm text-slate-500">{tr('Fecha', 'Date')}: {formatDate(doc.issue_date, locale)}</p>
+              <p className="mt-6 text-sm text-slate-700">{tr('Para', 'To')}: {clientData?.business_name || clientData?.name || tr('Destinatario', 'Recipient')}</p>
+              <div className="mt-8 whitespace-pre-wrap text-base leading-8 text-slate-700">{doc.notes || tr('Contenido de la carta no especificado.', 'No letter content.')}</div>
             </section>
           ) : isWorkOrder ? (
             <section className="px-6 py-8 sm:px-10">
-              <h3 className="text-xl font-bold text-slate-900">Detalles de la orden de trabajo</h3>
-              <p className="mt-4 text-sm text-slate-500">Cliente</p>
-              <p className="font-semibold text-slate-900">{clientData?.business_name || clientData?.name || 'Cliente no especificado'}</p>
+              <h3 className="text-xl font-bold text-slate-900">{tr('Detalles de la orden de trabajo', 'Work order details')}</h3>
+              <p className="mt-4 text-sm text-slate-500">{tr('Cliente', 'Client')}</p>
+              <p className="font-semibold text-slate-900">{clientData?.business_name || clientData?.name || tr('Cliente no especificado', 'No client')}</p>
               {clientData?.email && <p className="mt-1 text-sm text-slate-600">{clientData.email}</p>}
               {clientData?.phone && <p className="mt-1 text-sm text-slate-600">{clientData.phone}</p>}
-              <p className="mt-5 text-sm text-slate-500">Trabajo solicitado</p>
-              <p className="mt-1 text-lg font-semibold text-slate-900">{doc.title || 'Trabajo no especificado'}</p>
-              {doc.due_date && <p className="mt-4 text-sm text-slate-600">Fecha límite: {formatDate(doc.due_date)}</p>}
+              <p className="mt-5 text-sm text-slate-500">{tr('Trabajo solicitado', 'Requested work')}</p>
+              <p className="mt-1 text-lg font-semibold text-slate-900">{doc.title || tr('Trabajo no especificado', 'No work specified')}</p>
+              {doc.due_date && <p className="mt-4 text-sm text-slate-600">{tr('Fecha límite', 'Deadline')}: {formatDate(doc.due_date, locale)}</p>}
             </section>
           ) : isReminder ? (
             <section className="px-6 py-8 sm:px-10">
-              <h3 className="text-xl font-bold text-slate-900">Recordatorio de pago</h3>
-              <p className="mt-4 text-slate-700">Estimado/a {clientData?.name || clientData?.business_name || 'cliente'},</p>
+              <h3 className="text-xl font-bold text-slate-900">{tr('Recordatorio de pago', 'Payment reminder')}</h3>
+              <p className="mt-4 text-slate-700">{tr('Estimado/a', 'Dear')} {clientData?.name || clientData?.business_name || tr('cliente', 'customer')},</p>
               <p className="mt-3 leading-7 text-slate-600">
-                Le recordamos que tiene un balance pendiente de pago. Le agradecemos realizar el pago correspondiente o
-                comunicarse con nosotros si ya realizó el pago.
+                {tr('Le recordamos que tiene un balance pendiente de pago. Le agradecemos realizar el pago correspondiente o comunicarse con nosotros si ya realizó el pago.',
+                  'This is a reminder that you have an open balance. Please make the payment or contact us if you have already paid.')}
               </p>
               <div className="mt-6 rounded-2xl bg-blue-50 p-5">
-                <p className="text-sm text-blue-800">Balance pendiente</p>
+                <p className="text-sm text-blue-800">{tr('Balance pendiente', 'Open balance')}</p>
                 <p className="mt-1 text-3xl font-bold text-blue-950">{money(total)}</p>
-                {doc.due_date && <p className="mt-2 text-sm text-blue-800">Fecha de vencimiento: {formatDate(doc.due_date)}</p>}
+                {doc.due_date && <p className="mt-2 text-sm text-blue-800">{tr('Fecha de vencimiento', 'Due date')}: {formatDate(doc.due_date, locale)}</p>}
               </div>
             </section>
           ) : isReceipt ? (
             <section className="px-6 py-8 sm:px-10">
-              <h3 className="text-xl font-bold text-slate-900">Recibo de pago</h3>
+              <h3 className="text-xl font-bold text-slate-900">{tr('Recibo de pago', 'Payment receipt')}</h3>
               <p className="mt-4 leading-7 text-slate-700">
-                Recibimos de <span className="font-semibold">{clientData?.business_name || clientData?.name || 'el cliente'}</span> la
-                cantidad de <span className="font-semibold">{money(total)}</span>
+                {tr('Recibimos de', 'We received from')} <span className="font-semibold">{clientData?.business_name || clientData?.name || tr('el cliente', 'the customer')}</span>{' '}
+                {tr('la cantidad de', 'the amount of')} <span className="font-semibold">{money(total)}</span>
                 {typeof meta.invoice_number === 'string' && meta.invoice_number ? (
-                  <> como pago de la factura <span className="font-semibold">{meta.invoice_number}</span></>
+                  <> {tr('como pago de la factura', 'as payment of invoice')} <span className="font-semibold">{meta.invoice_number}</span></>
                 ) : null}
                 .
               </p>
               <dl className="mt-6 grid gap-4 rounded-2xl bg-slate-50 p-5 text-sm sm:grid-cols-3">
                 <div>
-                  <dt className="text-xs font-bold uppercase tracking-wider text-slate-400">Fecha del pago</dt>
-                  <dd className="mt-1 font-semibold text-slate-900">{formatTimestamp(typeof meta.paid_at === 'string' ? meta.paid_at : doc.issue_date)}</dd>
+                  <dt className="text-xs font-bold uppercase tracking-wider text-slate-400">{tr('Fecha del pago', 'Payment date')}</dt>
+                  <dd className="mt-1 font-semibold text-slate-900">{formatTimestamp(typeof meta.paid_at === 'string' ? meta.paid_at : doc.issue_date, locale)}</dd>
                 </div>
                 <div>
-                  <dt className="text-xs font-bold uppercase tracking-wider text-slate-400">Método</dt>
-                  <dd className="mt-1 font-semibold text-slate-900">{paymentMethodLabel(typeof meta.payment_method === 'string' ? meta.payment_method : null)}</dd>
+                  <dt className="text-xs font-bold uppercase tracking-wider text-slate-400">{tr('Método', 'Method')}</dt>
+                  <dd className="mt-1 font-semibold text-slate-900">{paymentMethodLabel(typeof meta.payment_method === 'string' ? meta.payment_method : null, locale)}</dd>
                 </div>
                 <div>
-                  <dt className="text-xs font-bold uppercase tracking-wider text-slate-400">Referencia</dt>
+                  <dt className="text-xs font-bold uppercase tracking-wider text-slate-400">{tr('Referencia', 'Reference')}</dt>
                   <dd className="mt-1 font-semibold text-slate-900">{typeof meta.reference === 'string' && meta.reference ? meta.reference : '—'}</dd>
                 </div>
               </dl>
               <div className="mt-6 flex items-end justify-between border-t border-slate-200 pt-4">
-                <span className="text-base font-bold text-slate-900">Total recibido</span>
+                <span className="text-base font-bold text-slate-900">{tr('Total recibido', 'Total received')}</span>
                 <span className="text-3xl font-bold" style={{ color: primaryColor }}>{money(total)}</span>
               </div>
             </section>
@@ -572,8 +584,8 @@ export default async function DocumentDetailPage({
             <>
               <section className="grid gap-6 border-b border-slate-200 px-6 py-7 sm:grid-cols-2 sm:px-10">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">{isQuote ? 'Preparado para' : 'Facturado a'}</p>
-                  <h3 className="mt-2 text-lg font-bold text-slate-900">{clientData?.business_name || clientData?.name || 'Cliente no especificado'}</h3>
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">{isQuote ? tr('Preparado para', 'Prepared for') : tr('Facturado a', 'Bill to')}</p>
+                  <h3 className="mt-2 text-lg font-bold text-slate-900">{clientData?.business_name || clientData?.name || tr('Cliente no especificado', 'No client')}</h3>
                   {clientData?.business_name && clientData?.name && <p className="mt-1 text-sm text-slate-600">{clientData.name}</p>}
                   <div className="mt-3 space-y-1 text-sm text-slate-500">
                     {clientData?.email && <p>{clientData.email}</p>}
@@ -585,19 +597,19 @@ export default async function DocumentDetailPage({
                   </div>
                 </div>
                 <div className="rounded-2xl bg-slate-50 p-5 sm:text-right">
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Resumen</p>
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">{tr('Resumen', 'Summary')}</p>
                   <p className="mt-2 text-3xl font-bold text-slate-950">{money(total)}</p>
-                  <p className="mt-1 text-sm text-slate-500">Total del documento</p>
+                  <p className="mt-1 text-sm text-slate-500">{tr('Total del documento', 'Document total')}</p>
                 </div>
               </section>
 
               <section className="px-6 py-8 sm:px-10">
                 <div className="overflow-hidden rounded-2xl border border-slate-200">
                   <div className="grid grid-cols-[minmax(100px,1fr)_42px_72px_78px] gap-1 bg-slate-50 px-2 py-3 text-[9px] font-bold uppercase tracking-wide text-slate-500 sm:grid-cols-[minmax(0,1fr)_90px_130px_130px] sm:gap-3 sm:px-5 sm:text-xs">
-                    <span>Descripción</span>
-                    <span className="text-right">Cant.</span>
-                    <span className="text-right">Precio unit.</span>
-                    <span className="text-right">Importe</span>
+                    <span>{tr('Descripción', 'Description')}</span>
+                    <span className="text-right">{tr('Cant.', 'Qty')}</span>
+                    <span className="text-right">{tr('Precio unit.', 'Unit price')}</span>
+                    <span className="text-right">{tr('Importe', 'Amount')}</span>
                   </div>
                   {lines.items.length > 0 ? (
                     lines.items.map((item, index) => (
@@ -613,8 +625,8 @@ export default async function DocumentDetailPage({
                     ))
                   ) : (
                     <div className="border-t border-slate-100 px-5 py-6">
-                      <p className="font-semibold text-slate-900">{doc.title || documentType(doc.document_type)}</p>
-                      <p className="mt-1 text-sm text-slate-500">Este documento no tiene partidas detalladas.</p>
+                      <p className="font-semibold text-slate-900">{doc.title || documentType(doc.document_type, tr)}</p>
+                      <p className="mt-1 text-sm text-slate-500">{tr('Este documento no tiene partidas detalladas.', 'This document has no itemized lines.')}</p>
                     </div>
                   )}
                 </div>
@@ -627,12 +639,12 @@ export default async function DocumentDetailPage({
                     </div>
                     {lines.discount > 0 && (
                       <div className="flex justify-between text-sm text-slate-500">
-                        <span>Descuento</span>
+                        <span>{tr('Descuento', 'Discount')}</span>
                         <span className="font-medium text-slate-800">−{money(lines.discount)}</span>
                       </div>
                     )}
                     <div className="flex justify-between text-sm text-slate-500">
-                      <span>Impuesto{lines.taxRate !== null ? ` (${lines.taxRate}%)` : ''}</span>
+                      <span>{tr('Impuesto', 'Tax')}{lines.taxRate !== null ? ` (${lines.taxRate}%)` : ''}</span>
                       <span className="font-medium text-slate-800">{money(tax)}</span>
                     </div>
                     <div className="border-t border-slate-200 pt-4">
@@ -644,11 +656,11 @@ export default async function DocumentDetailPage({
                     {isInvoice && paid > 0 && (
                       <>
                         <div className="flex justify-between text-sm text-slate-500">
-                          <span>Pagado</span>
+                          <span>{tr('Pagado', 'Paid')}</span>
                           <span className="font-medium text-slate-800">−{money(paid)}</span>
                         </div>
                         <div className="flex justify-between text-sm font-bold text-slate-900">
-                          <span>Balance pendiente</span>
+                          <span>{tr('Balance pendiente', 'Open balance')}</span>
                           <span>{money(balance)}</span>
                         </div>
                       </>
@@ -662,7 +674,7 @@ export default async function DocumentDetailPage({
           {(isInvoice || isQuote ? lines.notes : isLetter || isReceipt ? '' : doc.notes) && (
             <section className="border-t border-slate-200 px-6 py-7 sm:px-10">
               <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">
-                {isWorkOrder ? 'Descripción del trabajo y notas' : 'Notas y condiciones'}
+                {isWorkOrder ? tr('Descripción del trabajo y notas', 'Work description and notes') : tr('Notas y condiciones', 'Notes and conditions')}
               </h3>
               <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-600">
                 {isInvoice || isQuote ? lines.notes : doc.notes}
@@ -672,7 +684,7 @@ export default async function DocumentDetailPage({
 
           {companyData?.payment_info && (isInvoice || isQuote) && (
             <section className="border-t border-slate-200 px-6 py-7 sm:px-10">
-              <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">Información de pago</h3>
+              <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">{tr('Información de pago', 'Payment information')}</h3>
               <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-600">{companyData.payment_info}</p>
             </section>
           )}
@@ -681,9 +693,9 @@ export default async function DocumentDetailPage({
             <section className="border-t border-slate-200 px-6 py-7 sm:px-10">
               <div className="flex justify-end">
                 <div className="w-full max-w-xs text-center">
-                  <img src={signature.url} alt="Firma autorizada" className="mx-auto h-20 max-w-[240px] object-contain" />
+                  <img src={signature.url} alt={tr('Firma autorizada', 'Authorized signature')} className="mx-auto h-20 max-w-[240px] object-contain" />
                   <div className="mt-2 border-t border-slate-300 pt-2 text-xs text-slate-500">
-                    Firma autorizada
+                    {tr('Firma autorizada', 'Authorized signature')}
                     {companyData?.display_name || companyData?.legal_name ? ` · ${companyData.display_name || companyData.legal_name}` : ''}
                   </div>
                 </div>
@@ -692,13 +704,13 @@ export default async function DocumentDetailPage({
           )}
 
           <footer className="border-t border-slate-200 bg-slate-50 px-6 py-6 text-center sm:px-10">
-            <p className="text-xs text-slate-400">Documento generado con BusinessAI</p>
+            <p className="text-xs text-slate-400">{tr('Documento generado con BusinessAI', 'Document created with BusinessAI')}</p>
             <p className="mt-1 text-xs text-slate-400">{companyData?.display_name || companyData?.legal_name || 'BusinessAI'}</p>
           </footer>
         </article>
 
         <div className="mt-6 flex justify-center">
-          <Link href="/documents" className="btn-primary">← Volver a Documentos</Link>
+          <Link href="/documents" className="btn-primary">{tr('← Volver a Documentos', '← Back to Documents')}</Link>
         </div>
       </div>
     </div>
