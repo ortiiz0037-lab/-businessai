@@ -29,6 +29,7 @@ function navigation(locale: Locale): NavItem[] {
     { href: '/workforce', label: t.workforce, icon: 'clock' },
     { href: '/receivables', label: t.receivables, icon: 'wallet' },
     { href: '/payables', label: t.payables, icon: 'receipt' },
+    { href: '/bank', label: t.bank, icon: 'building' },
     { href: '/accounting', label: t.accounting, icon: 'chart' },
     { href: '/settings/company', label: t.company, icon: 'building' },
     { href: '/settings/team', label: t.team, icon: 'users' },

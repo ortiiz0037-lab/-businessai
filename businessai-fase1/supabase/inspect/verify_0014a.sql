@@ -24,7 +24,9 @@
 --      accounting.reopen (owner); after 0024 (public.bills): payables.view,
 --      pay, manage (owner, admin), payables.create and approve (all roles),
 --      payables.settings (owner); after 0025 (public.payment_promises):
---      receivables.view, receivables.manage, payments.void (owner, admin)
+--      receivables.view, receivables.manage, payments.void (owner, admin);
+--      after 0026 (public.bank_accounts): bank.view / manage / reconcile
+--      (owner, admin), bank.adjust and bank.reopen (owner)
 --      (no documents.void either).
 --   2. has_permission, is_company_member, has_company_role: SECURITY DEFINER,
 --      search_path="", executable by authenticated, not by anon or PUBLIC.
@@ -46,18 +48,22 @@ has20 as (select to_regclass('public.employees') is not null as yes),
 has23 as (select to_regclass('public.journal_entries') is not null as yes),
 has24 as (select to_regclass('public.bills') is not null as yes),
 has25 as (select to_regclass('public.payment_promises') is not null as yes),
+has26 as (select to_regclass('public.bank_accounts') is not null as yes),
 expected_count as (select 18 + (select yes::int from has15) + 2 * (select yes::int from has18) + (select yes::int from has19)
-                          + (select yes::int from has20) + 5 * (select yes::int from has23) + 6 * (select yes::int from has24) + 3 * (select yes::int from has25) as n),
+                          + (select yes::int from has20) + 5 * (select yes::int from has23) + 6 * (select yes::int from has24) + 3 * (select yes::int from has25) + 5 * (select yes::int from has26) as n),
 member_lacks(key) as (values ('billing.manage'), ('clients.delete'), ('company.branding.manage'),
                              ('company.settings.manage'), ('documents.delete'), ('documents.void'),
                              ('members.invite'), ('members.manage'), ('clients.archive'), ('workforce.manage'),
                              ('accounting.view'), ('accounting.manage'), ('accounting.post'), ('accounting.close'), ('accounting.reopen'),
                              ('payables.view'), ('payables.pay'), ('payables.manage'), ('payables.settings'),
-                             ('receivables.view'), ('receivables.manage'), ('payments.void')),
+                             ('receivables.view'), ('receivables.manage'), ('payments.void'),
+                             ('bank.view'), ('bank.manage'), ('bank.reconcile'), ('bank.adjust'), ('bank.reopen')),
 admin_lacks(key) as (select 'billing.manage' from has15 where yes
                      union all select 'members.manage' from has18 where yes
                      union all select 'accounting.reopen' from has23 where yes
-                     union all select 'payables.settings' from has24 where yes),
+                     union all select 'payables.settings' from has24 where yes
+                     union all select 'bank.adjust' from has26 where yes
+                     union all select 'bank.reopen' from has26 where yes),
 expected_policies(tbl, name) as (values
   ('public.companies', 'companies_select'), ('public.companies', 'companies_update'),
   ('public.memberships', 'memberships_select'),

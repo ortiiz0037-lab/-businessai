@@ -18,6 +18,7 @@ import { balanceOf, canTransition, documentActions, lifecycleErrorCode, todayIn,
 import { parsePaymentInput } from '@/lib/documents/payments'
 import { insertDocument } from '@/lib/documents/numbering'
 import { IDEMPOTENCY_KEY, lifecycleAvailable } from '@/lib/documents/capabilities'
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -216,6 +217,8 @@ export async function registerPayment(formData: FormData) {
     .insert({
       company_id: ctx.doc.company_id, document_id: id, amount: input.amount, payment_method: input.method,
       reference: input.reference, paid_at: input.paidAt, created_by: user.id,
+      // 0026: deposited into a bank account (the database checks it is an asset account of the company)
+      ...(UUID_RE.test(text(formData, 'deposit_account_id')) ? { deposit_account_id: text(formData, 'deposit_account_id') } : {}),
       ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
     })
     .select(columns)

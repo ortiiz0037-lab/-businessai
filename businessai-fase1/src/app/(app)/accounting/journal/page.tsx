@@ -8,7 +8,7 @@ import { reverseEntry } from '@/app/actions/accounting'
 
 export const dynamic = 'force-dynamic'
 const PAGE = 25
-const SOURCES = ['manual', 'invoice', 'invoice_void', 'payment', 'reversal', 'bill', 'bill_void', 'bill_payment', 'bill_payment_void', 'payment_void']
+const SOURCES = ['manual', 'invoice', 'invoice_void', 'payment', 'reversal', 'bill', 'bill_void', 'bill_payment', 'bill_payment_void', 'payment_void', 'bank_adjustment', 'bank_reconciliation']
 
 /** Journal: every entry with its lines, newest first; reversals of manual entries. */
 export default async function JournalPage({ searchParams }: { searchParams: Promise<{ from?: string; to?: string; source?: string; page?: string; done?: string; error?: string }> }) {

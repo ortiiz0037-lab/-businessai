@@ -10,7 +10,7 @@
 -- writes. It works whatever is applied: tables that may not exist are only
 -- looked up by name (to_regclass / to_regprocedure), never queried.
 --
--- One row per migration (0001–0004 together, then 0005 … 0025):
+-- One row per migration (0001–0004 together, then 0005 … 0026):
 --   status   applied | not applied | PARTIAL — review | n/a
 --   evidence what was measured (counts, flags) — compare it with the
 --            "applied when" column.
@@ -116,6 +116,9 @@ e as (
     -- 0025
     to_regclass('public.payment_promises') is not null as t_promises,
     to_regclass('public.collection_reminders') is not null as t_reminders,
+    -- 0026
+    to_regclass('public.bank_accounts') is not null as t_bank_accounts,
+    to_regclass('public.bank_reconciliations') is not null as t_bank_recs,
     -- staging bookkeeping (absent in Production)
     to_regclass('ba_meta.applied_migrations') is not null as t_record,
     to_regclass('ba_meta.environment') is not null        as t_marker
@@ -250,7 +253,13 @@ r(ord, migration, applied_when, status, evidence) as (
     format('payment_promises=%s collection_reminders=%s', t_promises, t_reminders)
   from e
   union all
-  select 21, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
+  select 21, '0026_bank_reconciliation', 'bank_accounts + bank_reconciliations',
+    case when t_bank_accounts and t_bank_recs then 'applied'
+         when not (t_bank_accounts or t_bank_recs) then 'not applied' else 'PARTIAL — review' end,
+    format('bank_accounts=%s bank_reconciliations=%s', t_bank_accounts, t_bank_recs)
+  from e
+  union all
+  select 22, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
     case when t_record or t_marker then 'present (staging?)' else 'absent' end,
     format('ba_meta.applied_migrations=%s ba_meta.environment=%s', t_record, t_marker)
   from e

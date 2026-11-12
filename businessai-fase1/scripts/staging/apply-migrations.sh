@@ -84,6 +84,7 @@ ORDER=(
   0023_ledger
   0024_payables
   0025_receivables
+  0026_bank_reconciliation
 )
 EXPECTED_VERIFY="10,0,2,0,f,0,2,3,t,t,t,"
 

@@ -8,6 +8,7 @@ import { balanceOf, todayIn } from '@/lib/documents/lifecycle'
 import { PAYMENT_METHODS, paymentErrorMessage, paymentMethodLabel } from '@/lib/documents/payments'
 import { paidByDocument } from '@/lib/supabase/paged'
 import { registerPayment } from '@/app/actions/documents'
+import { DepositAccountField } from '@/components/deposit-account-field'
 import { newIdempotencyKey } from '@/lib/documents/capabilities'
 import { SubmitButton } from '@/components/submit-button'
 import { formatters } from '@/lib/i18n/app'
@@ -137,6 +138,7 @@ export default async function NewPaymentPage({
                   <label className="field-label">{tr('Referencia', 'Reference')}
                     <input name="reference" maxLength={120} className="field mt-2" placeholder={tr('Nº de cheque, confirmación…', 'Check no., confirmation…')} />
                   </label>
+                  <DepositAccountField supabase={supabase} companyId={member.company_id} tr={tr} />
                 </div>
                 <label className="flex items-center gap-2 text-sm text-slate-300">
                   <input type="checkbox" name="create_receipt" defaultChecked className="h-4 w-4 accent-blue-600" />

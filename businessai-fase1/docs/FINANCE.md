@@ -237,3 +237,103 @@ la cobranza.
   «Actualizar seguimiento» (o una llamada futura de un cron sin usuario).
 * Fechas en hora de Puerto Rico.
 * Pantallas no probadas en navegador con sesión contra un Supabase real.
+
+---
+
+# Entrega 5 — Conciliación bancaria (migración 0026)
+
+**Estado:** borrador local, **no aplicada en ningún entorno**. Marca `STAGING-GATE`.
+
+## Auditoría previa y decisión de arquitectura
+
+Antes de 0026 cada movimiento de dinero ya era una línea del libro mayor
+sobre una cuenta de activo: cobros de clientes (0023, siempre 1000 Efectivo),
+pagos a proveedores (0024, cuenta elegida: 1000 o 1010), gastos pagados
+(los mismos pagos), transferencias y depósitos (asientos manuales).
+**Decisión:** una cuenta bancaria se vincula a **una** cuenta de activo del
+catálogo y la conciliación empareja los movimientos del estado con **esas
+líneas del libro**. No hay segunda fuente de verdad: importar no crea
+ingresos ni gastos; los únicos asientos nuevos son movimientos del banco que
+faltan en los libros (comisiones, intereses, desconocidos, transferencias) y
+ajustes autorizados, siempre balanceados y con `ledger_post` (respetan
+periodos cerrados). Para que los cobros de clientes puedan ir a un banco se
+añadió `payments.deposit_account_id` (opcional; sin él, 1000 Efectivo como
+antes). 0026 reemplaza `ledger_post_payment` y el rollback restaura el
+original exacto.
+
+## Modelo
+
+| Tabla | Contenido |
+|---|---|
+| `bank_accounts` | Nombre, banco, moneda (base, USD), últimos 4 dígitos, cuenta contable (activo; una cuenta bancaria activa por cuenta contable), activa/archivada. **Sin credenciales** (la migración verifica que no exista ninguna columna de ese tipo). |
+| `bank_imports` | Archivo (nombre, SHA-256), mapeo, filas, nuevos, duplicados, fechas; revertible sin borrar. |
+| `bank_lines` | Fecha, descripción, referencia, importe con signo en centavos, saldo, ID del banco, huella, fila original; estado pendiente / emparejado / excluido; conciliación. |
+| `bank_match_groups` + `bank_match_items` | Grupo: N movimientos ↔ M líneas del libro con sumas idénticas. Una línea en un solo grupo activo. Deshacer deja el grupo como historial. |
+| `bank_reconciliations` | Cuenta, periodo, saldos inicial y final del estado, cierre, ajuste, reapertura. |
+| `bank_events` | Auditoría de solo-añadir. |
+
+## Importación
+
+* CSV de hasta 2 MB / 5000 filas; UTF-8 (con o sin BOM) o Windows-1252;
+  delimitador `,` `;` o tabulador; asistente de columnas (fecha,
+  descripción, referencia, importe con signo **o** débito/crédito, saldo, ID);
+  formatos de fecha AAAA-MM-DD, MM/DD/AAAA, DD/MM/AAAA; decimales `1,234.56` o
+  `1.234,56`; paréntesis y signo final como negativos; inversión de signo.
+* Vista previa en el navegador con errores por línea, totales y duplicados;
+  al confirmar el servidor vuelve a leer el archivo y la base valida cada fila
+  (todo o nada).
+* Duplicados: el mismo archivo (SHA-256) no se importa dos veces en la misma
+  cuenta; el mismo movimiento (ID del banco o huella de fecha, importe,
+  descripción, referencia y saldo) tampoco, aunque venga en otro archivo.
+  Filas idénticas dentro de un archivo se omiten salvo que el usuario indique
+  que son transacciones distintas.
+* No se guarda el archivo original: se conservan su SHA-256, el mapeo y cada
+  fila original (`raw`), suficiente para la trazabilidad.
+
+## Emparejamiento
+
+* Sugerencias con confianza: 100 (importe, fecha y referencia), 95 (importe
+  y fecha), 90 (importe y referencia en ±7 días), 50–80 (importe en ±7 días),
+  60 (varias partidas del mismo día suman el importe), y detección de
+  comisiones / desconocidos. Se marcan **ambiguas** cuando otra opción es
+  igual de buena.
+* «Emparejar exactos» confirma solo coincidencias ≥ 95 inequívocas; las
+  ambiguas y los grupos se confirman a mano.
+* Emparejamiento manual múltiple (1:N, N:1); sumas exactamente iguales.
+* Registrar un movimiento que no está en los libros: asiento balanceado entre
+  la cuenta del banco y la contrapartida elegida (6500 Comisiones bancarias se
+  crea al activar la banca), emparejado automáticamente.
+
+## Conciliación
+
+Diferencia = saldo final del estado + partidas en libros aún no en el banco −
+movimientos del banco registrados en libros después del periodo − saldo en
+libros al cierre. **Cierre** exige: continuidad con el cierre anterior, estado
+completo (saldo inicial + movimientos = saldo final), ningún movimiento sin
+emparejar y diferencia cero. Una diferencia restante solo se cierra con un
+**ajuste autorizado por el propietario**, con motivo documentado y asiento
+balanceado. Al cerrar se bloquean los movimientos y emparejamientos del
+periodo; solo el propietario reabre la última, con motivo. Los saldos de una
+conciliación abierta se corrigen con registro de los valores anteriores; las
+conciliaciones nunca se borran.
+
+## Roles
+
+`bank.view`, `bank.manage`, `bank.reconcile` (propietario y administradores);
+`bank.adjust` y `bank.reopen` (propietario). Registrar movimientos bancarios
+en el libro requiere además `accounting.post`.
+
+## Informes
+
+Conciliaciones por cuenta y periodo, movimientos sin emparejar, diferencias
+detectadas, historial de importaciones (con reversión), cierres, ajustes y
+reaperturas; exportación CSV (conciliaciones, sin emparejar, movimientos,
+importaciones, auditoría) con protección contra fórmulas en hojas de cálculo.
+
+## Limitaciones conocidas
+
+* Solo CSV (no OFX/QFX ni conexión bancaria directa: no se guardan
+  credenciales).
+* Solo la moneda base (USD); las tablas guardan la moneda para el futuro.
+* Las sugerencias de grupo solo consideran partidas del mismo día (2–10).
+* Pantallas no probadas en navegador con sesión contra un Supabase real.
