@@ -403,6 +403,10 @@ begin
               (select auth.uid()));
     end if;
   else
+    -- The whole company is being deleted (cascade): nothing to record.
+    if not exists (select 1 from public.companies c where c.id = old.company_id) then
+      return null;
+    end if;
     insert into public.document_events (company_id, document_id, document_number, document_type, event, from_status, actor)
     values (old.company_id, old.id, old.document_number, old.document_type, 'deleted', old.status, (select auth.uid()));
   end if;

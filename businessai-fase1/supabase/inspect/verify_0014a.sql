@@ -18,7 +18,10 @@
 --      (+ documents.void); owner 19, admin 18 (no billing.manage), member 13
 --      after 0018 (public.invitations): + members.invite (owner, admin) and
 --      members.manage (owner); after 0019 (public.client_events): +
---      clients.archive (owner, admin)
+--      clients.archive (owner, admin); after 0020 (public.employees):
+--      workforce.manage (owner, admin); after 0023 (public.journal_entries):
+--      accounting.view / manage / post / close (owner, admin) and
+--      accounting.reopen (owner)
 --      (no documents.void either).
 --   2. has_permission, is_company_member, has_company_role: SECURITY DEFINER,
 --      search_path="", executable by authenticated, not by anon or PUBLIC.
@@ -37,13 +40,16 @@ has15 as (select to_regclass('public.document_counters') is not null as yes),
 has18 as (select to_regclass('public.invitations') is not null as yes),
 has19 as (select to_regclass('public.client_events') is not null as yes),
 has20 as (select to_regclass('public.employees') is not null as yes),
+has23 as (select to_regclass('public.journal_entries') is not null as yes),
 expected_count as (select 18 + (select yes::int from has15) + 2 * (select yes::int from has18) + (select yes::int from has19)
-                          + (select yes::int from has20) as n),
+                          + (select yes::int from has20) + 5 * (select yes::int from has23) as n),
 member_lacks(key) as (values ('billing.manage'), ('clients.delete'), ('company.branding.manage'),
                              ('company.settings.manage'), ('documents.delete'), ('documents.void'),
-                             ('members.invite'), ('members.manage'), ('clients.archive'), ('workforce.manage')),
+                             ('members.invite'), ('members.manage'), ('clients.archive'), ('workforce.manage'),
+                             ('accounting.view'), ('accounting.manage'), ('accounting.post'), ('accounting.close'), ('accounting.reopen')),
 admin_lacks(key) as (select 'billing.manage' from has15 where yes
-                     union all select 'members.manage' from has18 where yes),
+                     union all select 'members.manage' from has18 where yes
+                     union all select 'accounting.reopen' from has23 where yes),
 expected_policies(tbl, name) as (values
   ('public.companies', 'companies_select'), ('public.companies', 'companies_update'),
   ('public.memberships', 'memberships_select'),

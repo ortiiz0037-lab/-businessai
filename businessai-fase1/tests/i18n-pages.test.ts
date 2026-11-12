@@ -24,9 +24,9 @@ describe('every signed-in page is bilingual', () => {
   for (const page of pages) {
     it(page.slice(root.length), () => {
       const text = readFileSync(page, 'utf8')
-      // directly, or through the workforce page helper (which calls both)
-      expect(text).toMatch(/getLocale\(\)|workforcePage\(\)/)
-      expect(text).toMatch(/translator\(|APP\[locale\]|workforcePage\(\)/)
+      // directly, or through the workforce / accounting page helpers (which call both)
+      expect(text).toMatch(/getLocale\(\)|workforcePage\(\)|accountingPage\(\)/)
+      expect(text).toMatch(/translator\(|APP\[locale\]|workforcePage\(\)|accountingPage\(\)/)
     })
   }
   it('no backup copies of pages in src', () => {
