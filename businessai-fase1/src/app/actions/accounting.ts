@@ -4,6 +4,7 @@
  * session through RLS or a 0023 function: PostgreSQL checks the balance,
  * the roles, closed periods and immutability, and records the history.
  */
+import { STATEMENT_CLASSES } from '@/lib/finance/statements'
 import { randomUUID } from 'node:crypto'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
@@ -61,7 +62,13 @@ export async function saveAccount(formData: FormData) {
   const code = text(formData, 'code')
   const name = text(formData, 'name').slice(0, 120)
   if (!/^[0-9A-Za-z][0-9A-Za-z.-]{0,19}$/.test(code) || !name || !(ACCOUNT_TYPES as readonly string[]).includes(type)) go(back, { error: 'invalid' })
-  const row = { code, name, name_en: opt(formData, 'name_en', 120), type, description: opt(formData, 'description', 500) }
+  const row: Record<string, string | null> = { code, name, name_en: opt(formData, 'name_en', 120), type, description: opt(formData, 'description', 500) }
+  // statement_class (0027) is sent only by forms that show it; '' = automatic
+  if (id && formData.has('statement_class')) {
+    const sc = text(formData, 'statement_class')
+    if (sc && !(STATEMENT_CLASSES[type] ?? []).includes(sc)) go(back, { error: 'invalid' })
+    row.statement_class = sc || null
+  }
   const { supabase, companyId } = await company()
   const { error } = id
     ? (UUID.test(id) ? await supabase.from('ledger_accounts').update(row).eq('id', id).eq('company_id', companyId) : { error: { message: 'ACCOUNT_INVALID' } })

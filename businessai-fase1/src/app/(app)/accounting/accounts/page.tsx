@@ -2,6 +2,7 @@ import { PageHeader } from '@/components/ui/page'
 import { SubmitButton } from '@/components/submit-button'
 import { AccountingNav, Flash, NoAccountingAccess } from '@/components/accounting-nav'
 import { accountingPage } from '@/lib/finance/page'
+import { STATEMENT_CLASSES, sectionLabel } from '@/lib/finance/statements'
 import { ACCOUNT_TYPES, accountName, accountTypeLabel, accountTypePlural, ledgerMessage, type LedgerAccount } from '@/lib/finance/ledger'
 import { deleteAccount, saveAccount, setAccountStatus } from '@/app/actions/accounting'
 
@@ -16,6 +17,14 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
     supabase.from('ledger_accounts').select('id, code, name, name_en, type, description, status, system_key').eq('company_id', companyId).order('code'),
     supabase.rpc('ledger_trial_balance', { target: companyId }),
   ])
+  // Financial-statement classification (migration 0027). Optional: without 0027 the page works as before.
+  const [{ data: cls, error: clsError }, { data: derived }] = await Promise.all([
+    supabase.from('ledger_accounts').select('id, statement_class').eq('company_id', companyId),
+    supabase.rpc('fs_account_balances', { target: companyId, from_date: '2000-01-01', to_date: '2000-01-01' }),
+  ])
+  const statementClass = new Map(((cls ?? []) as { id: string; statement_class: string | null }[]).map((r) => [r.id, r.statement_class]))
+  const autoClass = new Map(((derived ?? []) as { account_id: string; class: string }[]).map((r) => [r.account_id, r.class]))
+  const classes = !clsError
   const accounts = (data ?? []) as LedgerAccount[]
   const withMoves = new Set(((used ?? []) as { account_id: string; debit_cents: number; credit_cents: number }[])
     .filter((r) => Number(r.debit_cents) > 0 || Number(r.credit_cents) > 0).map((r) => r.account_id))
@@ -86,6 +95,13 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
                           <label className="text-sm"><span className="field-label">{tr('Nombre', 'Name')}</span><input name="name" defaultValue={a.name} required maxLength={120} className="field" /></label>
                           <label className="text-sm"><span className="field-label">{tr('Nombre en inglés', 'English name')}</span><input name="name_en" defaultValue={a.name_en ?? ''} maxLength={120} className="field" /></label>
                           <label className="text-sm sm:col-span-3"><span className="field-label">{tr('Descripción', 'Description')}</span><input name="description" defaultValue={a.description ?? ''} maxLength={500} className="field" /></label>
+                          {classes && (
+                            <label className="text-sm sm:col-span-3"><span className="field-label">{tr('Clasificación en estados financieros', 'Financial-statement classification')}</span>
+                              <select name="statement_class" defaultValue={statementClass.get(a.id) ?? ''} className="field">
+                                <option value="">{tr('Automática', 'Automatic')}{autoClass.get(a.id) ? ` (${sectionLabel(autoClass.get(a.id)!, locale)})` : ''}</option>
+                                {(STATEMENT_CLASSES[a.type] ?? []).map((c) => <option key={c} value={c}>{sectionLabel(c, locale)}</option>)}
+                              </select></label>
+                          )}
                           <div className="sm:self-end"><SubmitButton>{tr('Guardar', 'Save')}</SubmitButton></div>
                         </form>
                         {!a.system_key && (

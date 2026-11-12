@@ -337,3 +337,152 @@ importaciones, auditoría) con protección contra fórmulas en hojas de cálculo
 * Solo la moneda base (USD); las tablas guardan la moneda para el futuro.
 * Las sugerencias de grupo solo consideran partidas del mismo día (2–10).
 * Pantallas no probadas en navegador con sesión contra un Supabase real.
+
+# Entrega 6 — Estados financieros y presupuestos (migración 0027)
+
+**Estado:** borrador local, **no aplicada en ningún entorno**. Marca `STAGING-GATE`.
+Rollback: `supabase/rollback/0027_rollback.sql` (se niega si ya hay
+presupuestos, eventos, supuestos o clasificaciones guardadas; deja la base
+idéntica a 0026, verificado por huella).
+
+## Auditoría previa (0023–0026)
+
+* Todo el dinero ya está en el libro mayor (facturas, cobros, gastos, pagos,
+  banco): los estados se calculan **solo** desde `journal_lines` de asientos
+  contabilizados. No hay un segundo registro.
+* El catálogo no distinguía corriente / no corriente, ni costos directos /
+  gastos operacionales / otros: 0027 añade `ledger_accounts.statement_class`
+  (opcional, validada por tipo) y una derivación automática por código.
+* No hay cierre anual (asiento a 3100): el balance muestra
+  “Resultados de ejercicios anteriores” y “Resultado del ejercicio”
+  calculados, y lo indica como nota.
+* No existe tabla de sucursales; sí `departments` (Personal). El libro no
+  registra departamento, así que los presupuestos de departamento no tienen
+  “real” por departamento (se marca `actual_available = false`).
+
+## Clasificación (`fs_class`)
+
+| Prioridad | Regla | Clase |
+|---|---|---|
+| 1 | `statement_class` elegida en el catálogo | la elegida |
+| 2 | cuenta de sistema efectivo, código `10xx` o vinculada a un banco | Efectivo y bancos |
+| 3 | activo `15xx–19xx` / resto | No corriente / corriente |
+| 4 | pasivo `25xx–29xx` / resto | No corriente / corriente |
+| 5 | capital: sistema utilidades retenidas / resto | Utilidades retenidas / capital |
+| 6 | ingreso `45xx–49xx` / resto | Otros ingresos / operacionales |
+| 7 | gasto `5xxx` / `8xxx` / `9xxx` / resto | Costos directos / otros gastos / impuesto / operacionales |
+
+La clase se edita en *Contabilidad → Catálogo → Editar*; la base de datos
+rechaza una clase que no corresponde al tipo.
+
+## Fórmulas
+
+* **Estado de resultados:** utilidad bruta = ingresos operacionales − costos
+  directos; resultado operacional = utilidad bruta − gastos operacionales;
+  antes de impuestos = operacional + otros ingresos − otros gastos; neto =
+  antes de impuestos − impuesto registrado. **No se calcula impuesto**: si no
+  hay gasto de impuesto, se avisa que el neto es antes de impuestos.
+* **Balance:** activos = pasivos + capital + resultados anteriores +
+  resultado del ejercicio (año calendario). Se muestra la diferencia; si no
+  es 0 el informe es provisional.
+* **Flujo de efectivo (indirecto):** resultado neto + depreciación
+  acumulada (solo si está registrada; nunca se estima) ± cambios en activos y
+  pasivos corrientes = operación; activos no corrientes = inversión; pasivos
+  no corrientes y capital = financiación. Se comprueba que el cambio neto sea
+  igual a efectivo final − efectivo inicial.
+* **Comparaciones:** mes / trimestre / año / personalizado contra el periodo
+  anterior o el mismo periodo del año anterior. % = variación / |base|; con
+  base 0 el % es “—” (sin división por cero).
+* **Favorable:** ingresos y resultados arriba = favorable; gastos arriba =
+  desfavorable (texto y flecha, no solo color).
+* Todo en centavos enteros (`bigint` en SQL, `BigInt` en la app).
+
+## Datos incompletos (`fs_data_quality`)
+
+Un informe es **definitivo** solo si: hay asientos, no hay asientos
+descuadrados, no hay facturas ni cobros anteriores a la contabilidad sin
+importar, ningún efectivo es negativo, el balance cuadra y todos los meses del
+rango están cerrados. Si no, se marca **Provisional** con cada motivo (también
+en la exportación). Falta de asiento de saldos iniciales: nota informativa.
+
+## Presupuestos
+
+* Anual o mensual, por cuenta de ingreso/gasto o por categoría de gasto
+  (real de categorías = facturas de proveedor aprobadas). Una categoría cuya
+  cuenta también tiene línea no suma dos veces.
+* Escenario base / conservador / optimista; departamento opcional.
+* Flujo: **borrador → aprobado (propietario) → publicado (propietario)**;
+  archivar con motivo. Un presupuesto no-borrador **no se modifica** (trigger
+  `budget_guard`, también contra mantenimiento directo): se crea una **nueva
+  versión** (copia en borrador; una sola por presupuesto). Publicar archiva el
+  publicado anterior del mismo año/escenario/departamento (índice único).
+* Notas y justificación por presupuesto y por línea; umbrales de alerta
+  configurables (gasto ≥ atención / crítico % del año; ingreso < % de lo
+  presupuestado a la fecha).
+* Todo queda en `budget_events` (solo inserción): creación, cambios,
+  relleno, aprobación, publicación, archivo, versiones y supuestos.
+* **Presupuesto vs real:** presupuesto del año, a la fecha (meses
+  completos + mes en curso prorrateado por días; anual prorrateado por días),
+  real, variación en dinero y %, % consumido, proyección al cierre al ritmo
+  actual, favorable y alerta.
+* Concurrencia probada: dos “nueva versión” simultáneas → una sola; dos
+  “publicar” → un solo publicado; editar mientras se aprueba → la edición
+  falla con `BUDGET_LOCKED`. Los 12 meses de una línea se guardan en una
+  sola transacción (`budget_set_lines`): si se aprueba a la vez, la línea
+  entera se rechaza; nunca queda una línea a medias.
+
+## Proyecciones (estimaciones)
+
+Separadas en pantalla: **datos reales usados** (efectivo hoy, por cobrar,
+por pagar, historial), **supuestos editables** (crecimiento anual, % de cobro,
+ajustes conservador/optimista, meses; guardados en `fs_assumptions` con
+auditoría) y **resultado estimado** por escenario. Ingresos/costos del mes:
+presupuesto publicado base de toda la empresa si existe; si no, promedio de
+los últimos 3 meses con actividad con crecimiento lineal. Cobros: facturas
+abiertas por vencimiento (vencidas → primer mes) × % de cobro. Pagos:
+facturas de proveedor aprobadas por vencimiento. Siempre rotulado como
+estimación, nunca como resultado garantizado.
+
+## Pantallas (`/finance`)
+
+Panel (KPIs que enlazan a su origen: estado de resultados, flujo,
+`/receivables`, `/payables`, presupuesto; tendencia de 12 meses con enlace a
+cada mes; alertas y oportunidades con enlace), Estado de resultados, Balance
+general, Flujo de efectivo (cada cuenta enlaza a su mayor con las mismas
+fechas), Presupuestos (lista paginada, crear, rellenar con reales),
+Presupuesto (editor de líneas, flujo, vs real, versiones y comparación,
+historial) y Proyecciones. Exportación `/finance/export` en **Excel (.xlsx)**
+y **CSV**, con empresa, informe, periodo, moneda, fecha de generación y notas
+de datos incompletos; **PDF** con *Imprimir / PDF* (la cabecera de informe se
+imprime).
+
+## Roles
+
+| Permiso | Propietario | Admin | Miembro |
+|---|---|---|---|
+| Ver estados, presupuestos, proyecciones (`accounting.view`) | ✓ | ✓ | — |
+| Crear / editar borradores, versiones, supuestos, archivar no publicados (`budgets.manage`) | ✓ | ✓ | — |
+| Aprobar, publicar, archivar publicados (`budgets.approve`) | ✓ | — | — |
+
+## Pruebas
+
+`supabase/tests/local/92_statements.test.sql` (cifras calculadas a mano:
+resultados, balance y ecuación contable en los 12 cierres de mes, flujo,
+periodos vacíos, saldos iniciales faltantes, comparaciones, presupuestos y
+versiones, aprobación/publicación, variaciones positivas y negativas, división
+por cero, aislamiento entre empresas, permisos, integración con cuentas por
+pagar, cascada), `93_budget_race.sh` (concurrencia) y
+`tests/finance-statements.test.ts` (periodos, comparaciones, totales,
+proyecciones y escenarios, alertas, maquetación, xlsx).
+
+## Limitaciones conocidas
+
+* No hay asiento de cierre anual; los resultados anteriores se calculan.
+* Presupuestos de departamento sin real por departamento; no hay sucursales.
+* El año fiscal es el año calendario.
+* Proyección simple (promedio + crecimiento lineal); los ingresos/costos
+  nuevos se suponen cobrados/pagados el mismo mes.
+* PDF mediante la impresión del navegador (no se genera un PDF en servidor).
+* Solo moneda base.
+* Pantallas no probadas en navegador con sesión contra un Supabase real
+  (las funciones sí, en PostgreSQL 16 local).
