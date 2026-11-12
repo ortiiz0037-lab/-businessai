@@ -6,7 +6,7 @@ import { StatusBadge } from '@/components/ui/status'
 import { getSignatureDisplayUrl } from '@/lib/branding-assets'
 import { documentItems } from '@/lib/documents/items'
 import { balanceOf, documentActions, effectiveStatus, todayIn, type Role } from '@/lib/documents/lifecycle'
-import { PAYMENT_METHODS, paymentErrorMessage, paymentMethodLabel } from '@/lib/documents/payments'
+import { activePayments, PAYMENT_METHODS, paymentErrorMessage, paymentMethodLabel } from '@/lib/documents/payments'
 import { billingErrorMessage } from '@/lib/billing/state'
 import { intlTag, type Locale } from '@/lib/i18n/app'
 import { getLocale } from '@/lib/i18n/server'
@@ -69,6 +69,8 @@ type PaymentRow = {
   payment_method: string | null
   reference: string | null
   paid_at: string | null
+  voided_at?: string | null
+  void_reason?: string | null
 }
 
 function money(value: number | string | null | undefined) {
@@ -248,7 +250,7 @@ export default async function DocumentDetailPage({
       : Promise.resolve({ data: null }),
     supabase.from('company_profiles').select('*').eq('company_id', companyId).maybeSingle(),
     isInvoice
-      ? supabase.from('payments').select('id, amount, payment_method, reference, paid_at')
+      ? supabase.from('payments').select('*')
           .eq('document_id', id).order('paid_at', { ascending: true })
       : Promise.resolve({ data: [] as PaymentRow[] }),
   ])
@@ -276,7 +278,7 @@ export default async function DocumentDetailPage({
   const signature = await getSignatureDisplayUrl(supabase, companyData?.signature_url, companyId)
 
   const today = todayIn()
-  const paid = Math.round(payments.reduce((s, p) => s + Number(p.amount ?? 0), 0) * 100) / 100
+  const paid = Math.round(activePayments(payments).reduce((s, p) => s + Number(p.amount ?? 0), 0) * 100) / 100
   const lifecycle = { document_type: doc.document_type ?? null, status: doc.status ?? null, total: doc.total ?? 0, due_date: doc.due_date ?? null }
   const shownStatus = effectiveStatus(lifecycle, paid, today)
   const actions = documentActions(lifecycle, paid, today, role, await lifecycleAvailable())
@@ -450,6 +452,12 @@ export default async function DocumentDetailPage({
                 <ul className="mt-3 divide-y divide-line">
                   {payments.map((p) => {
                     const receipt = receiptByPayment.get(p.id)
+                    if (p.voided_at) return (
+                      <li key={p.id} className="py-3 opacity-70">
+                        <p className="font-semibold tabular-nums text-muted line-through">{money(p.amount)} · {paymentMethodLabel(p.payment_method, locale)}</p>
+                        <p className="text-xs text-red-300">{tr('Pago anulado', 'Payment voided')} · {formatTimestamp(p.voided_at, locale)}{p.void_reason ? ` · ${p.void_reason}` : ''}</p>
+                      </li>
+                    )
                     return (
                       <li key={p.id} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
                         <div className="min-w-0">

@@ -76,7 +76,7 @@ export default async function ClientPage({
   const recentInvoiceIds = invoices.rows.slice(-100).map((d) => d.id)
   const [{ data: paymentsData }, { data: clientEvents }, { data: docEvents }] = await Promise.all([
     recentInvoiceIds.length
-      ? supabase.from('payments').select('id, document_id, amount, payment_method, paid_at').in('document_id', recentInvoiceIds)
+      ? supabase.from('payments').select('*').in('document_id', recentInvoiceIds)
           .order('paid_at', { ascending: false }).limit(15)
       : Promise.resolve({ data: [] }),
     crm ? supabase.from('client_events').select('event, fields, created_at').eq('client_id', id).order('created_at', { ascending: false }).limit(20)
@@ -85,7 +85,7 @@ export default async function ClientPage({
         .in('document_id', docs.map((d) => d.id)).order('created_at', { ascending: false }).limit(20)
       : Promise.resolve({ data: [] }),
   ])
-  const payments = (paymentsData ?? []) as { id: string; document_id: string; amount: number; payment_method: string | null; paid_at: string | null }[]
+  const payments = (paymentsData ?? []) as { id: string; document_id: string; amount: number; payment_method: string | null; paid_at: string | null; voided_at?: string | null }[]
   const fieldName = (k: string) => ({
     name: tr('nombre', 'name'), business_name: tr('empresa', 'company'), email: tr('correo', 'email'), phone: tr('teléfono', 'phone'),
     address: tr('dirección', 'address'), city: tr('ciudad', 'city'), state: tr('estado', 'state'), postal_code: 'ZIP', notes: tr('notas', 'notes'),
@@ -218,8 +218,8 @@ export default async function ClientPage({
             {payments.length === 0 ? <p className="mt-2 text-sm text-muted">{tr('Sin pagos registrados.', 'No payments recorded.')}</p> : (
               <ul className="mt-3 divide-y divide-line text-sm">
                 {payments.map((p) => (
-                  <li key={p.id} className="flex justify-between gap-3 py-2">
-                    <Link href={`/documents/${p.document_id}`} className="text-slate-300 hover:text-fg">{p.paid_at ? f.date(p.paid_at) : '—'} · {paymentMethodLabel(p.payment_method, locale)}</Link>
+                  <li key={p.id} className={`flex justify-between gap-3 py-2 ${p.voided_at ? 'line-through opacity-60' : ''}`}>
+                    <Link href={`/documents/${p.document_id}`} className="text-slate-300 hover:text-fg">{p.paid_at ? f.date(p.paid_at) : '—'} · {paymentMethodLabel(p.payment_method, locale)}{p.voided_at ? ` · ${tr('anulado', 'voided')}` : ''}</Link>
                     <span className="font-semibold tabular-nums text-fg">{f.money(Number(p.amount))}</span>
                   </li>
                 ))}

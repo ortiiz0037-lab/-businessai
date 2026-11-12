@@ -1,3 +1,4 @@
+import { activePayments } from '@/lib/documents/payments'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
@@ -20,7 +21,7 @@ async function loadData(companyId: string) {
       .select('id, client_id, document_type, document_number, title, status, total, issue_date, due_date, created_at')
       .eq('company_id', companyId).order('created_at', { ascending: false }).limit(5000),
     supabase.from('payments')
-      .select('id, document_id, amount, paid_at, created_at')
+      .select('*')
       .eq('company_id', companyId).order('created_at', { ascending: false }).limit(10000),
     supabase.from('clients').select('id, name, created_at')
       .eq('company_id', companyId).order('created_at', { ascending: false }).limit(5000),
@@ -32,7 +33,7 @@ async function loadData(companyId: string) {
   }
   return {
     documents: (docs.data ?? []) as DashDocument[],
-    payments: (pays.data ?? []) as DashPayment[],
+    payments: activePayments(pays.data ?? []) as DashPayment[],
     clients: (clients.data ?? []) as DashClient[],
     billing,
     usage,

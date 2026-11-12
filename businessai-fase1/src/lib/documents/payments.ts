@@ -88,6 +88,15 @@ export const PAYMENT_ERROR_MESSAGE_EN: Record<string, string> = {
   save: 'The payment could not be recorded. Please try again.',
 }
 
+/**
+ * Payments that count (migration 0025 can void a payment: the row stays,
+ * marked voided, and no longer counts toward the balance). Rows read with
+ * select('*') work with and without 0025.
+ */
+export function activePayments<T extends object>(rows: T[] | null | undefined): T[] {
+  return (rows ?? []).filter((p) => !(p as { voided_at?: string | null }).voided_at)
+}
+
 /** Message for a payment error code in the user's language. */
 export function paymentErrorMessage(code: string, locale: 'es' | 'en' = 'es'): string | null {
   const table = locale === 'en' ? PAYMENT_ERROR_MESSAGE_EN : PAYMENT_ERROR_MESSAGE

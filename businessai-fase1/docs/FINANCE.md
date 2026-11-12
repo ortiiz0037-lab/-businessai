@@ -166,3 +166,74 @@ gasto registrado en el libro = total aprobado.
   sesión contra un Supabase real; el aislamiento de storage se probó con las
   políticas en la base de datos local.
 * Disponible en Basic, Pro y Premium sin límites por plan.
+
+---
+
+# Entrega 4 — Cuentas por cobrar y cobranza (migración 0025)
+
+**Estado:** borrador local, **no aplicada en ningún entorno**. Marca `STAGING-GATE`.
+
+**Sin registro paralelo.** Los saldos se calculan de las facturas y los pagos
+(0015), y cuadran con la cuenta Cuentas por cobrar del libro mayor (0023);
+el informe de antigüedad muestra esa conciliación. La cobranza solo añade
+datos de seguimiento (estado, notas, promesas, recordatorios), sin importes
+contables propios.
+
+## Dinero
+
+* Factura emitida: Dr Cuentas por cobrar / Cr Ingresos (+ impuesto). El
+  ingreso se reconoce una sola vez, al emitir.
+* Pago (parcial o total): Dr Efectivo / Cr Cuentas por cobrar.
+* **Nuevo — anulación de pago** (cheque devuelto, error): el pago se conserva
+  marcado como anulado (quién, cuándo, motivo), se publica una reversión
+  (`payment_void`) y la factura pagada vuelve a emitida o vencida. Los pagos
+  no se editan ni se borran (ni siquiera por mantenimiento).
+* Nunca balances negativos: pagos y anulaciones de una factura se serializan
+  sobre la fila bloqueada; un pago no supera el saldo; una anulación lo sube.
+* Los pagos anulados dejan de contar en todo: saldo, estado pagada, recibos,
+  integridad del libro. 0025 reemplaza esas sumas de 0015/0023; el rollback
+  restaura el texto original exacto.
+
+## Estados y antigüedad
+
+Estado de cuentas por cobrar: emitida · parcialmente pagada · vencida ·
+pagada. Antigüedad por días desde el vencimiento (o la emisión): 0–30 (incluye
+lo que aún no vence), 31–60, 61–90, más de 90, a cualquier fecha de corte.
+
+## Cobranza
+
+* Estado de cobro por factura: sin gestión, contactado, promesa, en disputa,
+  escalado, en pausa.
+* Notas internas por factura o cliente (solo se añaden).
+* Promesas de pago: pendiente → cumplida (automática cuando los pagos
+  posteriores cubren el importe) / incumplida (pasa la fecha) / cancelada (con
+  motivo).
+* Recordatorios: días configurables respecto al vencimiento; «Actualizar
+  seguimiento» prepara los de los últimos 7 días (uno por factura y día), sin
+  inundar con atrasos; las facturas en disputa o en pausa no reciben; al pagar
+  o anular una factura se cancelan. **Email preparado:** con `RESEND_API_KEY`
+  y `EMAIL_FROM` en el servidor se envían; sin ellos quedan preparados y nada
+  se marca como enviado. Se pueden registrar como «contactado por otro medio».
+
+## Informes
+
+* Antigüedad por cliente (imprimible), con filtro de clientes con vencidos.
+* Por cliente y periodo: saldo inicial + facturado − cobrado + pagos anulados −
+  facturas anuladas = saldo final (verificado en cada fila).
+* Historial completo por cliente: facturas, pagos (incluidos anulados), notas,
+  promesas y eventos.
+
+## Roles
+
+`receivables.view`, `receivables.manage` y `payments.void`: propietario y
+administradores. Los miembros siguen registrando pagos (0015) pero no ven
+la cobranza.
+
+## Limitaciones conocidas
+
+* Resend no está configurado: el envío real de email no se probó (solo con
+  `fetch` simulado). La cola y los estados sí están probados en la base.
+* No hay programador: los recordatorios y promesas se actualizan con el botón
+  «Actualizar seguimiento» (o una llamada futura de un cron sin usuario).
+* Fechas en hora de Puerto Rico.
+* Pantallas no probadas en navegador con sesión contra un Supabase real.

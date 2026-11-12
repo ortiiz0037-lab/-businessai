@@ -1,4 +1,5 @@
 
+import { activePayments } from '@/lib/documents/payments'
 import Link from 'next/link'
 import { paidByDocument } from '@/lib/supabase/paged'
 import { redirect } from 'next/navigation'
@@ -285,16 +286,16 @@ export default async function NewDocumentPage({
   let receiptCandidates: { id: string; amount: number; method: string | null; paidAt: string | null; reference: string | null; invoice: string }[] = []
   if (isReceipt) {
     const companyId = membership.company_id
-    const { data: payments } = await supabase.from('payments').select('id, document_id, amount, payment_method, reference, paid_at')
+    const { data: payments } = await supabase.from('payments').select('*')
       .eq('company_id', companyId).order('paid_at', { ascending: false }).limit(100)
     // Receipts of exactly these payments, voided ones excluded (M3, I7).
-    const ids = (payments ?? []).map((p) => p.id as string)
+    const ids = activePayments(payments).map((p) => p.id as string)
     const { data: receipts } = ids.length
       ? await supabase.from('documents').select('metadata').eq('company_id', companyId).eq('document_type', 'receipt')
           .neq('status', 'cancelled').in('metadata->>payment_id', ids)
       : { data: [] as { metadata: unknown }[] }
     const withReceipt = new Set((receipts ?? []).map((r) => String((r.metadata as Record<string, unknown> | null)?.payment_id ?? '')))
-    const pending = (payments ?? []).filter((p) => !withReceipt.has(p.id))
+    const pending = activePayments(payments).filter((p) => !withReceipt.has(p.id))
     const docIds = [...new Set(pending.map((p) => p.document_id))]
     const { data: docs } = docIds.length
       ? await supabase.from('documents').select('id, document_number, title').in('id', docIds)

@@ -4,7 +4,7 @@ import { EmptyState, PageHeader, StatCard } from '@/components/ui/page'
 import { documentTypeName } from '@/components/ui/status'
 import { createClient } from '@/lib/supabase/server'
 import { activeCompanyRow } from '@/lib/active-company'
-import { paymentMethodLabel } from '@/lib/documents/payments'
+import { activePayments, paymentMethodLabel } from '@/lib/documents/payments'
 import { fetchAllPages } from '@/lib/supabase/paged'
 import { formatters } from '@/lib/i18n/app'
 import { getLocale } from '@/lib/i18n/server'
@@ -31,10 +31,11 @@ export default async function PaymentsPage({ searchParams }: { searchParams?: Pr
 
   const requested = Math.max(1, Math.min(10_000, Number.parseInt((await searchParams)?.page ?? '1', 10) || 1))
   // Total collected over every payment (all pages, not only the first 1000 rows).
-  const all = await fetchAllPages<{ id: string; amount: number | string }>((from, to) =>
-    supabase.from('payments').select('id, amount').eq('company_id', member.company_id).order('id').range(from, to))
+  const all = await fetchAllPages<{ id: string; amount: number | string; voided_at?: string | null }>((from, to) =>
+    supabase.from('payments').select('*').eq('company_id', member.company_id).order('id').range(from, to))
   const count = all.rows.length
-  const totalCollected = Math.round(all.rows.reduce((s, p) => s + Number(p.amount ?? 0), 0) * 100) / 100
+  // Voided payments (0025) stay listed but do not count as collected.
+  const totalCollected = Math.round(activePayments(all.rows).reduce((s, p) => s + Number(p.amount ?? 0), 0) * 100) / 100
   const pages = Math.max(1, Math.ceil(count / PAGE_SIZE))
   if (requested > pages) redirect(pages > 1 ? `/payments?page=${pages}` : '/payments')
   const page = requested
@@ -42,7 +43,7 @@ export default async function PaymentsPage({ searchParams }: { searchParams?: Pr
   const from = (page - 1) * PAGE_SIZE
   const { data: payments, error } = await supabase
     .from('payments')
-    .select('id, document_id, amount, payment_method, reference, paid_at, created_at')
+    .select('*')
     .eq('company_id', member.company_id)
     .order('created_at', { ascending: false })
     .order('id')
@@ -136,6 +137,7 @@ export default async function PaymentsPage({ searchParams }: { searchParams?: Pr
                           </span>
                         )}
                         <span className="mt-1.5 block sm:hidden"><span className="badge-neutral">{method}</span></span>
+                        {(payment as { voided_at?: string | null }).voided_at && <span className="mt-1.5 block"><span className="badge-danger">{tr('Anulado: no cuenta como cobrado', 'Voided: not counted as collected')}</span></span>}
                       </td>
                       <td className="hidden sm:table-cell"><span className="badge-neutral">{method}</span></td>
                       <td className="text-right font-bold tabular-nums text-fg">{f.money(Number(payment.amount ?? 0))}</td>

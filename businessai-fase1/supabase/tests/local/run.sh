@@ -296,7 +296,7 @@ mig() { (cd "$HERE/../.." && env STAGING_DB_URL="$1" STAGING_PROJECT_REF="$MREF"
 o="$(PIN=otherref mig "$MURL" DRY_RUN=1 || true)"; check "$(grep -c 'not the pinned staging project' <<<"$o")" 1 "migrate: a different pinned ref is refused"
 o="$(mig "postgresql://postgres.$MREF@/mig?host=$WORK&port=$PORT&x=prodreftest0000000001" DRY_RUN=1 || true)"; check "$(grep -c 'PRODUCTION' <<<"$o")" 1 "migrate: production ref in the URL is refused"
 o="$(mig "postgresql://postgres@/mig?host=$WORK&port=$PORT&a=$MREF" DRY_RUN=1 || true)"; check "$(grep -c 'user/host is not the staging project' <<<"$o")" 1 "migrate: a user without the staging ref is refused"
-o="$(mig "$MURL" DRY_RUN=1)"; check "$(grep -c 'Pending: 0001_multitenant_core.* 0011_usage_limits 0014a_permissions$' <<<"$o")/$(grep -c 'Held (draft not approved.*): 0015_documents_lifecycle 0016_billing_hardening 0017_plan_features 0018_team 0019_crm 0020_workforce 0021_workforce_kiosk 0022_workforce_rules 0023_ledger 0024_payables$' <<<"$o")" "1/1" \
+o="$(mig "$MURL" DRY_RUN=1)"; check "$(grep -c 'Pending: 0001_multitenant_core.* 0011_usage_limits 0014a_permissions$' <<<"$o")/$(grep -c 'Held (draft not approved.*): 0015_documents_lifecycle 0016_billing_hardening 0017_plan_features 0018_team 0019_crm 0020_workforce 0021_workforce_kiosk 0022_workforce_rules 0023_ledger 0024_payables 0025_receivables$' <<<"$o")" "1/1" \
   "migrate plan: lists 0001…0011 and 0014a; the gated drafts 0015 and 0016 are HELD; writes nothing"
 check "$(psqlq -d mig -tA -c "select count(*) from pg_tables where schemaname='public'")" 0 "migrate plan: no table created"
 o="$(mig "$MURL" DRY_RUN=1 VERIFY_0014A=1)"; check "$(grep -c 'verify_0014a: 0014a_permissions not recorded yet' <<<"$o")" 1 "verify_0014a: skipped while 0014a is not recorded"
@@ -307,16 +307,16 @@ o="$(mig "$MURL" DRY_RUN=1 EXPECT_NONE=1 STATUS=1)"; check "$(grep -c '✓' <<<"
 check "$(psqlq -d mig -tA -c "select count(*) from ba_meta.applied_migrations where name = '0014a_permissions'")" 1 "migrate: the record stores the identifier 0014a_permissions"
 o="$(mig "$MURL" APPROVED_DRAFTS=0015)"; check "$(grep -c '^→ applying' <<<"$o")" 0 "migrate: a partial name approves nothing"
 o="$(mig "$MURL" APPROVED_DRAFTS=0015_documents_lifecycle)"
-check "$(grep -oE 'applying [0-9a-z_]+' <<<"$o" | tr '\n' ' ')/$(grep -c 'Held.*: 0016_billing_hardening 0017_plan_features 0018_team 0019_crm 0020_workforce 0021_workforce_kiosk 0022_workforce_rules 0023_ledger 0024_payables$' <<<"$o")" "applying 0015_documents_lifecycle /1" "migrate with APPROVED_DRAFTS=0015: applies 0015 only; 0016 still held"
-o="$(mig "$MURL" APPROVED_DRAFTS=0016_billing_hardening,0017_plan_features,0018_team,0019_crm,0020_workforce,0021_workforce_kiosk,0022_workforce_rules,0023_ledger,0024_payables)"; check "$(grep -oE 'applying [0-9a-z_]+' <<<"$o" | tr '\n' ' ')" "applying 0016_billing_hardening applying 0017_plan_features applying 0018_team applying 0019_crm applying 0020_workforce applying 0021_workforce_kiosk applying 0022_workforce_rules applying 0023_ledger applying 0024_payables " "migrate with APPROVED_DRAFTS=0016…0019: applies them"
-o="$(mig "$MURL" DRY_RUN=1 EXPECT_NONE=1 STATUS=1)"; check "$(grep -c '✓' <<<"$o")/$(grep -c 'No pending migrations' <<<"$o")/$(grep -c '^Held' <<<"$o")" "22/1/0" "migrate confirm: 22 recorded, nothing pending or held"
+check "$(grep -oE 'applying [0-9a-z_]+' <<<"$o" | tr '\n' ' ')/$(grep -c 'Held.*: 0016_billing_hardening 0017_plan_features 0018_team 0019_crm 0020_workforce 0021_workforce_kiosk 0022_workforce_rules 0023_ledger 0024_payables 0025_receivables$' <<<"$o")" "applying 0015_documents_lifecycle /1" "migrate with APPROVED_DRAFTS=0015: applies 0015 only; 0016 still held"
+o="$(mig "$MURL" APPROVED_DRAFTS=0016_billing_hardening,0017_plan_features,0018_team,0019_crm,0020_workforce,0021_workforce_kiosk,0022_workforce_rules,0023_ledger,0024_payables,0025_receivables)"; check "$(grep -oE 'applying [0-9a-z_]+' <<<"$o" | tr '\n' ' ')" "applying 0016_billing_hardening applying 0017_plan_features applying 0018_team applying 0019_crm applying 0020_workforce applying 0021_workforce_kiosk applying 0022_workforce_rules applying 0023_ledger applying 0024_payables applying 0025_receivables " "migrate with APPROVED_DRAFTS=0016…0019: applies them"
+o="$(mig "$MURL" DRY_RUN=1 EXPECT_NONE=1 STATUS=1)"; check "$(grep -c '✓' <<<"$o")/$(grep -c 'No pending migrations' <<<"$o")/$(grep -c '^Held' <<<"$o")" "23/1/0" "migrate confirm: 23 recorded, nothing pending or held"
 # The migration committed but its record was lost (e.g. the connection dropped
 # between the two steps): the next run re-applies it — idempotent — and every
 # later one, INCLUDING the approved drafts (same content), with no new approval.
 psqlq -d mig -c "delete from ba_meta.applied_migrations where name = '0014a_permissions'" >/dev/null
-o="$(mig "$MURL" DRY_RUN=1)"; check "$(grep -c 'Pending: 0014a_permissions 0015_documents_lifecycle 0016_billing_hardening 0017_plan_features 0018_team 0019_crm 0020_workforce 0021_workforce_kiosk 0022_workforce_rules 0023_ledger 0024_payables$' <<<"$o")/$(grep -c '^Held' <<<"$o")" "1/0" "lost record: 0014a shows as pending with 0015 and 0016 after it (already approved content: not held)"
+o="$(mig "$MURL" DRY_RUN=1)"; check "$(grep -c 'Pending: 0014a_permissions 0015_documents_lifecycle 0016_billing_hardening 0017_plan_features 0018_team 0019_crm 0020_workforce 0021_workforce_kiosk 0022_workforce_rules 0023_ledger 0024_payables 0025_receivables$' <<<"$o")/$(grep -c '^Held' <<<"$o")" "1/0" "lost record: 0014a shows as pending with 0015 and 0016 after it (already approved content: not held)"
 o="$(mig "$MURL")"; check "$(grep -c 'Staging database is up to date and verified' <<<"$o")" 1 "lost record: re-run re-applies 0014a, 0015 and 0016 idempotently and verifies"
-check "$(psqlq -d mig -tA -c "select count(*) from ba_meta.applied_migrations")/$(psqlq -d mig -tA -c "select count(*) from public.role_permissions")" "22/79" "lost record: 22 recorded again; matrix 79 rows (admin still without billing.manage; + 9 accounting rows of 0023, + 13 payables rows of 0024)"
+check "$(psqlq -d mig -tA -c "select count(*) from ba_meta.applied_migrations")/$(psqlq -d mig -tA -c "select count(*) from public.role_permissions")" "23/85" "lost record: 23 recorded again; matrix 85 rows (admin still without billing.manage; + 9 accounting rows of 0023, + 13 payables rows of 0024, + 6 receivables rows of 0025)"
 # T5: read-only SQL verification of 0014a (staging:check and the migrate confirmation).
 fp_mig() { "${RUNAS[@]}" psql -X -q -tA -h "$WORK" -p "$PORT" -U postgres -d mig -f "$HERE/catalog_fingerprint.sql" -c "select count(*) from public.role_permissions" -c "select count(*) from ba_meta.applied_migrations"; }
 fp_mig > "$WORK/v_before.txt"
@@ -571,7 +571,7 @@ base i0; fingerprint i0 "$WORK/i0_a.txt"
 o="$(ro i0 "$P7")"
 check "$(grep -c '^summary|totals|.*dropped=11, guard_failures=0, kept_non_ba=0, ba=0, stop=0 ' <<<"$o")" 1 "0007 preview on the inspected shape: dropped=11, guard_failures=0, stop=0"
 check "$(grep -c '^policy|.*|t|t|dropped by 0007$' <<<"$o")/$(grep -c '^bucket|Company-assets|.*ok: the real logo bucket' <<<"$o")" "11/1" "0007 preview: each of the 11 policies 'dropped by 0007'; Company-assets found"
-check "$(st i0)" "0001–0004 base schema|applied;0005_security_baseline|not applied;0006_payments_document_fk|not applied;0007_storage_company_assets|not applied;0008_definer_function_grants|not applied;0009_private_signatures|not applied;0010_billing|not applied;0011_usage_limits|not applied;0014a_permissions|not applied;0015_documents_lifecycle|not applied;0016_billing_hardening|not applied;0017_plan_features|not applied;0018_team|not applied;0019_crm|not applied;0020_workforce|not applied;0021_workforce_kiosk|not applied;0022_workforce_rules|not applied;0023_ledger|not applied;0024_payables|not applied;staging bookkeeping (ba_meta)|absent;" \
+check "$(st i0)" "0001–0004 base schema|applied;0005_security_baseline|not applied;0006_payments_document_fk|not applied;0007_storage_company_assets|not applied;0008_definer_function_grants|not applied;0009_private_signatures|not applied;0010_billing|not applied;0011_usage_limits|not applied;0014a_permissions|not applied;0015_documents_lifecycle|not applied;0016_billing_hardening|not applied;0017_plan_features|not applied;0018_team|not applied;0019_crm|not applied;0020_workforce|not applied;0021_workforce_kiosk|not applied;0022_workforce_rules|not applied;0023_ledger|not applied;0024_payables|not applied;0025_receivables|not applied;staging bookkeeping (ba_meta)|absent;" \
   "migration state on the inspected shape: base applied, 0005…0016 not applied, no ba_meta"
 o="$(ro i0 "$IMP")"; check "$(cut -d'|' -f1-5 <<<"$o")" "0|0|0|0|0" "0010 impact query runs on the inspected shape (no companies in the fixture)"
 fingerprint i0 "$WORK/i0_b.txt"
@@ -588,8 +588,8 @@ o="$(ro i0s "$P7")"
 check "$(grep -c '^bucket|company-assets|.*STOP: same name as Company-assets in another case' <<<"$o")/$(grep -c '^policy|everything|SELECT|.*STOP: no bucket_id, 0007 aborts' <<<"$o")/$(grep -c 'stop=2 ' <<<"$o")" "1/1/1" \
   "0007 preview: STOP on a 'company-assets' bucket and on a policy without bucket_id"
 # Full production path (0005…0011 + 0014a + 0015 + 0016): everything applied.
-base i1; for m in "${ALL_MIGS[@]}" "$P14" 0015_documents_lifecycle 0016_billing_hardening 0017_plan_features 0018_team 0019_crm 0020_workforce 0021_workforce_kiosk 0022_workforce_rules 0023_ledger 0024_payables; do psqlq -d i1 -f "$MIG/$m.sql" >/dev/null; done
-check "$(st i1)" "0001–0004 base schema|applied;0005_security_baseline|applied;0006_payments_document_fk|applied;0007_storage_company_assets|applied;0008_definer_function_grants|applied;0009_private_signatures|applied;0010_billing|applied;0011_usage_limits|applied;0014a_permissions|applied;0015_documents_lifecycle|applied;0016_billing_hardening|applied;0017_plan_features|applied;0018_team|applied;0019_crm|applied;0020_workforce|applied;0021_workforce_kiosk|applied;0022_workforce_rules|applied;0023_ledger|applied;0024_payables|applied;staging bookkeeping (ba_meta)|absent;" \
+base i1; for m in "${ALL_MIGS[@]}" "$P14" 0015_documents_lifecycle 0016_billing_hardening 0017_plan_features 0018_team 0019_crm 0020_workforce 0021_workforce_kiosk 0022_workforce_rules 0023_ledger 0024_payables 0025_receivables; do psqlq -d i1 -f "$MIG/$m.sql" >/dev/null; done
+check "$(st i1)" "0001–0004 base schema|applied;0005_security_baseline|applied;0006_payments_document_fk|applied;0007_storage_company_assets|applied;0008_definer_function_grants|applied;0009_private_signatures|applied;0010_billing|applied;0011_usage_limits|applied;0014a_permissions|applied;0015_documents_lifecycle|applied;0016_billing_hardening|applied;0017_plan_features|applied;0018_team|applied;0019_crm|applied;0020_workforce|applied;0021_workforce_kiosk|applied;0022_workforce_rules|applied;0023_ledger|applied;0024_payables|applied;0025_receivables|applied;staging bookkeeping (ba_meta)|absent;" \
   "migration state after the full production path: every migration 'applied'"
 check "$(ro i1 "$P7" | grep -c 'dropped=0, guard_failures=0, kept_non_ba=0, ba=8, stop=0 ')" 1 "0007 preview after everything: nothing left to drop, 8 ba_ policies (5 company buckets + 3 Finance-attachments of 0024)"
 # Partial states are reported, not guessed.
@@ -862,6 +862,34 @@ check "$(count l30c "select count(*) from public.permissions where key like 'pay
 if psqlq -d l30a -f "$HERE/../../rollback/0024_rollback.sql" >"$WORK/l30a.out" 2>&1; then check ran refused "0024 rollback with bills"; else
   grep -q "vendors, bills or recurring expenses exist" "$WORK/l30a.out" && check refused refused "0024 rollback refuses while vendors or bills exist (nothing changed)"; fi
 check "$(count l30a "select (to_regclass('public.bills') is not null)::text || '/' || (select count(*) > 0 from public.bills)::text")" "true/true" "after the refusal the payables are intact"
+
+echo "== Scenario 31: 0025 receivables — aging, payment voids, collections, promises, reminders, concurrency, rollback"
+P25=0025_receivables
+stg_db l31a; for m in "$P14" "$P15" "$P16" "$P17" "$P18" "$P19" "$P20" "$P21" "$P22" "$P23" "$P24"; do psqlq -d l31a -f "$MIG/$m.sql" >/dev/null; done; fingerprint l31a "$WORK/fp25_before.txt"
+psqlq -d l31a -f "$MIG/$P25.sql" >/dev/null && psqlq -d l31a -f "$MIG/$P25.sql" >/dev/null && check ok ok "0025 applies and re-applies cleanly"
+for m in "$P15" "$P20" "$P21" "$P22" "$P23" "$P24" "$P25"; do psqlq -d l31a -f "$MIG/$m.sql" >/dev/null; done && check ok ok "lost-record cascade: 0015 … 0025 re-apply in order (0025 replaces the 0015/0023 payment sums again)"
+check "$(ro l31a "$VER")" OK "verify_0014a answers OK with 0025 (receivables permissions)"
+run_suite l31a "$HERE/88_receivables.test.sql" 'ALL RECEIVABLES TESTS PASSED' "receivables suite (aging, statuses, payment voids, notes, promises, reminders, report, isolation)"
+stg_db l31b; for m in "$P14" "$P15" "$P16" "$P17" "$P18" "$P19" "$P20" "$P21" "$P22" "$P23" "$P24" "$P25"; do psqlq -d l31b -f "$MIG/$m.sql" >/dev/null; done
+run_suite l31b "$HERE/84_ledger.test.sql" 'ALL LEDGER TESTS PASSED' "with 0025: ledger suite"
+run_suite l31b "$HERE/86_payables.test.sql" 'ALL PAYABLES TESTS PASSED' "with 0025: payables suite"
+stg_db l31d; for m in "$P14" "$P15" "$P23" "$P24" "$P25"; do psqlq -d l31d -f "$MIG/$m.sql" >/dev/null; done
+run_suite l31d "$HERE/74_documents_lifecycle.test.sql" 'ALL LIFECYCLE TESTS PASSED' "0014a + 0015 + 0023 … 0025: documents lifecycle suite (payments are evidence)"
+source "$HERE/89_receivables_race.sh"
+stg_db l31r; for m in "$P14" "$P15" "$P16" "$P17" "$P18" "$P19" "$P20" "$P21" "$P22" "$P23" "$P24" "$P25"; do psqlq -d l31r -f "$MIG/$m.sql" >/dev/null; done
+check "$(ar_race_double_void l31r)" "1|PAYMENT_ALREADY_VOIDED,|overdue|0/1|10000=10000|1" "the same payment voided twice at once: one reversal"
+check "$(ar_race_void_pay l31r)" "2||paid|1/1|0=0" "voiding a payment while a new one arrives: both serialised, never negative"
+check "$(ar_race_overpay l31r)" "1|PAYMENT_EXCEEDS_BALANCE,|sent|1/0|4000=4000" "two payments of 60 on 100 at once: one refused, receivable = open balance"
+check "$(ar_race_promise l31r)" "2||paid|2/0|0=0|kept/1" "two payments completing a promise at once: kept once"
+check "$(ar_race_refresh l31r)" "2|1" "two reminder refreshes at once: one reminder"
+stg_db l31c; for m in "$P14" "$P15" "$P16" "$P17" "$P18" "$P19" "$P20" "$P21" "$P22" "$P23" "$P24" "$P25"; do psqlq -d l31c -f "$MIG/$m.sql" >/dev/null; done
+if psqlq -d l31c -f "$HERE/../../rollback/0025_rollback.sql" >"$WORK/l31c.out" 2>&1; then check ok ok "0025 rollback runs without collection records"; else head -3 "$WORK/l31c.out"; check failed ok "0025 rollback runs without collection records"; fi
+fingerprint l31c "$WORK/fp25_after.txt"
+if diff -u "$WORK/fp25_before.txt" "$WORK/fp25_after.txt" > "$WORK/fp25.diff"; then check ok ok "after the 0025 rollback the catalog is identical to 0024 (0015/0023 functions restored)"
+else head -20 "$WORK/fp25.diff"; check different ok "after the 0025 rollback the catalog is identical to 0024 (0015/0023 functions restored)"; fi
+if psqlq -d l31a -f "$HERE/../../rollback/0025_rollback.sql" >"$WORK/l31a.out" 2>&1; then check ran refused "0025 rollback with voided payments"; else
+  grep -q "voided payments exist" "$WORK/l31a.out" && check refused refused "0025 rollback refuses while voided payments exist (nothing changed)"; fi
+check "$(count l31a "select (to_regprocedure('public.payment_void(uuid,text)') is not null)::text")" true "after the refusal 0025 is intact"
 
 echo "== Scenario 9: a busy table makes 0005 fail fast (lock_timeout) with zero changes"
 base s9

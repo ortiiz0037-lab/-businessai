@@ -8,6 +8,7 @@
  * then writes with the user's own session: RLS and the 0015 triggers are the
  * final guard (a hidden button is never the only protection).
  */
+import { activePayments } from '@/lib/documents/payments'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import type { SupabaseClient, User } from '@supabase/supabase-js'
@@ -56,8 +57,8 @@ async function loadContext(supabase: SupabaseClient, user: User, id: string) {
   const { data: member } = await supabase
     .from('memberships').select('role').eq('user_id', user.id).eq('company_id', doc.company_id).maybeSingle()
   if (!member) return null
-  const { data: payments } = await supabase.from('payments').select('amount').eq('document_id', id)
-  const paid = Math.round((payments ?? []).reduce((s, p) => s + Number(p.amount ?? 0), 0) * 100) / 100
+  const { data: payments } = await supabase.from('payments').select('*').eq('document_id', id)
+  const paid = Math.round(activePayments(payments as { amount: number | string; voided_at?: string | null }[]).reduce((s, p) => s + Number(p.amount ?? 0), 0) * 100) / 100
   return { doc: doc as Doc, role: member.role as Role, paid }
 }
 
