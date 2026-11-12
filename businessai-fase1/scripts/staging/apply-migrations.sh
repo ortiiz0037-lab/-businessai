@@ -82,6 +82,7 @@ ORDER=(
   0021_workforce_kiosk
   0022_workforce_rules
   0023_ledger
+  0024_payables
 )
 EXPECTED_VERIFY="10,0,2,0,f,0,2,3,t,t,t,"
 

@@ -8,7 +8,7 @@ import { reverseEntry } from '@/app/actions/accounting'
 
 export const dynamic = 'force-dynamic'
 const PAGE = 25
-const SOURCES = ['manual', 'invoice', 'invoice_void', 'payment', 'reversal']
+const SOURCES = ['manual', 'invoice', 'invoice_void', 'payment', 'reversal', 'bill', 'bill_void', 'bill_payment', 'bill_payment_void']
 
 /** Journal: every entry with its lines, newest first; reversals of manual entries. */
 export default async function JournalPage({ searchParams }: { searchParams: Promise<{ from?: string; to?: string; source?: string; page?: string; done?: string; error?: string }> }) {
@@ -117,7 +117,7 @@ export default async function JournalPage({ searchParams }: { searchParams: Prom
                       </form>
                     </details>
                   )}
-                  {e.source !== 'manual' && e.source !== 'reversal' && !rev && e.source_id && (
+                  {e.source !== 'manual' && !e.reverses_entry_id && !rev && e.source_id && (
                     <p className="border-t border-line px-4 py-3 text-xs text-muted">
                       {tr('Asiento automático de un documento: se corrige desde el documento (anulación).', 'Automatic entry from a document: corrected from the document (void).')}
                     </p>

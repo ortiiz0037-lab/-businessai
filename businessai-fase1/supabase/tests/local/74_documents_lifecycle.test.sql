@@ -309,8 +309,8 @@ do $$ begin
                and not exists (select 1 from public.role_permissions where role = 'member' and permission_key = 'documents.void'),
                'documents.void: owner and admin');
   -- (the accounting permissions of 0023, when present, are checked by its own suite)
-  perform l.ok((select count(*) from public.permissions where key not like 'accounting.%') = 19
-               and (select count(*) from public.role_permissions where permission_key not like 'accounting.%') = 50,
+  perform l.ok((select count(*) from public.permissions where key not like 'accounting.%' and key not like 'payables.%') = 19
+               and (select count(*) from public.role_permissions where permission_key not like 'accounting.%' and permission_key not like 'payables.%') = 50,
                'catalog 19 permissions; matrix owner 19, admin 18, member 13 (50 rows)');
 end $$;
 do $$ begin

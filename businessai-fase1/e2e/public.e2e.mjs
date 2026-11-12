@@ -61,7 +61,8 @@ const PUBLIC_PAGES = ['/', '/precios', '/login', '/signup', '/forgot-password', 
 const PROTECTED = ['/dashboard', '/documents', '/documents/new', '/payments', '/payments/new', '/clients', '/billing', '/settings/company',
   '/settings/team', '/clients/00000000-0000-4000-8000-000000000000', '/clients/00000000-0000-4000-8000-000000000000/edit',
   '/clock', '/workforce', '/workforce/employees', '/workforce/schedule', '/workforce/requests', '/workforce/reports', '/workforce/settings',
-  '/accounting', '/accounting/journal', '/accounting/journal/new', '/accounting/ledger', '/accounting/trial-balance', '/accounting/accounts', '/accounting/periods']
+  '/accounting', '/accounting/journal', '/accounting/journal/new', '/accounting/ledger', '/accounting/trial-balance', '/accounting/accounts', '/accounting/periods',
+  '/payables', '/payables/new', '/payables/vendors', '/payables/recurring', '/payables/reports', '/payables/settings']
 
 try {
   await waitForServer()

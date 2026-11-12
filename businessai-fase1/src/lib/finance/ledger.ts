@@ -51,8 +51,10 @@ export function accountTypePlural(t: string, locale: Locale): string {
 }
 
 export function sourceLabel(s: string, locale: Locale): string {
-  const es: Record<string, string> = { manual: 'Asiento manual', invoice: 'Factura emitida', invoice_void: 'Factura anulada', payment: 'Pago recibido', reversal: 'Reversión', opening: 'Saldo inicial' }
-  const en: Record<string, string> = { manual: 'Manual entry', invoice: 'Invoice issued', invoice_void: 'Invoice voided', payment: 'Payment received', reversal: 'Reversal', opening: 'Opening balance' }
+  const es: Record<string, string> = { manual: 'Asiento manual', invoice: 'Factura emitida', invoice_void: 'Factura anulada', payment: 'Pago recibido', reversal: 'Reversión', opening: 'Saldo inicial',
+    bill: 'Gasto aprobado', bill_void: 'Gasto anulado', bill_payment: 'Pago a proveedor', bill_payment_void: 'Pago a proveedor anulado' }
+  const en: Record<string, string> = { manual: 'Manual entry', invoice: 'Invoice issued', invoice_void: 'Invoice voided', payment: 'Payment received', reversal: 'Reversal', opening: 'Opening balance',
+    bill: 'Expense approved', bill_void: 'Expense voided', bill_payment: 'Vendor payment', bill_payment_void: 'Vendor payment voided' }
   return (locale === 'en' ? en : es)[s] ?? s
 }
 

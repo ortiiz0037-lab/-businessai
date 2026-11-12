@@ -96,3 +96,73 @@ catálogo de cuentas, periodos e historial.
   base de los asientos de facturas.
 * La interfaz se probó con tipos, lint, compilación y E2E público; no hay
   pruebas de navegador con sesión iniciada contra una base de datos real.
+
+---
+
+# Entrega 3 — Gastos, proveedores y cuentas por pagar (migración 0024)
+
+**Estado:** borrador local, **no aplicada en ningún entorno**. Marca `STAGING-GATE`.
+
+**El libro mayor sigue siendo el único libro.** Las facturas de proveedores son
+documentos fuente; todo efecto contable es un asiento publicado con
+`ledger_post` (0023), con unicidad por evento.
+
+| Evento | Asiento |
+|---|---|
+| Gasto aprobado | Dr cuenta de cada categoría (gasto o activo) / Cr Cuentas por pagar — fecha del gasto |
+| Pago (parcial o total) | Dr Cuentas por pagar / Cr Efectivo o Banco — fecha del pago |
+| Pago anulado | Reversión del asiento del pago (motivo obligatorio) |
+| Gasto aprobado anulado (sin pagos) | Reversión del asiento de aprobación |
+| Borrador, pendiente, devuelto, anulado antes de aprobar | Nada |
+
+## Estados
+
+`borrador → pendiente de aprobación → aprobado ⇄ programado → parcialmente
+pagado → pagado`; `anulado` desde borrador, pendiente, aprobado o programado
+(con pagos: primero se anulan los pagos). Rechazar devuelve a borrador con
+motivo. Desde el envío el contenido queda congelado para todos (también
+para mantenimiento).
+
+## Aprobación por rol y límites
+
+* Propietario: siempre sin límite.
+* Administradores: sin límite por defecto; configurable (límite o no aprueban).
+* Miembros: no aprueban por defecto; configurable con un límite.
+* Nadie, salvo el propietario, aprueba lo que registró o envió, a menos que
+  la empresa lo permita (pensado para negocios de una persona).
+* Los miembros registran gastos y proveedores y ven solo sus propios gastos.
+
+## Protección contra duplicados
+
+* Número de factura del proveedor único por proveedor (los anulados no cuentan).
+* Clave de idempotencia por formulario de gasto y por pago.
+* Aprobación, pago y anulación sobre la fila bloqueada del gasto; un asiento
+  por evento en el libro.
+* Recurrentes: un gasto por (plantilla, periodo); solo hasta hoy; como máximo
+  36 periodos por plantilla y ejecución; se generan solo a petición.
+
+## Adjuntos
+
+Bucket privado `Finance-attachments`, ruta `<empresa>/<gasto>/<archivo>`,
+PDF o imágenes de hasta 10 MB. La subida la hace el navegador con la sesión
+del usuario; las políticas de storage exigen que el gasto sea de esa empresa y
+visible para el usuario. Se abren con URL firmada de 60 segundos. Desde que el
+gasto se envía, sus adjuntos no se pueden borrar (ni el registro ni el
+archivo).
+
+## Informes
+
+Por categoría, proveedor y mes, de gastos aprobados no anulados, con la
+conciliación: Cuentas por pagar del libro = saldo de los gastos aprobados, y
+gasto registrado en el libro = total aprobado.
+
+## Limitaciones conocidas
+
+* Sin impuesto recuperable en compras (IVU pagado forma parte del gasto).
+* Un gasto se paga desde Efectivo o cuentas de activo propias (Banco…); no hay
+  conciliación bancaria todavía (entrega 6).
+* Los recurrentes no se generan solos (no hay programador configurado).
+* La subida de adjuntos y las pantallas no se probaron en un navegador con
+  sesión contra un Supabase real; el aislamiento de storage se probó con las
+  políticas en la base de datos local.
+* Disponible en Basic, Pro y Premium sin límites por plan.

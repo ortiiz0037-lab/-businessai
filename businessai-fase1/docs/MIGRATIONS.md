@@ -33,7 +33,8 @@ Las pruebas de `tests/staging-scripts.test.ts` hacen cumplir 3 y 4.
 | 0021 | `0021_workforce_kiosk.sql` | **Borrador, no aplicada en ningún entorno.** Modo PIN para tabletas compartidas (quiosco sin cuenta; token de 256 bits; PIN con sal e iteraciones; bloqueos por intentos; respuesta única sin enumeración; la tableta no lee datos), evidencia de asistencia solo-anexar (también para service_role) y quién cancela una corrección. Marca `STAGING-GATE` |
 | 0022 | `0022_workforce_rules.sql` | **Borrador, no aplicada en ningún entorno.** Plantillas de referencia por jurisdicción (PR, EE. UU. federal, California, personalizada; nunca se aplican solas), grupos de reglas por empleado (exentos, acuerdos, horas extra y comidas propias), alertas de periodo de comida (se aproxima / incumplido) con historial y acuse de recibo. Marca `STAGING-GATE` |
 | 0023 | `0023_ledger.sql` | **Borrador, no aplicada en ningún entorno.** Contabilidad de doble entrada: catálogo de cuentas, libro diario en centavos enteros (cuadre exacto verificado por la base de datos al confirmar), asientos inalterables, reversiones documentadas, periodos cerrados, asientos automáticos de facturas emitidas, pagos y anulaciones, importación explícita del historial. Marca `STAGING-GATE` |
-| **0024** | — | **Siguiente número libre** |
+| 0024 | `0024_payables.sql` | **Borrador, no aplicada en ningún entorno.** Proveedores, categorías (cada una en una cuenta del libro), facturas de proveedores y gastos con aprobación por rol y límites, pagos parciales y totales, anulaciones con reversión, adjuntos privados (bucket `Finance-attachments`), gastos recurrentes idempotentes, informes. Todo efecto contable es un asiento del libro mayor 0023. Marca `STAGING-GATE` |
+| **0025** | — | **Siguiente número libre** |
 
 ### Borradores y `staging:migrate` (hallazgo I12)
 

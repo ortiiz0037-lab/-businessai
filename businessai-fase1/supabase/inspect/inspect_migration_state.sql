@@ -10,7 +10,7 @@
 -- writes. It works whatever is applied: tables that may not exist are only
 -- looked up by name (to_regclass / to_regprocedure), never queried.
 --
--- One row per migration (0001–0004 together, then 0005 … 0023):
+-- One row per migration (0001–0004 together, then 0005 … 0024):
 --   status   applied | not applied | PARTIAL — review | n/a
 --   evidence what was measured (counts, flags) — compare it with the
 --            "applied when" column.
@@ -110,6 +110,9 @@ e as (
     -- 0023
     to_regclass('public.journal_entries') is not null as t_journal,
     to_regclass('public.ledger_accounts') is not null as t_ledger_accounts,
+    -- 0024
+    to_regclass('public.bills') is not null as t_bills,
+    to_regclass('public.vendors') is not null as t_vendors,
     -- staging bookkeeping (absent in Production)
     to_regclass('ba_meta.applied_migrations') is not null as t_record,
     to_regclass('ba_meta.environment') is not null        as t_marker
@@ -232,7 +235,13 @@ r(ord, migration, applied_when, status, evidence) as (
     format('ledger_accounts=%s journal_entries=%s', t_ledger_accounts, t_journal)
   from e
   union all
-  select 19, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
+  select 19, '0024_payables', 'vendors + bills',
+    case when t_bills and t_vendors then 'applied'
+         when not (t_bills or t_vendors) then 'not applied' else 'PARTIAL — review' end,
+    format('vendors=%s bills=%s', t_vendors, t_bills)
+  from e
+  union all
+  select 20, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
     case when t_record or t_marker then 'present (staging?)' else 'absent' end,
     format('ba_meta.applied_migrations=%s ba_meta.environment=%s', t_record, t_marker)
   from e
