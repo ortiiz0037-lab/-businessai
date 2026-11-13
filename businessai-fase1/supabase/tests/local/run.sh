@@ -1046,9 +1046,11 @@ check "$(ro l38a "$VER")" OK "verify_0014a answers OK with 0032"
 run_suite l38a "$HERE/101_bank_summary.test.sql" 'ALL BANK SUMMARY TESTS PASSED' "Bank summary suite (exact unmatched totals, ledger balance gated by accounting.view, bank.view required, isolation, as-of date, no anon)"
 stg_db l38b; for m in "$P14" "$P15" "$P16" "$P17" "$P18" "$P19" "$P20" "$P21" "$P22" "$P23" "$P24" "$P25" "$P26" "$P27" "$P28" "$P29" "$P30" "$P31" "$P32"; do psqlq -d l38b -f "$MIG/$m.sql" >/dev/null; done
 run_suite l38b "$HERE/98_intelligence.test.sql" 'ALL INTELLIGENCE TESTS PASSED' "with 0032: Intelligence suite"
-run_suite l38b "$HERE/100_insights.test.sql" 'ALL INSIGHTS TESTS PASSED' "with 0032: Insights suite"
-if psqlq -d l38b -f "$HERE/../../rollback/0032_rollback.sql" >"$WORK/l38b.out" 2>&1; then check ok ok "0032 rollback runs"; else head -3 "$WORK/l38b.out"; check failed ok "0032 rollback runs"; fi
-fingerprint l38b "$WORK/fp32_after.txt"
+stg_db l38c; for m in "$P14" "$P15" "$P16" "$P17" "$P18" "$P19" "$P20" "$P21" "$P22" "$P23" "$P24" "$P25" "$P26" "$P27" "$P28" "$P29" "$P30" "$P31" "$P32"; do psqlq -d l38c -f "$MIG/$m.sql" >/dev/null; done
+run_suite l38c "$HERE/100_insights.test.sql" 'ALL INSIGHTS TESTS PASSED' "with 0032: Insights suite"
+stg_db l38d; for m in "$P14" "$P15" "$P16" "$P17" "$P18" "$P19" "$P20" "$P21" "$P22" "$P23" "$P24" "$P25" "$P26" "$P27" "$P28" "$P29" "$P30" "$P31" "$P32"; do psqlq -d l38d -f "$MIG/$m.sql" >/dev/null; done
+if psqlq -d l38d -f "$HERE/../../rollback/0032_rollback.sql" >"$WORK/l38d.out" 2>&1; then check ok ok "0032 rollback runs"; else head -3 "$WORK/l38d.out"; check failed ok "0032 rollback runs"; fi
+fingerprint l38d "$WORK/fp32_after.txt"
 if diff -u "$WORK/fp32_before.txt" "$WORK/fp32_after.txt" > "$WORK/fp32.diff"; then check ok ok "after the 0032 rollback the catalog is identical to 0031"
 else head -20 "$WORK/fp32.diff"; check different ok "after the 0032 rollback the catalog is identical to 0031"; fi
 
