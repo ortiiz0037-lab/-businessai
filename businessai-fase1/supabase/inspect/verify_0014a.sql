@@ -29,6 +29,7 @@
 --      (owner, admin), bank.adjust and bank.reopen (owner); after 0027
 --      (public.budgets): budgets.manage (owner, admin), budgets.approve (owner)
 --      (public.studio_documents): studio.view / studio.edit (owner, admin, member), studio.issue / studio.templates / studio.brand (owner, admin)
+--      (public.assistant_actions): assistant.use (owner, admin, member), assistant.audit (owner, admin)
 --      (no documents.void either).
 --   2. has_permission, is_company_member, has_company_role: SECURITY DEFINER,
 --      search_path="", executable by authenticated, not by anon or PUBLIC.
@@ -53,8 +54,9 @@ has25 as (select to_regclass('public.payment_promises') is not null as yes),
 has26 as (select to_regclass('public.bank_accounts') is not null as yes),
 has27 as (select to_regclass('public.budgets') is not null as yes),
 has28 as (select to_regclass('public.studio_documents') is not null as yes),
+has29 as (select to_regclass('public.assistant_actions') is not null as yes),
 expected_count as (select 18 + (select yes::int from has15) + 2 * (select yes::int from has18) + (select yes::int from has19)
-                          + (select yes::int from has20) + 5 * (select yes::int from has23) + 6 * (select yes::int from has24) + 3 * (select yes::int from has25) + 5 * (select yes::int from has26) + 2 * (select yes::int from has27) + 5 * (select yes::int from has28) as n),
+                          + (select yes::int from has20) + 5 * (select yes::int from has23) + 6 * (select yes::int from has24) + 3 * (select yes::int from has25) + 5 * (select yes::int from has26) + 2 * (select yes::int from has27) + 5 * (select yes::int from has28) + 2 * (select yes::int from has29) as n),
 member_lacks(key) as (values ('billing.manage'), ('clients.delete'), ('company.branding.manage'),
                              ('company.settings.manage'), ('documents.delete'), ('documents.void'),
                              ('members.invite'), ('members.manage'), ('clients.archive'), ('workforce.manage'),
@@ -63,7 +65,8 @@ member_lacks(key) as (values ('billing.manage'), ('clients.delete'), ('company.b
                              ('receivables.view'), ('receivables.manage'), ('payments.void'),
                              ('bank.view'), ('bank.manage'), ('bank.reconcile'), ('bank.adjust'), ('bank.reopen'),
                              ('budgets.manage'), ('budgets.approve'),
-                             ('studio.issue'), ('studio.templates'), ('studio.brand')),
+                             ('studio.issue'), ('studio.templates'), ('studio.brand'),
+                             ('assistant.audit')),
 admin_lacks(key) as (select 'billing.manage' from has15 where yes
                      union all select 'members.manage' from has18 where yes
                      union all select 'accounting.reopen' from has23 where yes

@@ -13,7 +13,7 @@ import { randomBytes, createHmac } from 'node:crypto'
 export const USERS = { 'owner@e2e.local': 'e1000000-0000-4000-8000-000000000001', 'admin@e2e.local': 'e1000000-0000-4000-8000-000000000002',
   'member@e2e.local': 'e1000000-0000-4000-8000-000000000003', 'other@e2e.local': 'e1000000-0000-4000-8000-000000000004' }
 
-export async function startStack({ root, port, pgrstBin, pgSocket, pgPort, db, publicKey }) {
+export async function startStack({ root, port, pgrstBin, pgSocket, pgPort, db, publicKey, nextEnv = {} }) {
   if (!pgrstBin || !pgSocket?.startsWith('/')) throw new Error('Set PGRST_BIN and PG_SOCKET (a local unix-socket directory).')
   const APP = port, PGRST = port + 1, STUB = port + 2
   const BASE = `http://127.0.0.1:${APP}`
@@ -37,7 +37,7 @@ export async function startStack({ root, port, pgrstBin, pgSocket, pgPort, db, p
   start('pgrst', pgrstBin, [join(work, 'postgrest.conf')], {})
   start('stub', process.execPath, ['e2e/local-stack/auth-stub.mjs'], { STUB_PORT: String(STUB), PGRST_URL: `http://127.0.0.1:${PGRST}`, JWT_SECRET: SECRET, TEST_PASSWORD: PASSWORD, USERS: JSON.stringify(USERS), STORAGE_DIR: join(work, 'storage') })
   start('next', 'npx', ['next', 'start', '-p', String(APP), '-H', '127.0.0.1'], { NODE_ENV: 'production', APP_ENV: 'development', NEXT_PUBLIC_SUPABASE_URL: `http://127.0.0.1:${STUB}`,
-    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: publicKey ?? ANON, NEXT_PUBLIC_APP_URL: BASE, STRIPE_SECRET_KEY: '', SUPABASE_SERVICE_ROLE_KEY: '' })
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: publicKey ?? ANON, NEXT_PUBLIC_APP_URL: BASE, STRIPE_SECRET_KEY: '', SUPABASE_SERVICE_ROLE_KEY: '', ...nextEnv })
   const alive = (p) => { try { process.kill(-p.pid, 0); return true } catch { return false } }
   const kill = (sig) => { for (const p of procs) try { process.kill(-p.pid, sig) } catch { /* gone */ } }
   let stopped = false

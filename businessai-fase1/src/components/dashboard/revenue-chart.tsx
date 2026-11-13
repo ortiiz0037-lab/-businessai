@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 
 /**
  * Invoiced vs collected, last 12 months (grouped bars, one y-axis).
@@ -16,6 +16,7 @@ export type ChartPoint = { key: string; label: string; longLabel: string; invoic
 type Labels = { invoiced: string; collected: string; month: string; showTable: string; showChart: string; title: string; summary: string }
 
 const PAD = { top: 16, right: 8, bottom: 28, left: 52 }
+const subscribeNever = () => () => {}
 
 /** Rounded-top bar anchored to the baseline (4px data-end radius). */
 function barPath(x: number, y: number, w: number, h: number) {
@@ -44,6 +45,9 @@ export function RevenueChart({ points, labels, tag, currency }: {
     money: new Intl.NumberFormat(tag, { style: 'currency', currency }),
     compact: new Intl.NumberFormat(tag, { style: 'currency', currency, notation: 'compact', maximumFractionDigits: 1 }),
   }), [tag, currency])
+  // Compact currency ("$1 K") is formatted differently by the server's and the browser's ICU data:
+  // the axis labels are drawn after hydration only, so the server HTML and the first client render match.
+  const hydrated = useSyncExternalStore(subscribeNever, () => true, () => false)
   const [active, setActive] = useState<number | null>(null)
   const [table, setTable] = useState(false)
   // Drawn at the container's real width so text stays 11px on iPhone too.
@@ -117,7 +121,7 @@ export function RevenueChart({ points, labels, tag, currency }: {
             {ticks.map((t) => (
               <g key={t}>
                 <line x1={PAD.left} x2={W - PAD.right} y1={y(t)} y2={y(t)} stroke="#263449" strokeWidth={1} />
-                <text x={PAD.left - 8} y={y(t)} textAnchor="end" dominantBaseline="middle" fontSize={11} fill="#94a3b8">{nf.compact.format(t)}</text>
+                <text x={PAD.left - 8} y={y(t)} textAnchor="end" dominantBaseline="middle" fontSize={11} fill="#94a3b8">{hydrated ? nf.compact.format(t) : ''}</text>
               </g>
             ))}
             {points.map((p, i) => {

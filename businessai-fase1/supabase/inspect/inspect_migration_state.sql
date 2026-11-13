@@ -10,7 +10,7 @@
 -- writes. It works whatever is applied: tables that may not exist are only
 -- looked up by name (to_regclass / to_regprocedure), never queried.
 --
--- One row per migration (0001–0004 together, then 0005 … 0028):
+-- One row per migration (0001–0004 together, then 0005 … 0029):
 --   status   applied | not applied | PARTIAL — review | n/a
 --   evidence what was measured (counts, flags) — compare it with the
 --            "applied when" column.
@@ -125,6 +125,9 @@ e as (
     -- 0028
     to_regclass('public.studio_documents') is not null as t_studio,
     to_regprocedure('public.studio_finalize(uuid,integer,jsonb)') is not null as f_studio_finalize,
+    -- 0029
+    to_regclass('public.assistant_actions') is not null as t_assistant,
+    to_regprocedure('public.assistant_decide_action(uuid,text)') is not null as f_assistant_decide,
     -- staging bookkeeping (absent in Production)
     to_regclass('ba_meta.applied_migrations') is not null as t_record,
     to_regclass('ba_meta.environment') is not null        as t_marker
@@ -277,7 +280,13 @@ r(ord, migration, applied_when, status, evidence) as (
     format('studio_documents=%s studio_finalize=%s', t_studio, f_studio_finalize)
   from e
   union all
-  select 24, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
+  select 24, '0029_assistant', 'assistant_actions + assistant_decide_action',
+    case when t_assistant and f_assistant_decide then 'applied'
+         when not (t_assistant or f_assistant_decide) then 'not applied' else 'PARTIAL — review' end,
+    format('assistant_actions=%s assistant_decide_action=%s', t_assistant, f_assistant_decide)
+  from e
+  union all
+  select 25, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
     case when t_record or t_marker then 'present (staging?)' else 'absent' end,
     format('ba_meta.applied_migrations=%s ba_meta.environment=%s', t_record, t_marker)
   from e

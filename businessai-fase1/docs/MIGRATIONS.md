@@ -38,7 +38,8 @@ Las pruebas de `tests/staging-scripts.test.ts` hacen cumplir 3 y 4.
 | 0026 | `0026_bank_reconciliation.sql` | **Borrador, no aplicada en ningún entorno.** Cuentas bancarias vinculadas al catálogo, importación de estados (duplicados por archivo y por movimiento), emparejamiento con líneas del libro mayor (exacto, sugerido, múltiple, manual), asientos de comisiones / desconocidos, conciliación con cierre a diferencia cero, ajuste autorizado y reapertura del propietario. Cobros de clientes con cuenta de depósito opcional. Marca `STAGING-GATE` |
 | 0027 | `0027_statements_budgets.sql` | **Borrador, no aplicada en ningún entorno.** Clasificación contable de cuentas (`statement_class`), estado de resultados, balance general, flujo de efectivo indirecto y calidad de datos calculados del libro mayor; presupuestos con versiones, escenarios, aprobación y publicación; presupuesto vs real; supuestos de proyección. Marca `STAGING-GATE` |
 | 0028 | `0028_document_studio.sql` | **Borrador, no aplicada en ningún entorno.** Document Studio: documentos de diseño (borradores con versiones, emisión con número y copia inmutable de los datos leídos por la base de datos), plantillas por empresa, identidad corporativa, imágenes en el bucket privado Studio-assets, auditoría. No guarda importes: lee clientes, documentos, pagos, empleados y proveedores. Rollback: `supabase/rollback/0028_rollback.sql`. |
-| **0029** | — | **Siguiente número libre** |
+| 0029 | `0029_assistant.sql` | **Borrador, no aplicada en ningún entorno.** Asistente BusinessAI: conversaciones privadas de cada usuario, mensajes (solo anexar), acciones propuestas que requieren confirmación del autor (una sola vez, con caducidad), consumo y límites por plan, auditoría sin texto de las conversaciones. No copia datos de negocio. Rollback: `supabase/rollback/0029_rollback.sql`. |
+| **0030** | — | **Siguiente número libre** |
 
 ### Borradores y `staging:migrate` (hallazgo I12)
 

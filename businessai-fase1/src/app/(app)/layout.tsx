@@ -12,6 +12,7 @@ import { getLocale } from '@/lib/i18n/server'
 import { cookies } from 'next/headers'
 import { AppShell, type NavItem, type ShellNotice } from '@/components/app-nav'
 import { Icon } from '@/components/ui/icon'
+import { AssistantWidget } from '@/components/assistant/widget'
 
 const BANNER_STYLE = {
   info: 'alert-info',
@@ -31,6 +32,7 @@ function navigation(locale: Locale): NavItem[] {
     { href: '/payables', label: t.payables, icon: 'receipt' },
     { href: '/bank', label: t.bank, icon: 'building' },
     { href: '/studio', label: t.studio, icon: 'file' },
+    { href: '/assistant', label: t.assistant, icon: 'sparkle' },
     { href: '/finance', label: t.finance, icon: 'chart' },
     { href: '/accounting', label: t.accounting, icon: 'chart' },
     { href: '/settings/company', label: t.company, icon: 'building' },
@@ -115,6 +117,7 @@ export default async function AppLayout({
             </nav>
           </div>
         </footer>
+        {activeCompanyId && <AssistantWidget locale={locale} />}
       </AppShell>
     </div>
   )

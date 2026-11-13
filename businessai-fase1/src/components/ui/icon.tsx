@@ -40,6 +40,13 @@ const PATHS = {
   bell: 'M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0',
   zap: 'M13 2 3 14h9l-1 8 10-12h-9l1-8Z',
   chevronDown: 'M6 9l6 6 6-6',
+  mic: 'M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3ZM5 11a7 7 0 0 0 14 0M12 18v3M9 21h6',
+  send: 'M4 12 20 4l-6 16-3-7-7-1ZM11 13l9-9',
+  message: 'M4 5h16v11H9l-5 4V5ZM8 9h8M8 12h5',
+  volume: 'M4 9h4l5-4v14l-5-4H4V9ZM16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12',
+  volumeOff: 'M4 9h4l5-4v14l-5-4H4V9ZM17 9l5 6M22 9l-5 6',
+  archive: 'M3 5h18v4H3V5ZM5 9v10h14V9M10 13h4',
+  expand: 'M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7',
 } as const
 
 export type IconName = keyof typeof PATHS

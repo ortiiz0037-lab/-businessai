@@ -13,7 +13,7 @@ import { KINDS, parseContent, parsePage, studioErrorCode, type DocContent, type 
 import { systemTemplate } from '@/lib/studio/templates'
 import { missingFields } from '@/lib/studio/merge'
 import { loadData, loadDoc } from '@/lib/studio/server'
-import { assertDraftIsSafe, ruleAssistant } from '@/lib/studio/assistant'
+import { createAssistantDraft } from '@/lib/studio/draft'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const text = (f: FormData, k: string) => String(f.get(k) ?? '').trim()
@@ -195,29 +195,11 @@ export async function assistantDraft(formData: FormData) {
   if (instruction.length < 5) go(back, { error: 'invalid' })
   const { supabase, companyId } = await company()
   const locale = await getLocale()
-  const placeholder: DocContent = { v: 1, blocks: [{ type: 'paragraph', text: '' }] }
   const refs = { client: uuidOrNull(formData, 'client_id'), source_document: uuidOrNull(formData, 'source_document_id'), employee: uuidOrNull(formData, 'employee_id'), vendor: uuidOrNull(formData, 'vendor_id') }
-  // 1) a draft bound to the records the user chose (so the database checks access), 2) the assistant fills it from studio_data
-  const first = await ruleAssistant.draft({ instruction, kind, locale }, {})
-  const { data, error } = await supabase.rpc('studio_save_document', {
-    target: companyId, doc: null, doc_kind: first.kind, doc_title: first.title, doc_folder: null, doc_content: placeholder, doc_page: {}, ...refs,
-    template: null, base: first.templateKey, expected_version: null, doc_origin: 'assistant',
-  })
-  const row = ((data ?? []) as { id: string; version: number }[])[0]
-  if (error || !row) go(back, { error: studioErrorCode(error) })
-  const doc = await loadDoc(supabase, companyId, row.id)
-  const { data: d } = await loadData(supabase, doc!, today())
-  const draft = await ruleAssistant.draft({ instruction, kind: first.kind, locale }, d)
-  const safe = assertDraftIsSafe(draft)
-  if (!safe.ok) { refresh(); go(`/studio/${row.id}`, { error: safe.error === 'amounts_in_text' ? 'assistant_amounts' : 'studio_content_invalid' }) }
-  const page = systemTemplate(draft.templateKey, locale)?.page ?? {}
-  const { error: e2 } = await supabase.rpc('studio_save_document', {
-    target: companyId, doc: row.id, doc_kind: draft.kind, doc_title: draft.title, doc_folder: null, doc_content: draft.content, doc_page: page, ...refs,
-    template: null, base: draft.templateKey, expected_version: row.version, doc_origin: 'assistant',
-  })
+  const r = await createAssistantDraft(supabase, companyId, { instruction, kind, refs, locale, today: today() })
   refresh()
-  if (e2) go(`/studio/${row.id}`, { error: studioErrorCode(e2) })
-  go(`/studio/${row.id}`, { done: 'assistant', ...(draft.missing.length ? { missing: draft.missing.slice(0, 12).join(',') } : {}) })
+  if (!r.ok) go(r.id ? `/studio/${r.id}` : back, { error: r.error })
+  go(`/studio/${r.id}`, { done: 'assistant', ...(r.missing.length ? { missing: r.missing.slice(0, 12).join(',') } : {}) })
 }
 
 // ------------------------------------------------------------- templates and brand
