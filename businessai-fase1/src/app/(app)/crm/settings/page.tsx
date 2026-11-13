@@ -130,7 +130,7 @@ export default async function CrmSettingsPage({ searchParams }: { searchParams: 
             ))}
           </ul>
           <form action={saveBranch} className="mt-3 grid gap-2 border-t border-line pt-3 sm:grid-cols-[6rem_1fr_1fr_auto] sm:items-end">
-            <label className="field-label">{tr('Código', 'Code')}<input name="code" required maxLength={12} pattern="[A-Za-z0-9_-]{1,12}" className="field mt-1 py-1.5" /></label>
+            <label className="field-label">{tr('Código', 'Code')}<input name="code" required maxLength={12} pattern="[A-Za-z0-9_\-]{1,12}" className="field mt-1 py-1.5" /></label>
             <label className="field-label">{tr('Nombre', 'Name')}<input name="name" required maxLength={80} className="field mt-1 py-1.5" /></label>
             <label className="field-label">{tr('Dirección', 'Address')}<input name="address" maxLength={240} className="field mt-1 py-1.5" /></label>
             <SubmitButton pendingLabel="…" className="mb-0.5 w-auto">{tr('Crear sucursal', 'Create branch')}</SubmitButton>
