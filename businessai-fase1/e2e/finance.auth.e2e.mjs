@@ -51,7 +51,7 @@ start('next', 'npx', ['next', 'start', '-p', String(APP), '-H', '127.0.0.1'], { 
 const signal = (sig) => { for (const p of procs) try { process.kill(-p.pid, sig) } catch { /* gone */ } }
 const alive = () => procs.some((p) => { try { process.kill(-p.pid, 0); return true } catch { return false } })
 // SIGTERM, wait up to 4 s for a graceful exit, then SIGKILL (next-server can linger on open connections)
-const stop = async () => { signal('SIGTERM'); for (let i = 0; i < 20 && alive(); i++) await new Promise((r) => setTimeout(r, 200)); signal('SIGKILL'); rmSync(work, { recursive: true, force: true }) }
+const stop = async () => { signal('SIGTERM'); for (let i = 0; i < 20 && alive(); i++) await new Promise((r) => setTimeout(r, 200)); signal('SIGKILL'); for (let i = 0; i < 20 && alive(); i++) { await new Promise((r) => setTimeout(r, 100)); signal('SIGKILL') } rmSync(work, { recursive: true, force: true }) }
 process.on('exit', () => { signal('SIGKILL'); rmSync(work, { recursive: true, force: true }) })
 for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, async () => { await stop(); process.exit(130) })
 async function ready(url, ms = 60000) {

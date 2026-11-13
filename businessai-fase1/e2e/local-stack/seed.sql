@@ -81,3 +81,17 @@ on conflict (company_id) do update set legal_name = excluded.legal_name, display
 update public.clients set business_name = 'Uno Corp', address = 'Avenida 2', city = 'Ponce' where id = 'e3000000-0000-4000-8000-000000000001';
 insert into public.employees (id, company_id, first_name, last_name, position, hire_date)
 values ('e6000000-0000-4000-8000-000000000001', 'e2000000-0000-4000-8000-000000000001', 'Ana', 'Rivera', 'Contadora', '2024-03-01');
+
+-- Document Studio audit: an invoice and a quote with real lines, a payment on the invoice; data for the other company
+select e2e.as_user('e1000000-0000-4000-8000-000000000001', format($q$insert into public.documents (id, company_id, client_id, created_by, document_type, document_number, status, subtotal, tax, total, issue_date, due_date, items, metadata)
+  values ('e4000000-0000-4000-8000-000000000003', 'e2000000-0000-4000-8000-000000000001', 'e3000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000001', 'invoice', 'x', 'sent', 1250, 87.5, 1337.5, %L, %L,
+          '[{"description":"Diseño de identidad corporativa","quantity":1,"unit_price":900,"amount":900},{"description":"Hosting anual","quantity":1,"unit_price":250,"amount":250},{"description":"Soporte (horas)","quantity":2,"unit_price":50,"amount":100}]',
+          '{"tax_rate":7}'),
+         ('e4000000-0000-4000-8000-000000000004', 'e2000000-0000-4000-8000-000000000001', 'e3000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000001', 'quote', 'x', 'sent', 600, 0, 600, %L, %L,
+          '[{"description":"Auditoría de procesos","quantity":3,"unit_price":200,"amount":600}]', '{}')
+  returning 'ok'$q$, public.ba_today() - 3, public.ba_today() + 27, public.ba_today() - 1, public.ba_today() + 29));
+select e2e.as_user('e1000000-0000-4000-8000-000000000001', $q$insert into public.payments (company_id, document_id, amount, created_by)
+  values ('e2000000-0000-4000-8000-000000000001', 'e4000000-0000-4000-8000-000000000003', 337.5, 'e1000000-0000-4000-8000-000000000001') returning 'ok'$q$);
+insert into public.clients (id, company_id, name, email) values ('e3000000-0000-4000-8000-000000000002', 'e2000000-0000-4000-8000-000000000002', 'Cliente de Otra Empresa', 'otra@e2e.local');
+insert into public.company_profiles (company_id, legal_name, email) values ('e2000000-0000-4000-8000-000000000002', 'Otra Empresa E2E Inc.', 'info@otra.local')
+on conflict (company_id) do update set legal_name = excluded.legal_name;

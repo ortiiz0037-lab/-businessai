@@ -132,6 +132,10 @@ describe('layout', () => {
     expect([Math.round(r.pages[0].width), Math.round(r.pages[0].height)]).toEqual([842, 595])
     expect((r.pages[0].prims.find((x) => x.t === 'text' && x.text === 'x') as { x: number }).x).toBeCloseTo(30 * 72 / 25.4, 1)
   })
+  it('the document typeface and accent also apply to headings (they override the identity)', () => {
+    const r = layout({ content: { v: 1, blocks: [{ type: 'heading', level: 1, text: 'Título' }] }, page: { font: 'serif', accent: '#0F766E' }, data, locale: 'es', fonts, brand: { heading_font: 'sans', accent_color: '#7C3AED' } })
+    expect(r.pages[0].prims.find((x) => x.t === 'text' && x.text === 'Título')).toMatchObject({ font: 'serif-bold', color: '#0F766E' })
+  })
   it('brand: header, footer, watermark and missing images as placeholders', () => {
     const r = layout({ content: { v: 1, blocks: [{ type: 'image', asset: 'logo', width: 30 }] }, data, locale: 'es', fonts,
       brand: { header_text: '{{company.legal_name}}', footer_text: 'Gracias', watermark_text: 'COPIA', show_logo: false } })

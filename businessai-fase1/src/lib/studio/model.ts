@@ -26,8 +26,9 @@ export type DocContent = { v: 1; blocks: Block[] }
 export type PageSettings = {
   size?: 'letter' | 'a4' | 'legal'; orientation?: 'portrait' | 'landscape'; font?: 'sans' | 'serif'
   fontSize?: number; lineHeight?: number; marginTop?: number; marginRight?: number; marginBottom?: number; marginLeft?: number
+  accent?: string                                                          // #RRGGBB: overrides the identity accent for this document
 }
-export const PAGE_DEFAULTS: Required<PageSettings> = { size: 'letter', orientation: 'portrait', font: 'sans', fontSize: 10.5, lineHeight: 1.35, marginTop: 20, marginRight: 20, marginBottom: 20, marginLeft: 20 }
+export const PAGE_DEFAULTS: Required<Omit<PageSettings, 'accent'>> = { size: 'letter', orientation: 'portrait', font: 'sans', fontSize: 10.5, lineHeight: 1.35, marginTop: 20, marginRight: 20, marginBottom: 20, marginLeft: 20 }
 
 export type Brand = {
   heading_font: 'sans' | 'serif'; body_font: 'sans' | 'serif'; accent_color: string | null; text_color: string
@@ -100,6 +101,7 @@ export function parsePage(input: unknown): PageSettings {
   if (p.fontSize !== undefined && p.fontSize !== '') out.fontSize = num(p.fontSize, 8, 16, 10.5)
   if (p.lineHeight !== undefined && p.lineHeight !== '') out.lineHeight = num(p.lineHeight, 1, 2.2, 1.35)
   for (const k of ['marginTop', 'marginRight', 'marginBottom', 'marginLeft'] as const) if (p[k] !== undefined && p[k] !== '') out[k] = num(p[k], 8, 50, 20)
+  if (typeof p.accent === 'string' && /^#[0-9a-f]{6}$/i.test(p.accent)) out.accent = p.accent
   return out
 }
 

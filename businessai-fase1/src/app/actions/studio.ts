@@ -43,6 +43,10 @@ const refresh = () => revalidatePath('/studio', 'layout')
 
 async function templateContent(supabase: Awaited<ReturnType<typeof createClient>>, companyId: string, ref: string): Promise<{ content: DocContent; page: PageSettings; kind: Kind; templateId: string | null; base: string | null; name: string } | null> {
   const locale = await getLocale()
+  if (ref.startsWith('blank:') && (KINDS as readonly string[]).includes(ref.slice(6))) {     // a document from scratch
+    return { content: { v: 1, blocks: [{ type: 'heading', level: 1, text: '' }, { type: 'paragraph', text: '' }] }, page: {}, kind: ref.slice(6) as Kind, templateId: null, base: 'blank',
+      name: locale === 'en' ? 'Untitled document' : 'Documento sin título' }
+  }
   if (ref.startsWith('sys:')) {
     const t = systemTemplate(ref.slice(4), locale)
     return t ? { content: t.content, page: t.page, kind: t.kind, templateId: null, base: t.key, name: t.name } : null
@@ -60,7 +64,8 @@ async function templateContent(supabase: Awaited<ReturnType<typeof createClient>
 export async function createDocument(formData: FormData) {
   const back = backTo(formData, '/studio/new')
   const { supabase, companyId } = await company()
-  const tpl = await templateContent(supabase, companyId, text(formData, 'template'))
+  const ref = text(formData, 'template') === 'blank' ? `blank:${text(formData, 'blank_kind') || 'letter'}` : text(formData, 'template')
+  const tpl = await templateContent(supabase, companyId, ref)
   if (!tpl) go(back, { error: 'invalid' })
   const title = (text(formData, 'title') || tpl.name).slice(0, 160)
   const { data, error } = await supabase.rpc('studio_save_document', {

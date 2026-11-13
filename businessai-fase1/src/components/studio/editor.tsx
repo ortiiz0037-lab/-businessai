@@ -98,6 +98,16 @@ export function StudioEditor(p: Props) {
     f.apply(v)
     requestAnimationFrame(() => { el.focus(); el.setSelectionRange(s + tag.length, s + tag.length) })
   }
+  /** Wraps the selected text of the focused field in **…** (bold) or __…__ (italic). */
+  const format = (mark: '**' | '__') => {
+    const f = focused.current
+    if (!f) return
+    const { el } = f, s = el.selectionStart ?? el.value.length, e = el.selectionEnd ?? s
+    const sel = el.value.slice(s, e)
+    const v = el.value.slice(0, s) + mark + sel + mark + el.value.slice(e)
+    f.apply(v)
+    requestAnimationFrame(() => { el.focus(); el.setSelectionRange(s + mark.length, e + mark.length) })
+  }
   async function upload(file: File, i: number | null) {
     setUploadMsg(tr('Subiendo…', 'Uploading…'))
     const fd = new FormData(); fd.append('file', file)
@@ -204,6 +214,10 @@ export function StudioEditor(p: Props) {
                 <option value="">{tr('Elegir dato…', 'Choose data…')}</option>
                 {FIELDS.map((g) => <optgroup key={g.group.es} label={es ? g.group.es : g.group.en}>{g.fields.map((f) => <option key={f.path} value={f.path}>{es ? f.es : f.en}</option>)}</optgroup>)}
               </select></label>
+            <span className="flex gap-1" role="group" aria-label={tr('Formato del texto seleccionado', 'Format the selected text')}>
+              <button type="button" className="btn-secondary btn-sm font-bold" onMouseDown={(e) => e.preventDefault()} onClick={() => format('**')} aria-label={tr('Negrita', 'Bold')}>B</button>
+              <button type="button" className="btn-secondary btn-sm italic" onMouseDown={(e) => e.preventDefault()} onClick={() => format('__')} aria-label={tr('Cursiva', 'Italic')}>I</button>
+            </span>
             {uploadMsg && <span role="status" className="text-xs text-muted">{uploadMsg}</span>}
           </div>
           <ol className="space-y-2">
@@ -231,6 +245,8 @@ export function StudioEditor(p: Props) {
               <label className="text-sm"><span className="field-label">{tr('Orientación', 'Orientation')}</span><select value={pg.orientation} onChange={(e) => setPg({ orientation: e.target.value as 'portrait' })} className="field"><option value="portrait">{tr('Vertical', 'Portrait')}</option><option value="landscape">{tr('Horizontal', 'Landscape')}</option></select></label>
               <label className="text-sm"><span className="field-label">{tr('Tipografía', 'Typeface')}</span><select value={pg.font} onChange={(e) => setPg({ font: e.target.value as 'sans' })} className="field"><option value="sans">Sans (Arial)</option><option value="serif">Serif (Times)</option></select></label>
               <label className="text-sm"><span className="field-label">{tr('Cuerpo (pt)', 'Body (pt)')}</span><input type="number" min={8} max={16} step={0.5} value={pg.fontSize} onChange={(e) => setPg({ fontSize: Number(e.target.value) })} className="field" /></label>
+              <label className="text-sm"><span className="field-label">{tr('Color de acento', 'Accent colour')}</span>
+                <input type="color" value={page.accent ?? p.brand.accent_color ?? p.accentFallback ?? '#1D4ED8'} onChange={(e) => setPg({ accent: e.target.value })} className="field h-10 p-1" aria-label={tr('Color de acento del documento', 'Document accent colour')} /></label>
               <label className="text-sm"><span className="field-label">{tr('Interlineado', 'Line spacing')}</span><input type="number" min={1} max={2.2} step={0.05} value={pg.lineHeight} onChange={(e) => setPg({ lineHeight: Number(e.target.value) })} className="field" /></label>
               {(['marginTop', 'marginRight', 'marginBottom', 'marginLeft'] as const).map((k) => (
                 <label key={k} className="text-sm"><span className="field-label">{({ marginTop: tr('Margen sup.', 'Top margin'), marginRight: tr('Margen der.', 'Right margin'), marginBottom: tr('Margen inf.', 'Bottom margin'), marginLeft: tr('Margen izq.', 'Left margin') })[k]} (mm)</span>

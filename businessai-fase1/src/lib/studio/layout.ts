@@ -55,10 +55,10 @@ export function layout(input: LayoutInput): LayoutResult {
   const page = { ...PAGE_DEFAULTS, ...(brand.page ?? {}), ...(input.page ?? {}) }
   const locale = input.locale
   const fmt: Formatters = makeFormatters(locale, input.currency ?? 'USD')
-  const accent = brand.accent_color ?? input.accentFallback ?? '#1F2937'
+  const accent = input.page?.accent ?? brand.accent_color ?? input.accentFallback ?? '#1F2937'
   const color = brand.text_color || '#111827'
   const family = page.font ?? brand.body_font
-  const headFamily = brand.heading_font
+  const headFamily = input.page?.font ?? brand.heading_font            // the document's typeface choice applies to headings too
   const missing = new Set<string>()
   const images = input.images ?? {}
   const [pw0, ph0] = SIZES[page.size]

@@ -99,6 +99,7 @@ returns boolean language sql immutable set search_path = '' as $$
     and coalesce((p ->> 'marginRight')::numeric, 20) between 8 and 50
     and coalesce((p ->> 'marginBottom')::numeric, 20) between 8 and 50
     and coalesce((p ->> 'marginLeft')::numeric, 20) between 8 and 50
+    and coalesce(p ->> 'accent', '#000000') ~ '^#[0-9A-Fa-f]{6}$'
     and octet_length(p::text) < 4000
 $$;
 

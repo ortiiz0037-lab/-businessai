@@ -142,15 +142,17 @@ conectó ningún servicio externo.
   líneas de factura, cotización y recibo vienen del documento comercial. Las
   órdenes de compra y de trabajo usan una tabla editable que **no** crea gastos
   ni facturas. Un catálogo real es otra entrega.
-- **La subida y la descarga de imágenes no se probaron contra el
-  almacenamiento real de Supabase.** El sustituto local no implementa
-  almacenamiento. Sí están probadas la validación por contenido (unitarias y
-  E2E), las políticas del bucket (SQL) y la incrustación en el PDF (unitarias).
+- **La subida y la descarga de imágenes no se probaron contra el servidor de
+  Storage de Supabase.** Se probaron con una emulación local que aplica las
+  **políticas reales** de los buckets, con el logo, la firma, el sello y las
+  imágenes del editor (ver `docs/STUDIO_AUDIT.md`).
 - **El asistente aún no usa un modelo de lenguaje.** La arquitectura y las
   barreras están listas.
 - **El correo se prepara, no se envía** (no hay proveedor configurado).
-- **El editor es por bloques, no de texto enriquecido libre.** El texto dentro
-  de un párrafo admite **negrita** y __cursiva__ con marcas.
+- **El editor es por bloques, no de texto enriquecido libre.** Dentro de un
+  párrafo, la negrita y la cursiva se aplican al texto seleccionado con los
+  botones **B** e *I* (internamente `**…**` y `__…__`). No hay color por
+  palabra: el color de acento es por documento o por identidad.
 - **Tipografías:** solo Sans y Serif, para que el PDF y la vista previa
   coincidan exactamente.
 - **El PDF no es PDF/A ni lleva firma digital criptográfica.** La «firma» es la

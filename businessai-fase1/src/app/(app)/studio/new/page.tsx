@@ -34,6 +34,13 @@ export default async function NewStudioDocument({ searchParams }: { searchParams
         <fieldset className="card p-4">
           <legend className="px-1 font-display text-lg font-semibold text-fg">{tr('1. Plantilla', '1. Template')}</legend>
           <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            <label className="flex cursor-pointer gap-3 rounded-xl border border-dashed border-line bg-card/60 p-3 has-[:checked]:border-electric/70 has-[:checked]:bg-brand/15">
+              <input type="radio" name="template" value="blank" defaultChecked={chosen === 'blank'} className="mt-1" />
+              <span className="min-w-0 flex-1"><span className="block font-semibold text-fg">{tr('Documento en blanco', 'Blank document')}</span>
+                <span className="block text-xs text-muted">{tr('Desde cero, con el tipo que elijas:', 'From scratch, of the kind you choose:')}</span>
+                <select name="blank_kind" defaultValue="letter" className="field mt-1 py-1 text-xs" aria-label={tr('Tipo del documento en blanco', 'Kind of the blank document')}>
+                  {KINDS.map((k) => <option key={k} value={k}>{kindLabel(k, locale)}</option>)}</select></span>
+            </label>
             {[...company.map((t) => ({ ref: `tpl:${t.id}`, kind: t.kind, name: t.name, description: t.description ?? tr('Plantilla de la empresa', 'Company template'), own: true })),
               ...system.map((t) => ({ ref: `sys:${t.key}`, kind: t.kind, name: t.name, description: t.description, own: false }))].map((t) => (
               <label key={t.ref} className="flex cursor-pointer gap-3 rounded-xl border border-line bg-card/60 p-3 has-[:checked]:border-electric/70 has-[:checked]:bg-brand/15">
