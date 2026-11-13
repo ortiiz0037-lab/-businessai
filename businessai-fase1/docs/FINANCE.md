@@ -236,7 +236,8 @@ la cobranza.
 * No hay programador: los recordatorios y promesas se actualizan con el botón
   «Actualizar seguimiento» (o una llamada futura de un cron sin usuario).
 * Fechas en hora de Puerto Rico.
-* Pantallas no probadas en navegador con sesión contra un Supabase real.
+* Pantallas probadas en navegador con sesión contra una pila local (ver
+  «Prueba en navegador con sesión»); no contra Supabase Auth real.
 
 ---
 
@@ -336,7 +337,8 @@ importaciones, auditoría) con protección contra fórmulas en hojas de cálculo
   credenciales).
 * Solo la moneda base (USD); las tablas guardan la moneda para el futuro.
 * Las sugerencias de grupo solo consideran partidas del mismo día (2–10).
-* Pantallas no probadas en navegador con sesión contra un Supabase real.
+* Pantallas probadas en navegador con sesión contra una pila local (ver
+  «Prueba en navegador con sesión»); no contra Supabase Auth real.
 
 # Entrega 6 — Estados financieros y presupuestos (migración 0027)
 
@@ -484,5 +486,84 @@ proyecciones y escenarios, alertas, maquetación, xlsx).
   nuevos se suponen cobrados/pagados el mismo mes.
 * PDF mediante la impresión del navegador (no se genera un PDF en servidor).
 * Solo moneda base.
-* Pantallas no probadas en navegador con sesión contra un Supabase real
-  (las funciones sí, en PostgreSQL 16 local).
+* Pantallas probadas en navegador con sesión contra una pila local
+  (PostgreSQL + PostgREST 12.2.3); no contra Supabase Auth real (ver
+  «Prueba en navegador con sesión»).
+
+# Prueba en navegador con sesión (entregas 2–6)
+
+`e2e/finance.auth.e2e.mjs` (`npm run test:e2e:finance`) recorre con
+Playwright y **un usuario que inicia sesión con el formulario** las pantallas
+de contabilidad, gastos, cuentas por cobrar, bancos y finanzas, contra una
+pila **solo local**:
+
+```
+PostgreSQL local (e2e/local-stack/db.sh: shim + migraciones 0001–0027 + datos de prueba)
+  └─ PostgREST 12.2.3 (127.0.0.1, rol authenticator, mismas políticas RLS)
+       └─ e2e/local-stack/auth-stub.mjs (127.0.0.1: sustituto mínimo de Supabase Auth)
+            └─ next start (127.0.0.1)  ←  Playwright (Chromium)
+```
+
+```bash
+npm run build
+PSQL="psql -h /ruta/socket -p 5432 -U postgres" bash e2e/local-stack/db.sh
+PGRST_BIN=/ruta/postgrest PG_SOCKET=/ruta/socket PG_PORT=5432 npm run test:e2e:finance
+```
+
+**Seguridad del entorno de prueba**
+* Todo escucha en `127.0.0.1`; la app solo recibe URLs locales. `db.sh`
+  rechaza un `PSQL` que apunte a Supabase.
+* La clave JWT y la contraseña de prueba se generan al azar en cada
+  ejecución y no se guardan; el sustituto de Auth solo conoce los 4 usuarios
+  de prueba, rechaza contraseñas incorrectas y JWT manipulados.
+* PostgREST usa el rol `authenticator` (sin privilegios propios) que cambia a
+  `anon` / `authenticated` según el JWT: las políticas RLS y los permisos de
+  las funciones son los mismos que en Supabase.
+* El binario de PostgREST no se incluye en el repositorio: se pasa por
+  `PGRST_BIN`. Usado: `postgrest-v12.2.3-linux-static-x64.tar.xz` de las
+  publicaciones oficiales de GitHub, SHA-256
+  `9f71269e61ac3a940281e93ff415760f5957e430e475ba4c3889f3ede7d5527c`
+  (el propietario del proyecto lo comparó con el digest que GitHub muestra
+  para ese archivo; desde esta sesión no se pudo leer ese digest. Los
+  mantenedores no publican checksums ni firmas propias: la etiqueta v12.2.3
+  no está firmada y su flujo de publicación no genera checksums).
+* Limitación: el sustituto de Auth no es Supabase Auth (no prueba registro,
+  correo, recuperación de contraseña ni rotación real de tokens).
+
+**Qué comprueba (85 verificaciones)**
+* Inicio de sesión: contraseña incorrecta rechazada, ruta protegida sin
+  sesión → `/login`, inicio de sesión con el formulario.
+* 30 pantallas de las entregas 2–6 cargan con datos, sin error.
+* Entrega 2: asiento manual balanceado desde el formulario; uno descuadrado
+  rechazado; balanza de comprobación.
+* Entrega 3: pagar una factura de proveedor desde su página (queda
+  «Pagado») y su enlace a los asientos.
+* Entrega 4: saldo vencido correcto (1,500.00 − 500.00 = 1,000.00), página
+  de cobro de la factura y antigüedad de saldos.
+* Entrega 5: cuenta bancaria vinculada a 1010, importación de CSV con el
+  asistente, emparejamiento exacto del pago al proveedor.
+* Entrega 6: estado de resultados (subtotales y enlaces al mayor), balance
+  que cuadra, flujo que coincide con el efectivo, panel con alertas;
+  presupuesto creado → línea de 12 meses → aprobado → bloqueado → publicado →
+  presupuesto vs real → descarga .xlsx → nueva versión v2; exportación CSV
+  y XLSX; proyecciones con supuestos guardados.
+* Roles y aislamiento: el admin nunca ve «Aprobar»; un miembro no abre
+  finanzas, contabilidad ni bancos ni exporta (403); otra empresa no abre el
+  presupuesto (404) ni ve sus cuentas.
+* iPhone 13 e iPad Mini: sin desplazamiento horizontal.
+* Sin errores en el log del servidor, sin errores de consola ni respuestas
+  HTTP ≥ 400 en el navegador, y la app solo usó endpoints de Auth que el
+  sustituto implementa.
+
+**Errores encontrados y corregidos**
+* Los botones *Excel* / *CSV* de las páginas de finanzas eran `<Link>` de
+  Next hacia una ruta de descarga (`/finance/export`): Next intentaba
+  precargarla como página (404) y navegaba con un POST que la ruta rechaza
+  (405). La descarga solo funcionaba por el mecanismo de respaldo y dejaba
+  errores en la consola. Ahora son enlaces de descarga normales
+  (`<a download>`), como en bancos.
+* Los demás fallos de las primeras ejecuciones eran del propio test (leía la
+  página antes de terminar el streaming, buscaba «Pagada» en vez de
+  «Pagado», usaba fechas MM/DD con el formato DD/MM por defecto en español,
+  y no esperaba a que cambiara la URL tras una acción); se corrigieron en el
+  test, no en la app.

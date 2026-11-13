@@ -49,8 +49,8 @@ export default async function BalanceSheetPage({ searchParams }: { searchParams:
         : <StatementTable tr={tr} lines={balanceLines(cur.rows, base?.rows ?? null, locale)} money={money} curLabel={f.date(asOf)} baseLabel={compareTo ? f.date(compareTo) : null}
             ledgerFrom={`${asOf.slice(0, 4)}-01-01`} ledgerTo={asOf} />}
       <div className="flex flex-wrap gap-2 print:hidden">
-        <Link href={`/finance/export?${qs}&format=xlsx`} className="btn-secondary btn-sm">Excel</Link>
-        <Link href={`/finance/export?${qs}&format=csv`} className="btn-secondary btn-sm">CSV</Link>
+        <a href={`/finance/export?${qs}&format=xlsx`} download className="btn-secondary btn-sm">Excel</a>
+        <a href={`/finance/export?${qs}&format=csv`} download className="btn-secondary btn-sm">CSV</a>
         <Link href={`/accounting/trial-balance?as_of=${asOf}`} className="btn-secondary btn-sm">{tr('Balanza de comprobación', 'Trial balance')}</Link>
       </div>
     </div>

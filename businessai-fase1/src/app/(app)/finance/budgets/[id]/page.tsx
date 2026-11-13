@@ -148,8 +148,8 @@ export default async function BudgetPage({ params, searchParams }: { params: Pro
           </div>
         )}
         <div className="flex flex-wrap gap-2 print:hidden">
-          <Link href={`/finance/export?report=budget&id=${b.id}&as_of=${asOf}&format=xlsx`} className="btn-secondary btn-sm">Excel</Link>
-          <Link href={`/finance/export?report=budget&id=${b.id}&as_of=${asOf}&format=csv`} className="btn-secondary btn-sm">CSV</Link>
+          <a href={`/finance/export?report=budget&id=${b.id}&as_of=${asOf}&format=xlsx`} download className="btn-secondary btn-sm">Excel</a>
+          <a href={`/finance/export?report=budget&id=${b.id}&as_of=${asOf}&format=csv`} download className="btn-secondary btn-sm">CSV</a>
         </div>
         <p className="text-xs text-muted">{tr('Real: libro mayor para cuentas; facturas de proveedor aprobadas para categorías. “A la fecha” prorratea el mes en curso por días. La proyección al cierre extrapola el ritmo actual: es una estimación.',
           'Actual: ledger for accounts; approved vendor bills for categories. “To date” prorates the current month by days. The year-end projection extrapolates the current pace: it is an estimate.')}</p>

@@ -116,8 +116,8 @@ export default async function ProjectionsPage({ searchParams }: { searchParams: 
           </table>
         </div>
         <div className="flex flex-wrap gap-2 print:hidden">
-          <Link href={`/finance/export?${qs}&format=xlsx`} className="btn-secondary btn-sm">Excel</Link>
-          <Link href={`/finance/export?${qs}&format=csv`} className="btn-secondary btn-sm">CSV</Link>
+          <a href={`/finance/export?${qs}&format=xlsx`} download className="btn-secondary btn-sm">Excel</a>
+          <a href={`/finance/export?${qs}&format=csv`} download className="btn-secondary btn-sm">CSV</a>
         </div>
       </section>
 

@@ -1,4 +1,3 @@
-import Link from 'next/link'
 import PrintButton from '@/components/PrintButton'
 import { PageHeader } from '@/components/ui/page'
 import { FinanceNav, NoFinanceAccess, PeriodForm, QualityBanner, ReportMeta } from '@/components/finance-nav'
@@ -44,8 +43,8 @@ export default async function CashFlowPage({ searchParams }: { searchParams: Pro
         : <StatementTable tr={tr} lines={cashFlowLines(cur.rows, base?.rows ?? null, locale)} money={money} curLabel={periodName(p.kind, p.range, f, locale)}
             baseLabel={p.base ? periodName(p.kind, p.base, f, locale) : null} ledgerFrom={p.range.from} ledgerTo={p.range.to} />}
       <div className="flex flex-wrap gap-2 print:hidden">
-        <Link href={`/finance/export?${qs}&format=xlsx`} className="btn-secondary btn-sm">Excel</Link>
-        <Link href={`/finance/export?${qs}&format=csv`} className="btn-secondary btn-sm">CSV</Link>
+        <a href={`/finance/export?${qs}&format=xlsx`} download className="btn-secondary btn-sm">Excel</a>
+        <a href={`/finance/export?${qs}&format=csv`} download className="btn-secondary btn-sm">CSV</a>
       </div>
     </div>
   )

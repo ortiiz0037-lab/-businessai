@@ -43,8 +43,8 @@ export default async function IncomeStatementPage({ searchParams }: { searchPara
         : <StatementTable tr={tr} lines={lines} money={money} curLabel={periodName(p.kind, p.range, f, locale)} baseLabel={p.base ? periodName(p.kind, p.base, f, locale) : null}
             ledgerFrom={p.range.from} ledgerTo={p.range.to} />}
       <div className="flex flex-wrap gap-2 print:hidden">
-        <Link href={`/finance/export?${qs}&format=xlsx`} className="btn-secondary btn-sm">Excel</Link>
-        <Link href={`/finance/export?${qs}&format=csv`} className="btn-secondary btn-sm">CSV</Link>
+        <a href={`/finance/export?${qs}&format=xlsx`} download className="btn-secondary btn-sm">Excel</a>
+        <a href={`/finance/export?${qs}&format=csv`} download className="btn-secondary btn-sm">CSV</a>
         <Link href={`/accounting/trial-balance?as_of=${p.range.to}`} className="btn-secondary btn-sm">{tr('Balanza de comprobación', 'Trial balance')}</Link>
       </div>
     </div>
