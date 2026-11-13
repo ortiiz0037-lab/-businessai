@@ -6,6 +6,27 @@ reales y autorizados, propuestas de borradores con confirmación explícita, voz
 push-to-talk y auditoría. **No hay respuestas simuladas**: sin una clave de
 proveedor configurada el asistente lo dice y no responde.
 
+## 0. Cambios de la Entrega 10 (prevalecen sobre el texto de abajo)
+
+- **Núcleo independiente del proveedor** (docs/INTELLIGENCE.md): contrato neutral, adaptador Anthropic con
+  streaming, registro de modelos verificado, router con niveles P0–P3 y respaldo que nunca baja de nivel.
+- **Escrituras internas firmadas por el servidor** (0030): inicio y fin de turno, uso, costo, auditoría y
+  ejecución de acciones requieren una firma HMAC (`ASSISTANT_SERVER_KEYS` + clave registrada en la base de
+  datos). Las funciones de 0029 que permitían falsificar auditoría, cuota, uso o historial ya no son
+  ejecutables por usuarios. Sin service role. Cerrado por defecto.
+- **Cifras verificadas**: el modelo cita cada cifra con `[[Tn.ruta]]` y el servidor la renderiza desde datos
+  tipados; cifras escritas por el modelo se rechazan (una regeneración; si no, solo datos verificados).
+- **A1 corregido**: el estado de resultados usa `incomeTotals()` (el impuesto sobre la renta es un gasto).
+- **Totales completos en SQL** (sin sumas sobre páginas truncadas) y dinero en centavos enteros.
+- **Turnos registrados** con proveedor, modelo, nivel, ruta, tokens por categoría, costo y latencia, también
+  cuando el proveedor falla o el usuario detiene la respuesta.
+- **Acciones idempotentes y reanudables**: confirmación con clave de solicitud, ejecución con arrendamiento
+  (máx. 3 intentos), progreso guardado para no duplicar el borrador, botón Reintentar.
+- **Presupuesto mensual en USD por plan** con alertas 50/80/100 % y límite de ráfaga por empresa.
+- **Streaming** con texto provisional, botón Detener, fuentes con fecha de los datos y modelo usado.
+- **Voz**: aviso de privacidad y consentimiento antes del primer uso del micrófono.
+- La interfaz usa `POST /api/assistant/stream`; la acción `assistantSend` de la Entrega 8 se retiró.
+
 ## 1. Estado y lo que requiere una clave externa
 
 | Pieza | Estado |
@@ -173,14 +194,15 @@ Corrección encontrada por esta E2E: el gráfico de ingresos del panel formateab
 `Intl` compacto en el servidor y en el navegador, que dan textos distintos (aviso de hidratación #418 en la
 consola). Ahora esas etiquetas se dibujan después de hidratar (`src/components/dashboard/revenue-chart.tsx`).
 
-## 9. Limitaciones conocidas
+## 9. Limitaciones conocidas (actualizadas en la Entrega 10)
 
-- No se ha probado con el proveedor real (requiere clave y facturación). La calidad de las respuestas del
-  modelo real (redacción, elección de herramientas) no está medida; se recomienda una evaluación con datos de
-  demostración antes de activarlo para clientes.
-- Las respuestas no se transmiten en streaming (se muestran completas); el turno puede tardar varios segundos.
-- Solo una acción ejecutable (borrador de Document Studio). Pagos, facturas, envíos y emisiones se preparan
-  con enlace y los completa el usuario en su pantalla.
-- El historial que se envía al modelo son los últimos 20 mensajes de texto de la conversación.
-- Un usuario puede escribir en sus propias conversaciones mediante la API (es su propio historial); no obtiene
-  así más permisos que los suyos.
+- No se ha probado con el proveedor real (requiere clave y facturación: no autorizado). La calidad de las
+  respuestas reales y la aprobación de modelos por nivel no están medidas (benchmark pendiente).
+- OpenAI y Google no están integrados: su documentación oficial no fue accesible desde el entorno.
+- Activarlo requiere: aplicar 0029 y 0030, configurar `ANTHROPIC_API_KEY` y `ASSISTANT_SERVER_KEYS` en el
+  servidor y registrar la clave en la base de datos (pasos del propietario, no realizados).
+- La duración máxima real de funciones del plan de Vercel no está verificada (la ruta declara 60 s).
+- Si el proceso del servidor muere a mitad de un turno, el uso de ese turno no se registra (el turno queda
+  `abandoned` a los 10 minutos); con fallos del proveedor o cancelación sí se registra.
+- El verificador garantiza el origen de cada cifra, no que la métrica o el período elegidos sean los adecuados.
+- La única acción ejecutable sigue siendo el borrador de Document Studio.

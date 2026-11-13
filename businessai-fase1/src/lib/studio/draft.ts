@@ -21,25 +21,43 @@ export type DraftResult = { ok: true; id: string; missing: string[] } | { ok: fa
 
 export async function createAssistantDraft(supabase: SupabaseClient, companyId: string, input: {
   instruction: string; kind?: Kind; title?: string; refs: DraftRefs; locale: Locale; today: string
-}): Promise<DraftResult> {
+}, resume: {
+  /** a draft already created by an earlier attempt of the same action: fill it instead of creating another */
+  docId?: string | null
+  /** called once the empty draft exists, so a retry can resume it (no duplicate drafts) */
+  onCreated?: (id: string, version: number) => Promise<void>
+} = {}): Promise<DraftResult> {
   const instruction = input.instruction.slice(0, 4000)
   const placeholder: DocContent = { v: 1, blocks: [{ type: 'paragraph', text: '' }] }
   const first = await ruleAssistant.draft({ instruction, kind: input.kind, locale: input.locale }, {})
-  const { data, error } = await supabase.rpc('studio_save_document', {
-    target: companyId, doc: null, doc_kind: first.kind, doc_title: (input.title || first.title).slice(0, 160), doc_folder: null, doc_content: placeholder, doc_page: {},
-    ...input.refs, template: null, base: first.templateKey, expected_version: null, doc_origin: 'assistant',
-  })
-  const row = ((data ?? []) as { id: string; version: number }[])[0]
-  if (error || !row) return { ok: false, error: studioErrorCode(error) }
+  let row: { id: string; version: number } | undefined
+  if (resume.docId) {
+    const existing = await loadDoc(supabase, companyId, resume.docId)
+    if (existing) {
+      const filled = existing.content.blocks.some((b) => b.type !== 'paragraph' || ('text' in b && b.text !== ''))
+      if (filled) return { ok: true, id: existing.id, missing: [] }   // the earlier attempt finished the draft
+      row = { id: existing.id, version: existing.version }
+    }
+  }
+  if (!row) {
+    const { data, error } = await supabase.rpc('studio_save_document', {
+      target: companyId, doc: null, doc_kind: first.kind, doc_title: (input.title || first.title).slice(0, 160), doc_folder: null, doc_content: placeholder, doc_page: {},
+      ...input.refs, template: null, base: first.templateKey, expected_version: null, doc_origin: 'assistant',
+    })
+    row = ((data ?? []) as { id: string; version: number }[])[0]
+    if (error || !row) return { ok: false, error: studioErrorCode(error) }
+    await resume.onCreated?.(row.id, row.version)
+  }
   const doc = await loadDoc(supabase, companyId, row.id)
-  const { data: d } = await loadData(supabase, doc!, input.today)
+  if (!doc) return { ok: false, id: row.id, error: 'studio_not_found' }
+  const { data: d } = await loadData(supabase, doc, input.today)
   const draft = await ruleAssistant.draft({ instruction, kind: first.kind, locale: input.locale }, d)
   const safe = assertDraftIsSafe(draft)
   if (!safe.ok) return { ok: false, id: row.id, error: safe.error === 'amounts_in_text' ? 'assistant_amounts' : 'studio_content_invalid' }
   const page = systemTemplate(draft.templateKey, input.locale)?.page ?? {}
   const { error: e2 } = await supabase.rpc('studio_save_document', {
     target: companyId, doc: row.id, doc_kind: draft.kind, doc_title: (input.title || draft.title).slice(0, 160), doc_folder: null, doc_content: draft.content, doc_page: page,
-    ...input.refs, template: null, base: draft.templateKey, expected_version: row.version, doc_origin: 'assistant',
+    ...input.refs, template: null, base: draft.templateKey, expected_version: doc.version, doc_origin: 'assistant',
   })
   if (e2) return { ok: false, id: row.id, error: studioErrorCode(e2) }
   return { ok: true, id: row.id, missing: draft.missing }

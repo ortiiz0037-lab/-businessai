@@ -1,20 +1,19 @@
 'use server'
 /**
- * Assistant server actions. Thin wrappers: every input is validated with zod
- * in src/lib/assistant/service.ts, every call runs with the user's session.
- * (Server actions also check the request origin; no API key ever reaches the
- * browser.)
+ * Assistant server actions (the turn itself streams through
+ * /api/assistant/stream). Thin wrappers: inputs are validated with zod in
+ * src/lib/assistant/service.ts and every call runs with the user's session.
  */
 import { revalidatePath } from 'next/cache'
-import { archiveConversation, assistantStatus, decideAction, listConversations, loadConversation, renameConversation, sendMessage } from '@/lib/assistant/service'
+import { archiveConversation, assistantStatus, decideAction, listConversations, loadConversation, renameConversation, retryAction } from '@/lib/assistant/service'
 
-export async function assistantSend(input: { conversationId: string | null; text: string; screen: string | null }) {
-  const r = await sendMessage(input)
-  if (r.ok) revalidatePath('/assistant')
+export async function assistantDecide(input: { actionId: string; decision: 'confirm' | 'cancel'; requestKey: string }) {
+  const r = await decideAction(input)
+  if (r.status === 'executed') revalidatePath('/studio')
   return r
 }
-export async function assistantDecide(input: { actionId: string; decision: 'confirm' | 'cancel' }) {
-  const r = await decideAction(input)
+export async function assistantRetry(input: { actionId: string }) {
+  const r = await retryAction(input)
   if (r.status === 'executed') revalidatePath('/studio')
   return r
 }

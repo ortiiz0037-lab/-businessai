@@ -1,50 +1,68 @@
 /**
- * Assistant service (SERVER ONLY): the user's session, limits, conversations,
- * the engine and the audit trail. Every database call runs with the user's
- * session (RLS + 0029 functions); the company is the active membership.
+ * Assistant service (SERVER ONLY): the user's session, quota, conversations,
+ * the engine, the audit trail and confirmed actions.
+ *
+ * Every database call runs with the USER'S Supabase session (auth.uid(),
+ * RLS, has_permission); the service role is never used here. Internal
+ * writes (turn start / finish with usage, cost and audit; action execution)
+ * are additionally signed with the server key (0030), so they cannot be
+ * forged from the REST API. The company is the active membership; the user
+ * is the one verified by the Auth server. Neither comes from the request.
  */
 import { z } from 'zod'
+import type { SupabaseClient, User } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
-import { getActiveMembership } from '@/lib/active-company'
+import { getActiveMembership, type MembershipOption } from '@/lib/active-company'
 import { getLocale } from '@/lib/i18n/server'
 import type { Locale } from '@/lib/i18n/app'
-import { readAssistantConfig, publicAssistantState } from '@/lib/assistant/config'
-import { anthropicProvider, ProviderError, type LlmProvider } from '@/lib/assistant/provider'
+import { readAssistantConfig, publicAssistantState, type AssistantConfig } from '@/lib/assistant/config'
+import { anthropicProvider } from '@/lib/intelligence/adapters/anthropic'
+import { ServerSigner } from '@/lib/intelligence/server-auth'
+import { classify, route } from '@/lib/intelligence/router'
+import { FactStore } from '@/lib/intelligence/facts'
+import { formatNanos } from '@/lib/intelligence/cost'
+import type { LlmProvider } from '@/lib/intelligence/types'
 import { loadAccess, toolsFor, TOOLS, type ToolContext } from '@/lib/assistant/tools'
-import { runTurn, type HistoryItem, type TraceEntry } from '@/lib/assistant/engine'
+import { runTurn, type HistoryItem, type TraceEntry, type TurnResult } from '@/lib/assistant/engine'
 import { screenFromPath, systemPrompt, titleFrom } from '@/lib/assistant/prompt'
 import { COPY } from '@/lib/assistant/copy'
 import { KINDS, type Kind } from '@/lib/studio/model'
 import { createAssistantDraft } from '@/lib/studio/draft'
 
-export type ChatMessage = { id: number; role: 'user' | 'assistant'; content: string; tools: TraceEntry[]; status: string; created_at: string }
-export type ChatAction = { id: string; kind: string; level: string; summary: string; status: string; result: { link?: string; missing?: string[] } | null; error: string | null; expires_at: string; created_at: string }
+export type ChatMessage = { id: number; role: 'user' | 'assistant'; content: string; tools: TraceEntry[]; status: string; created_at: string; turn: TurnMeta | null }
+export type TurnMeta = { model: string | null; tier: string | null; verification: string | null; status: string; cost: string | null }
+export type ChatAction = { id: string; kind: string; level: string; summary: string; status: string; result: { link?: string; missing?: string[] } | null; error: string | null; expires_at: string; created_at: string; lease_until: string | null; attempts: number }
 export type Conversation = { id: string; title: string; archived_at: string | null; updated_at: string }
-export type AssistantStatus = { configured: boolean; reason: string | null; allowed: boolean; limitReason: string | null; used: number; limit: number }
-export type SendResult =
-  | { ok: true; conversationId: string; messages: ChatMessage[]; actions: ChatAction[] }
-  | { ok: false; error: 'not_configured' | 'limit' | 'forbidden' | 'invalid' | 'provider' | 'not_found'; reason?: string; conversationId?: string; messages?: ChatMessage[] }
+export type AssistantStatus = { configured: boolean; reason: string | null; allowed: boolean; limitReason: string | null; used: number; limit: number; budgetPct: number | null }
 
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Puerto_Rico', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
 
-async function session() {
+type Session = { supabase: SupabaseClient; user: User; member: MembershipOption; locale: Locale }
+async function session(): Promise<Session | null> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
   const member = await getActiveMembership(supabase, user.id)
   if (!member) return null
-  const locale: Locale = await getLocale()
-  return { supabase, user, member, locale }
+  return { supabase, user, member, locale: await getLocale() }
 }
+const signerFor = (cfg: AssistantConfig, user: User) => (cfg.configured ? new ServerSigner(cfg.serverKeys[0], user.id) : null)
 
-/** Is the assistant usable now, and how much of today's quota is left? */
+/** Usable now? (configuration, server key registered in the database, plan, quota, budget) */
 export async function assistantStatus(): Promise<AssistantStatus | null> {
   const s = await session()
   if (!s) return null
-  const cfg = publicAssistantState(readAssistantConfig())
-  const { data } = await s.supabase.rpc('assistant_status', { target: s.member.companyId })
-  const row = ((data ?? []) as { allowed: boolean; reason: string; user_used: number; user_limit: number }[])[0]
-  return { configured: cfg.configured, reason: cfg.reason, allowed: row?.allowed ?? false, limitReason: row?.reason ?? 'unavailable', used: row?.user_used ?? 0, limit: row?.user_limit ?? 0 }
+  const cfg = readAssistantConfig()
+  const pub = publicAssistantState(cfg)
+  const { data } = await s.supabase.rpc('assistant_quota', { target: s.member.companyId })
+  const q = ((data ?? []) as { allowed: boolean; reason: string; user_used: number; user_limit: number; cost_nanos: number | string | null; budget_nanos: number | string | null; server_ready: boolean }[])[0]
+  const configured = pub.configured && q?.server_ready === true
+  const budget = q?.budget_nanos !== null && q?.budget_nanos !== undefined ? BigInt(q.budget_nanos) : 0n
+  return {
+    configured, reason: pub.configured && !q?.server_ready ? 'server_key_not_registered' : pub.reason,
+    allowed: q?.allowed ?? false, limitReason: q?.reason ?? 'unavailable', used: q?.user_used ?? 0, limit: q?.user_limit ?? 0,
+    budgetPct: budget > 0n && q?.cost_nanos !== null && q?.cost_nanos !== undefined ? Number((BigInt(q.cost_nanos) * 100n) / budget) : null,
+  }
 }
 
 export async function listConversations(archived = false): Promise<Conversation[]> {
@@ -56,122 +74,205 @@ export async function listConversations(archived = false): Promise<Conversation[
   return (data ?? []) as Conversation[]
 }
 
-export async function loadConversation(id: string): Promise<{ conversation: Conversation; messages: ChatMessage[]; actions: ChatAction[] } | null> {
-  const s = await session()
+export async function loadConversation(id: string, sess?: Session): Promise<{ conversation: Conversation; messages: ChatMessage[]; actions: ChatAction[] } | null> {
+  const s = sess ?? await session()
   if (!s || !z.uuid().safeParse(id).success) return null
-  const { data: c } = await s.supabase.from('assistant_conversations').select('id, title, archived_at, updated_at').eq('id', id).eq('company_id', s.member.companyId).maybeSingle()
+  const { data: c } = await s.supabase.from('assistant_conversations').select('id, title, archived_at, updated_at').eq('id', id).eq('company_id', s.member.companyId).eq('user_id', s.user.id).maybeSingle()
   if (!c) return null
-  const [m, a] = await Promise.all([
-    s.supabase.from('assistant_messages').select('id, role, content, tools, status, created_at').eq('conversation_id', id).order('id', { ascending: false }).limit(200),
-    s.supabase.from('assistant_actions').select('id, kind, level, summary, status, result, error, expires_at, created_at').eq('conversation_id', id).order('created_at').limit(100),
+  const [m, a, t] = await Promise.all([
+    s.supabase.from('assistant_messages').select('id, role, content, tools, status, created_at, turn_id').eq('conversation_id', id).order('id', { ascending: false }).limit(200),
+    s.supabase.from('assistant_actions').select('id, kind, level, summary, status, result, error, expires_at, created_at, lease_until, attempts').eq('conversation_id', id).order('created_at').limit(100),
+    s.supabase.from('assistant_turns').select('id, model, tier, verification, status, cost_nanos, cost_status').eq('conversation_id', id).eq('user_id', s.user.id).order('started_at', { ascending: false }).limit(200),
   ])
-  return { conversation: c as Conversation, messages: ((m.data ?? []) as ChatMessage[]).reverse(), actions: (a.data ?? []) as ChatAction[] }
+  const turns = new Map(((t.data ?? []) as { id: string; model: string | null; tier: string | null; verification: string | null; status: string; cost_nanos: number | string; cost_status: string }[])
+    .map((x) => [x.id, { model: x.model, tier: x.tier, verification: x.verification, status: x.status, cost: x.cost_status === 'estimated' ? formatNanos(BigInt(x.cost_nanos ?? 0)) : null }]))
+  const messages = ((m.data ?? []) as (Omit<ChatMessage, 'turn'> & { turn_id: string | null })[]).reverse()
+    .map(({ turn_id, ...x }) => ({ ...x, turn: x.role === 'assistant' && turn_id ? turns.get(turn_id) ?? null : null }))
+  return { conversation: c as Conversation, messages, actions: (a.data ?? []) as ChatAction[] }
 }
 
-const SendInput = z.object({ conversationId: z.uuid().nullable(), text: z.string().trim().min(1).max(4000), screen: z.string().max(200).nullable() })
+// ------------------------------------------------------------- one streamed turn
+export const SendInput = z.object({ conversationId: z.uuid().nullable(), text: z.string().trim().min(1).max(4000), screen: z.string().max(200).nullable() }).strict()
+export type StreamEvent =
+  | { type: 'start'; turnId: string; conversationId: string; model: string; tier: string }
+  | { type: 'model'; model: string; tier: string }
+  | { type: 'tool'; entry: TraceEntry }
+  | { type: 'delta'; text: string }
+  | { type: 'reset' }
+  | { type: 'final'; conversationId: string; messages: ChatMessage[]; actions: ChatAction[]; status: string }
+  | { type: 'error'; error: 'not_configured' | 'limit' | 'forbidden' | 'invalid' | 'not_found' | 'locked' | 'server_auth'; reason?: string }
 
-export async function sendMessage(raw: unknown, provider?: LlmProvider): Promise<SendResult> {
+/**
+ * Runs one turn and emits events. Always finishes the turn in the database
+ * (usage, cost and audit are recorded for every outcome, cancellation and
+ * provider failures included). `providerOverride` is for tests only.
+ */
+export async function streamTurn(raw: unknown, emit: (e: StreamEvent) => void, signal: AbortSignal, providerOverride?: LlmProvider): Promise<void> {
   const parsed = SendInput.safeParse(raw)
-  if (!parsed.success) return { ok: false, error: 'invalid' }
+  if (!parsed.success) return emit({ type: 'error', error: 'invalid' })
   const s = await session()
-  if (!s) return { ok: false, error: 'forbidden' }
+  if (!s) return emit({ type: 'error', error: 'forbidden' })
   const { supabase, member, user, locale } = s
   const t = COPY[locale]
   const cfg = readAssistantConfig()
-  // without a configured provider nothing is simulated: the user is told and nothing is stored
-  if (!cfg.configured && !provider) return { ok: false, error: 'not_configured', reason: cfg.reason }
+  if (!cfg.configured) return emit({ type: 'error', error: 'not_configured', reason: cfg.reason })
+  const signer = signerFor(cfg, user)!
   const { conversationId: existing, text, screen: screenPath } = parsed.data
-  if (existing) {
-    const own = await supabase.from('assistant_conversations').select('id').eq('id', existing).eq('company_id', member.companyId).maybeSingle()
-    if (!own.data) return { ok: false, error: 'not_found' }
-  }
-  const { data: quota, error: qe } = await supabase.rpc('assistant_consume', { target: member.companyId })
-  const q = ((quota ?? []) as { allowed: boolean; reason: string }[])[0]
-  if (qe || !q) return { ok: false, error: 'forbidden' }
-  if (!q.allowed) return { ok: false, error: q.reason === 'forbidden' ? 'forbidden' : 'limit', reason: q.reason }
-
-  let conversationId = existing
-  if (!conversationId) {
-    const { data, error } = await supabase.rpc('assistant_start_conversation', { target: member.companyId, conv_title: titleFrom(text), conv_locale: locale })
-    if (error || !data) return { ok: false, error: 'forbidden' }
-    conversationId = data as string
-  }
-  const { data: prior } = await supabase.from('assistant_messages').select('role, content, status').eq('conversation_id', conversationId).order('id', { ascending: false }).limit(20)
-  const history: HistoryItem[] = ((prior ?? []) as { role: 'user' | 'assistant'; content: string; status: string }[]).reverse()
-    .filter((m) => m.role === 'user' || m.status === 'ok')
   const screen = screenFromPath(screenPath)
-  const { error: me } = await supabase.rpc('assistant_add_message', { conv: conversationId, msg_role: 'user', msg_content: text, msg_tools: [], msg_screen: screen?.path ?? null, msg_status: 'ok' })
-  if (me) return { ok: false, error: /LOCKED/.test(me.message) ? 'invalid' : 'forbidden', conversationId }
 
-  const [access, settings, company] = await Promise.all([
-    loadAccess(supabase, member.companyId, user.id),
+  // 1) start the turn (signed): quota, conversation, the user's message — atomically in the database
+  const b = signer.begin(member.companyId, existing, text)
+  const { data: started, error: be } = await supabase.rpc('assistant_begin_turn', {
+    target: member.companyId, conv: existing, conv_title: titleFrom(text), conv_locale: locale, user_text: text, screen: screen?.path ?? null,
+    key: b.key, nonce: b.nonce, ts: b.ts, mac: b.mac,
+  })
+  if (be) {
+    const msg = `${be.message} ${be.hint ?? ''}`
+    return emit({ type: 'error', error: /SERVER_AUTH/.test(msg) ? 'server_auth' : /NOT_FOUND/.test(msg) ? 'not_found' : /LOCKED/.test(msg) ? 'locked' : /INVALID/.test(msg) ? 'invalid' : 'forbidden', reason: /hint|key/.test(msg) ? 'server_key_not_registered' : undefined })
+  }
+  const row = ((started ?? []) as { turn_id: string | null; conversation_id: string | null; allowed: boolean; reason: string }[])[0]
+  if (!row?.allowed || !row.turn_id || !row.conversation_id) return emit({ type: 'error', error: 'limit', reason: row?.reason })
+  const turnId = row.turn_id, conversationId = row.conversation_id
+
+  // 2) context: history, access (one call), routing
+  const [prior, access, settings, company] = await Promise.all([
+    supabase.from('assistant_messages').select('role, content, status, turn_id').eq('conversation_id', conversationId).order('id', { ascending: false }).limit(21),
+    loadAccess(supabase, member.companyId),
     supabase.from('ledger_settings').select('base_currency').eq('company_id', member.companyId).maybeSingle(),
     supabase.from('companies').select('name').eq('id', member.companyId).maybeSingle(),
   ])
+  const history: HistoryItem[] = ((prior.data ?? []) as { role: 'user' | 'assistant'; content: string; status: string; turn_id: string | null }[]).reverse()
+    .filter((m) => m.turn_id !== turnId && (m.role === 'user' || m.status === 'ok'))
   const currency = (settings.data as { base_currency?: string } | null)?.base_currency ?? 'USD'
-  const toolDefs = toolsFor(access)
-  const ctx: ToolContext = { supabase, companyId: member.companyId, userId: user.id, locale, today: today(), conversationId, access, currency }
+  const toolSpecs = toolsFor(access)
+  const routerConfig = { pinnedModel: cfg.pinnedModel, enabled: cfg.routerEnabled }
+  const c = classify(text, screen?.area ?? null)
+  const decision = route(c.tier, routerConfig, c.reason)
+  emit({ type: 'start', turnId, conversationId, model: decision.model.id, tier: decision.tier })
+  const ctx: ToolContext = { supabase, companyId: member.companyId, userId: user.id, locale, today: today(), turnId, access, currency, facts: new FactStore() }
   const system = systemPrompt({ locale, today: ctx.today, companyName: (company.data as { name?: string } | null)?.name ?? member.companyName ?? '', role: member.role,
-    screen, tools: toolDefs.map((d) => d.name), currency })
-  const log = (ev: string, info: Record<string, unknown>) => supabase.rpc('assistant_log', { target: member.companyId, conv: conversationId, ev, info })
-  const started = Date.now()
-  let answer: { text: string; status: string; trace: TraceEntry[]; actions: string[] }
+    screen, tools: toolSpecs.map((d) => d.name), currency })
+  const provider = providerOverride ?? anthropicProvider({ apiKey: cfg.apiKey, baseURL: cfg.baseURL, testDouble: cfg.testDouble })
+  const started0 = Date.now()
+  const events: { event: string; detail: Record<string, unknown> }[] = []
+  let r: TurnResult
   try {
-    const r = await runTurn({
-      provider: provider ?? anthropicProvider(cfg as Extract<typeof cfg, { configured: true }>), system, tools: TOOLS, toolDefs, ctx, history, userText: text,
-      texts: { refused: t.refused, incomplete: t.incomplete, empty: t.empty },
-      events: { onTool: async (e) => { await log(e.ok ? 'tool' : 'tool_denied', { tool: e.name, ok: e.ok, ...(e.error ? { error: e.error } : {}) }); if (e.flagged) await log('flagged', { tool: e.name }) } },
+    r = await runTurn({
+      provider, decision, routerConfig, system, tools: TOOLS, toolSpecs, ctx, history, userText: text, signal, deadlineMs: cfg.deadlineMs,
+      texts: { refused: t.refused, incomplete: t.incomplete, empty: t.empty, cancelled: t.cancelled, error: t.providerError, unverified: t.unverified, regenerate: REGENERATE },
+      events: {
+        onTool: (e) => {
+          events.push({ event: e.ok ? 'tool' : 'tool_denied', detail: { tool: e.name, ok: e.ok, ...(e.error ? { error: e.error } : {}) } })
+          if (e.flagged) events.push({ event: 'flagged', detail: { tool: e.name } })
+          emit({ type: 'tool', entry: e })
+        },
+        onDelta: (d) => emit({ type: 'delta', text: d }),
+        onReset: () => emit({ type: 'reset' }),
+        onModel: (m, tier) => emit({ type: 'model', model: m, tier }),
+      },
     })
-    await supabase.rpc('assistant_record_usage', { target: member.companyId, input_count: r.usage.input, output_count: r.usage.output })
-    if (r.status === 'refused') await log('refused', {})
-    answer = r
   } catch (e) {
-    const code = e instanceof ProviderError ? e.code : 'unknown'
-    console.error('ASSISTANT_PROVIDER_ERROR', { code, status: e instanceof ProviderError ? e.status : null })
-    await log('provider_error', { code })
-    answer = { text: code === 'auth' ? t.providerAuth : code === 'rate_limit' || code === 'overloaded' ? t.providerBusy : t.providerError, status: 'error', trace: [], actions: [] }
+    // never leave a turn open: an unexpected failure is recorded as an error with what is known
+    console.error('ASSISTANT_TURN_ERROR', { kind: (e as Error)?.name })
+    r = { status: 'error', text: t.providerError, verification: 'none', trace: [], actions: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, calls: 0, costNanos: 0n, costStatus: 'none',
+      provider: provider.id, model: decision.model.id, tier: decision.tier, router: { reason: decision.reason }, errorCode: 'internal', refs: [], facts: ctx.facts }
   }
-  await supabase.rpc('assistant_add_message', { conv: conversationId, msg_role: 'assistant', msg_content: answer.text, msg_tools: answer.trace, msg_screen: null, msg_status: answer.status })
-  await log('turn', { status: answer.status, tools: answer.trace.length, actions: answer.actions.length, ms: Date.now() - started, screen: screen?.area ?? null })
-  const full = await loadConversation(conversationId)
-  if (!full) return { ok: false, error: 'not_found' }
-  return { ok: true, conversationId, messages: full.messages, actions: full.actions }
+  if (r.status === 'error' && r.errorCode) events.push({ event: 'provider_error', detail: { code: r.errorCode } })
+  if (r.status === 'refused') events.push({ event: 'refused', detail: {} })
+
+  // 3) finish the turn (signed): answer, usage, cost, routing, verification, audit — whatever the outcome
+  const answer = r.status === 'error' && r.errorCode === 'auth' ? t.providerAuth : r.status === 'error' && (r.errorCode === 'rate_limit' || r.errorCode === 'overloaded') ? t.providerBusy : r.text
+  const payload = JSON.stringify({
+    status: r.status, answer, provider: r.provider, model: r.model, tier: r.tier, router: r.router,
+    usage: { input: r.usage.input, output: r.usage.output, cache_read: r.usage.cacheRead, cache_write: r.usage.cacheWrite, calls: r.calls },
+    cost_nanos: r.costNanos.toString(), cost_status: r.costStatus, latency_ms: Date.now() - started0, verification: r.verification,
+    error_code: r.errorCode ?? null, trace: r.trace, events, claims: r.refs,
+  }).replace(/\u0000/g, '')
+  const f = signer.finish(turnId, payload)
+  const { error: fe } = await supabase.rpc('assistant_finish_turn', { turn: turnId, payload, key: f.key, mac: f.mac })
+  if (fe) console.error('ASSISTANT_FINISH_ERROR', { code: fe.code, message: fe.message.slice(0, 80) })
+  const full = await loadConversation(conversationId, s)
+  emit({ type: 'final', conversationId, messages: full?.messages ?? [], actions: full?.actions ?? [], status: r.status })
 }
 
-// ------------------------------------------------------------- confirmed actions
+/** Sent to the model (English, like the system prompt) when its answer has unsourced figures. */
+const REGENERATE = 'VERIFICATION FAILED: your answer contains figures, dates or numbers that are not placeholders of tool results, or placeholders that do not resolve. Rewrite the same answer citing every figure with [[Tn.path]] placeholders (use calculate for derived figures). Do not add new information. Problems:'
+
+// ------------------------------------------------------------- confirmed actions (A6)
 const DraftPayload = z.object({
   kind: z.enum(KINDS as unknown as [Kind, ...Kind[]]), title: z.string().min(1).max(160), instruction: z.string().min(5).max(4000),
   refs: z.object({ client: z.uuid().nullable(), source_document: z.uuid().nullable(), employee: z.uuid().nullable(), vendor: z.uuid().nullable() }).strict(),
 }).strict()
 
-export async function decideAction(raw: unknown): Promise<{ ok: boolean; status: string; error?: string; link?: string; actions?: ChatAction[] }> {
-  const p = z.object({ actionId: z.uuid(), decision: z.enum(['confirm', 'cancel']) }).safeParse(raw)
-  if (!p.success) return { ok: false, status: 'invalid' }
-  const s = await session()
-  if (!s) return { ok: false, status: 'forbidden' }
-  const { supabase, locale } = s
-  const { data: own } = await supabase.from('assistant_actions').select('company_id, conversation_id').eq('id', p.data.actionId).maybeSingle()
-  const row = own as { company_id: string; conversation_id: string } | null
-  if (!row || row.company_id !== s.member.companyId) return { ok: false, status: 'not_found' }
-  const { data, error } = await supabase.rpc('assistant_decide_action', { act: p.data.actionId, decision: p.data.decision })
-  const decided = ((data ?? []) as { id: string; kind: string; status: string; payload: unknown }[])[0]
-  const reload = async () => (await loadConversation(row.conversation_id))?.actions
-  if (error || !decided) return { ok: false, status: /ALREADY_DECIDED/.test(error?.message ?? '') ? 'already_decided' : 'error', actions: await reload() }
-  if (decided.status !== 'confirmed') return { ok: true, status: decided.status, actions: await reload() }
-  // execute the confirmed action through the module's own function, with the user's session
+type ActionOutcome = { ok: boolean; status: string; error?: string; link?: string; actions?: ChatAction[] }
+
+async function executeAction(s: Session, signer: ServerSigner, actionId: string): Promise<{ ok: boolean; status: string; error?: string; link?: string }> {
+  const c = signer.claim(actionId)
+  const { data, error } = await s.supabase.rpc('assistant_claim_action', { act: actionId, key: c.key, ts: c.ts, mac: c.mac })
+  if (error) return { ok: false, status: /BUSY/.test(error.message) ? 'busy' : 'error', error: error.hint ?? undefined }
+  const claimed = ((data ?? []) as { id: string; kind: string; payload: unknown; progress: { doc_id?: string } | null; attempt: number; company_id: string }[])[0]
+  if (!claimed) return { ok: false, status: 'failed', error: 'too_many_attempts' }
   let result: { ok: true; link: string; missing: string[] } | { ok: false; error: string }
-  if (decided.kind === 'studio_draft') {
-    const payload = DraftPayload.safeParse(decided.payload)
+  if (claimed.kind === 'studio_draft') {
+    const payload = DraftPayload.safeParse(claimed.payload)
     if (!payload.success) result = { ok: false, error: 'invalid_payload' }
     else {
-      const r = await createAssistantDraft(supabase, row.company_id, { instruction: payload.data.instruction, kind: payload.data.kind, title: payload.data.title, refs: payload.data.refs, locale, today: today() })
+      const r = await createAssistantDraft(s.supabase, claimed.company_id, { instruction: payload.data.instruction, kind: payload.data.kind, title: payload.data.title, refs: payload.data.refs, locale: s.locale, today: today() }, {
+        docId: claimed.progress?.doc_id ?? null,
+        onCreated: async (id, version) => {
+          const progress = JSON.stringify({ doc_id: id, version })
+          const p = signer.progress(actionId, progress)
+          await s.supabase.rpc('assistant_action_progress', { act: actionId, progress_text: progress, key: p.key, ts: p.ts, mac: p.mac })
+        },
+      })
       result = r.ok ? { ok: true, link: `/studio/${r.id}`, missing: r.missing.slice(0, 12) } : { ok: false, error: r.error }
     }
   } else result = { ok: false, error: 'unknown_kind' }
-  await supabase.rpc('assistant_finish_action', result.ok
-    ? { act: decided.id, ok: true, res: { link: result.link, missing: result.missing }, err: null }
-    : { act: decided.id, ok: false, res: null, err: result.error })
-  return result.ok ? { ok: true, status: 'executed', link: result.link, actions: await reload() } : { ok: false, status: 'failed', error: result.error, actions: await reload() }
+  const res = result.ok ? JSON.stringify({ link: result.link, missing: result.missing }) : null
+  const err = result.ok ? null : result.error
+  const k = signer.complete(actionId, result.ok, res, err)
+  const { error: ce } = await s.supabase.rpc('assistant_complete_action', { act: actionId, ok: result.ok, result_text: res, err, key: k.key, ts: k.ts, mac: k.mac })
+  if (ce) return { ok: false, status: 'error', error: 'complete_failed' }
+  return result.ok ? { ok: true, status: 'executed', link: result.link } : { ok: false, status: 'failed', error: result.error }
+}
+
+async function actionContext(raw: unknown, schema: z.ZodObject) {
+  const p = schema.safeParse(raw)
+  if (!p.success) return null
+  const s = await session()
+  if (!s) return null
+  const cfg = readAssistantConfig()
+  const signer = signerFor(cfg, s.user)
+  const id = (p.data as { actionId: string }).actionId
+  const { data: own } = await s.supabase.from('assistant_actions').select('company_id, conversation_id').eq('id', id).maybeSingle()
+  const row = own as { company_id: string; conversation_id: string } | null
+  if (!row || row.company_id !== s.member.companyId) return { s, signer, row: null, data: p.data }
+  return { s, signer, row, data: p.data }
+}
+
+export async function decideAction(raw: unknown): Promise<ActionOutcome> {
+  const c = await actionContext(raw, z.object({ actionId: z.uuid(), decision: z.enum(['confirm', 'cancel']), requestKey: z.uuid() }).strict())
+  if (!c) return { ok: false, status: 'invalid' }
+  if (!c.row) return { ok: false, status: 'not_found' }
+  const { actionId, decision, requestKey } = c.data as { actionId: string; decision: 'confirm' | 'cancel'; requestKey: string }
+  const reload = async () => (await loadConversation(c.row!.conversation_id, c.s))?.actions
+  const { data, error } = await c.s.supabase.rpc('assistant_decide', { act: actionId, decision, request_key: requestKey })
+  const d = ((data ?? []) as { status: string }[])[0]
+  if (error || !d) return { ok: false, status: /ALREADY_DECIDED/.test(error?.message ?? '') ? 'already_decided' : 'error', actions: await reload() }
+  if (d.status !== 'confirmed') return { ok: true, status: d.status, actions: await reload() }
+  if (!c.signer) return { ok: false, status: 'not_configured', actions: await reload() }
+  const r = await executeAction(c.s, c.signer, actionId)
+  return { ...r, actions: await reload() }
+}
+
+/** Retry of a confirmed action whose execution did not finish (lease expired). */
+export async function retryAction(raw: unknown): Promise<ActionOutcome> {
+  const c = await actionContext(raw, z.object({ actionId: z.uuid() }).strict())
+  if (!c) return { ok: false, status: 'invalid' }
+  if (!c.row) return { ok: false, status: 'not_found' }
+  if (!c.signer) return { ok: false, status: 'not_configured' }
+  const r = await executeAction(c.s, c.signer, (c.data as { actionId: string }).actionId)
+  return { ...r, actions: (await loadConversation(c.row.conversation_id, c.s))?.actions }
 }
 
 export async function renameConversation(raw: unknown) {

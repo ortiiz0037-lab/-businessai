@@ -1,36 +1,43 @@
 /**
- * Assistant configuration (SERVER ONLY). Read from the environment of the
- * server; nothing here is ever sent to the browser.
+ * Assistant configuration (SERVER ONLY). Read from the server environment;
+ * nothing here is ever sent to the browser. Closed by default: without a
+ * provider key AND a server signing key the assistant does not start.
  *
- *   ANTHROPIC_API_KEY     required to enable the assistant (never logged,
- *                         never returned; only its presence is reported)
- *   ASSISTANT_MODEL       optional; default below
- *   ASSISTANT_EFFORT      optional: low | medium | high (default medium)
- *   ANTHROPIC_BASE_URL    optional; https only. Outside production a
- *                         loopback http URL is accepted for the local test
- *                         double (e2e/local-stack/llm-double.mjs)
- *   ASSISTANT_DISABLED=1  turns the assistant off without removing the key
+ *   ANTHROPIC_API_KEY       provider key (never logged or returned)
+ *   ASSISTANT_SERVER_KEYS   "<id>:<base64 ≥ 32 bytes>[,<id>:<base64>…]" — signs the
+ *                           assistant's internal writes (0030); first entry signs.
+ *                           The same key must be registered in the database.
+ *   ASSISTANT_MODEL         optional: pins a REGISTERED model for the tiers it is approved for
+ *   ASSISTANT_ROUTER=off    optional: one model (P2 policy) for every request
+ *   ASSISTANT_TURN_DEADLINE_MS  optional, 10 000 – 55 000 (default 50 000; the
+ *                           stream route allows 60 s of execution)
+ *   ANTHROPIC_BASE_URL      optional; https only. Outside production a loopback http URL
+ *                           is accepted for the local test double (costs are marked 'test')
+ *   ASSISTANT_DISABLED=1    turns the assistant off
  */
 import { getAppEnv } from '@/lib/env'
+import { findModel } from '@/lib/intelligence/registry'
+import { parseServerKeys, type ServerKey } from '@/lib/intelligence/server-auth'
 
-export const DEFAULT_MODEL = 'claude-opus-5-5'
-export type Effort = 'low' | 'medium' | 'high'
 export type AssistantConfig =
-  | { configured: true; apiKey: string; model: string; effort: Effort; baseURL: string | undefined; maxTokens: number }
-  | { configured: false; reason: 'missing_key' | 'disabled' | 'invalid_base_url' | 'invalid_model' }
-
-const MODEL = /^[a-z0-9][a-z0-9.\-]{2,80}$/
+  | { configured: true; apiKey: string; baseURL: string | undefined; testDouble: boolean; serverKeys: ServerKey[]; pinnedModel: string | null; routerEnabled: boolean; deadlineMs: number }
+  | { configured: false; reason: 'missing_key' | 'missing_server_key' | 'disabled' | 'invalid_base_url' | 'invalid_model' }
 
 export function readAssistantConfig(env: Record<string, string | undefined> = process.env): AssistantConfig {
   if (env.ASSISTANT_DISABLED === '1') return { configured: false, reason: 'disabled' }
   const apiKey = (env.ANTHROPIC_API_KEY ?? '').trim()
   if (!apiKey) return { configured: false, reason: 'missing_key' }
-  const model = (env.ASSISTANT_MODEL ?? '').trim() || DEFAULT_MODEL
-  if (!MODEL.test(model)) return { configured: false, reason: 'invalid_model' }
+  const serverKeys = parseServerKeys(env.ASSISTANT_SERVER_KEYS)
+  if (!serverKeys.length) return { configured: false, reason: 'missing_server_key' }
+  const pinned = (env.ASSISTANT_MODEL ?? '').trim() || null
+  if (pinned && !findModel(pinned)) return { configured: false, reason: 'invalid_model' }
   const baseURL = (env.ANTHROPIC_BASE_URL ?? '').trim() || undefined
-  if (baseURL && !baseUrlAllowed(baseURL, appEnv(env))) return { configured: false, reason: 'invalid_base_url' }
-  const effort: Effort = (['low', 'medium', 'high'] as const).find((e) => e === env.ASSISTANT_EFFORT) ?? 'medium'
-  return { configured: true, apiKey, model, effort, baseURL, maxTokens: 8000 }
+  const appEnvironment = appEnv(env)
+  if (baseURL && !baseUrlAllowed(baseURL, appEnvironment)) return { configured: false, reason: 'invalid_base_url' }
+  const testDouble = !!baseURL && new URL(baseURL).protocol === 'http:'
+  const d = Number(env.ASSISTANT_TURN_DEADLINE_MS ?? 50000)
+  return { configured: true, apiKey, baseURL, testDouble, serverKeys, pinnedModel: pinned, routerEnabled: env.ASSISTANT_ROUTER !== 'off',
+    deadlineMs: Number.isFinite(d) ? Math.min(55000, Math.max(10000, Math.round(d))) : 50000 }
 }
 
 function appEnv(env: Record<string, string | undefined>): string {
@@ -47,7 +54,7 @@ export function baseUrlAllowed(url: string, appEnvironment: string): boolean {
   return u.protocol === 'http:' && appEnvironment !== 'production' && (u.hostname === '127.0.0.1' || u.hostname === 'localhost' || u.hostname === '[::1]')
 }
 
-/** What the UI may know: whether it works and why not. Never the key or the URL. */
-export function publicAssistantState(cfg: AssistantConfig): { configured: boolean; reason: string | null; model: string | null } {
-  return cfg.configured ? { configured: true, reason: null, model: cfg.model } : { configured: false, reason: cfg.reason, model: null }
+/** What the UI may know: whether it works and why not. Never a key or the URL. */
+export function publicAssistantState(cfg: AssistantConfig): { configured: boolean; reason: string | null } {
+  return cfg.configured ? { configured: true, reason: null } : { configured: false, reason: cfg.reason }
 }

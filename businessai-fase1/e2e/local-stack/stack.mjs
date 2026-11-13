@@ -69,5 +69,10 @@ export async function startStack({ root, port, pgrstBin, pgSocket, pgPort, db, p
     const r = await fetch(`http://127.0.0.1:${PGRST}/${table}?select=*${filter ? `&${filter}` : ''}`, { method: 'HEAD', headers: { authorization: `Bearer ${jwt({ role: 'service_role', iat: t, exp: t + 60 })}`, prefer: 'count=exact' } })
     return Number((r.headers.get('content-range') ?? '*/-1').split('/')[1])
   }
-  return { BASE, PASSWORD, logs, stop, work, api, count, STUB_URL: `http://127.0.0.1:${STUB}` }
+  // database-owner bootstrap only (e.g. registering the assistant's server key, test fixtures); never used by the app
+  const admin = (path, init = {}) => {
+    const t = Math.floor(Date.now() / 1000)
+    return fetch(`http://127.0.0.1:${PGRST}${path}`, { ...init, headers: { 'content-type': 'application/json', authorization: `Bearer ${jwt({ role: 'service_role', iat: t, exp: t + 60 })}`, ...(init.headers ?? {}) } })
+  }
+  return { BASE, PASSWORD, logs, stop, work, api, count, admin, STUB_URL: `http://127.0.0.1:${STUB}` }
 }
