@@ -17,7 +17,8 @@
     "test:e2e:assistant": "node e2e/assistant.auth.e2e.mjs",
     "bench": "node bench/run.mjs",
     "test:e2e:benchmark": "node bench/run.mjs --mode both",
-    "test:e2e:workforce": "node e2e/workforce.auth.e2e.mjs"
+    "test:e2e:workforce": "node e2e/workforce.auth.e2e.mjs",
+    "test:e2e:payroll": "node e2e/payroll.auth.e2e.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",

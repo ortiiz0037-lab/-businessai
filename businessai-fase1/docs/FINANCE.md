@@ -567,3 +567,7 @@ PGRST_BIN=/ruta/postgrest PG_SOCKET=/ruta/socket PG_PORT=5432 npm run test:e2e:f
   «Pagado», usaba fechas MM/DD con el formato DD/MM por defecto en español,
   y no esperaba a que cambiara la URL tras una acción); se corrigieron en el
   test, no en la app.
+
+## Nómina (0034)
+
+La nómina publica en este mismo libro mayor (fuentes `payroll`, `payroll_payment`, `payroll_void`, `payroll_payment_void`): gasto 6100 contra salarios por pagar 2200 y deducciones por pagar 2210; el pago registrado salda 2200 contra 1010. Ver [PAYROLL.md](PAYROLL.md).

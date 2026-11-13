@@ -210,3 +210,7 @@ la nómina. Una sola fuente de horas (ponches) y de personas (empleados).
 | Notificaciones | Solo en la app | Proveedor de correo / push |
 | Vigencia de plantillas | Marcadas «no verificada» | Revisión por un asesor laboral |
 | Sucursales | Módulo inexistente | Entrega de sucursales |
+
+## Nómina (0034)
+
+Las horas de Workforce alimentan la nómina sin copiarse: la app calcula regulares / extra con estas mismas reglas y la base de datos las verifica contra los ponches de sesiones cerradas. Ver [PAYROLL.md](PAYROLL.md).

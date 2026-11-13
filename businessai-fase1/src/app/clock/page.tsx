@@ -78,6 +78,12 @@ export default async function ClockPage({ searchParams }: { searchParams: Promis
   const changes = (myChanges ?? []) as { id: string; shift_id: string | null; kind: string; old_starts_at: string; new_starts_at: string | null; new_ends_at: string | null; status: string; decision_note: string | null }[]
   const docs = (myDocs ?? []) as { id: string; title: string; category: string; created_at: string }[]
   const contact = (myContact ?? null) as { address: string | null; emergency_contact_name: string | null; emergency_contact_phone: string | null; emergency_contact_relation: string | null } | null
+  // payroll (0034): the employee's own pay stubs of approved / paid runs (RLS)
+  const { data: myPay } = await supabase.from('payroll_lines').select('id, run_id, net_cents, gross_cents').eq('employee_id', emp.id).order('created_at', { ascending: false }).limit(12)
+  const payRuns = (myPay ?? []).length
+    ? ((await supabase.from('payroll_runs').select('id, period_start, period_end, status').in('id', ((myPay ?? []) as { run_id: string }[]).map((x) => x.run_id))).data ?? []) as { id: string; period_start: string; period_end: string; status: string }[]
+    : []
+  const stubs = ((myPay ?? []) as { id: string; run_id: string; net_cents: string; gross_cents: string }[]).map((l) => ({ ...l, run: payRuns.find((r) => r.id === l.run_id) })).filter((l) => l.run)
   const pendingShift = new Set(changes.filter((c) => c.status === 'pending' && c.shift_id).map((c) => c.shift_id as string))
   const leaves = (leaveData ?? []) as { id: string; leave_type: string; starts_on: string; ends_on: string; partial_minutes: number | null; status: string; reason: string | null }[]
   const week = attendance({ punches, shifts, leaves: leaves.filter((l) => l.status === 'approved'), rules, from: ws, to: addDays(ws, 6), now })
@@ -231,6 +237,21 @@ export default async function ClockPage({ searchParams }: { searchParams: Promis
             </ul>
           </section>
         </div>
+      )}
+
+      {stubs.length > 0 && (
+        <section className="card p-5" aria-labelledby="my-pay-title" data-testid="my-payslips">
+          <h2 id="my-pay-title" className="font-display text-lg font-semibold text-fg">{tr('Mis recibos de nómina', 'My pay stubs')}</h2>
+          <ul className="mt-2 divide-y divide-line text-sm">
+            {stubs.map((l) => (
+              <li key={l.id} className="flex items-center justify-between gap-2 py-2">
+                <span className="text-slate-300">{f.date(l.run!.period_start)} – {f.date(l.run!.period_end)}</span>
+                <a href={`/api/payroll/payslips/${l.id}`} className="font-semibold text-blue-400">{tr('Ver recibo (PDF)', 'View pay stub (PDF)')}</a>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs text-muted">{tr('Impuestos y retenciones no calculados por BusinessAI.', 'Taxes and withholdings are not calculated by BusinessAI.')}</p>
+        </section>
       )}
 
       <div className="grid gap-5 md:grid-cols-2">

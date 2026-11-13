@@ -13,11 +13,13 @@ export type ReportRow = { id: string; name: string; number: string | null; depar
   /** punches entered or changed by an approved correction in the period (0020 evidence) */
   correctedPunches: number; voidedPunches: number }
 
-export async function buildReport(supabase: SupabaseClient, input: { companyId: string; from: string; to: string; rules: Rules; department?: string | null; employee?: string | null }) {
+export async function buildReport(supabase: SupabaseClient, input: { companyId: string; from: string; to: string; rules: Rules; department?: string | null; employee?: string | null
+  /** payroll (0034): include terminated employees (a final pay for the hours they worked) */ includeTerminated?: boolean }) {
   const sets = await ruleSets(supabase, input.companyId)
   const withGroups = sets.length > 0
   let q = supabase.from('employees').select(withGroups ? 'id, first_name, last_name, employee_number, department_id, rule_set_id' : 'id, first_name, last_name, employee_number, department_id')
-    .eq('company_id', input.companyId).neq('status', 'terminated')
+    .eq('company_id', input.companyId)
+  if (!input.includeTerminated) q = q.neq('status', 'terminated')
   if (input.department) q = q.eq('department_id', input.department)
   if (input.employee) q = q.eq('id', input.employee)
   const [{ data: emps }, { data: depts }] = await Promise.all([
