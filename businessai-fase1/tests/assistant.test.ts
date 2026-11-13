@@ -273,6 +273,27 @@ describe('tool registry', () => {
     expect(bank.allowed(MEMBER)).toBe(false)
     expect(bank.allowed(OWNER)).toBe(true)
   })
+  it('workforce status (0033): counts only, for managers and supervisors (department or direct reports)', async () => {
+    const tool = findTool('get_workforce_status')!
+    const sup: Access = { ...MEMBER, workforce: { manages: false, supervisedDepartments: [], directReports: 2 } }
+    expect(tool.allowed(sup)).toBe(true)
+    expect(tool.allowed({ ...sup, workforce: { manages: false, supervisedDepartments: [], directReports: 0 } })).toBe(false)
+    expect(tool.allowed({ ...sup, features: { employees: true, timeClock: false } })).toBe(false)
+    const head = (n: number) => ({ count: n, error: null, data: null })
+    const q = (n: number) => { const b: Record<string, unknown> = {}; for (const k of ['select', 'eq', 'is']) b[k] = () => b; (b as { then: unknown }).then = (r: (v: unknown) => void) => r(head(n)); return b }
+    const counts: Record<string, number> = { employees: 5, punch_corrections: 1, leave_requests: 2, shift_change_requests: 1, meal_alerts: 3 }
+    const supabase = {
+      from: (t: string) => q(counts[t] ?? 0),
+      rpc: vi.fn(async (name: string) => name === 'workforce_now'
+        ? { data: [{ state: 'in' }, { state: 'break_start' }, { state: 'out' }, { state: 'break_end' }], error: null }
+        : { data: [{ kind: 'no_clock_out' }, { kind: 'no_clock_in' }, { kind: 'no_clock_in' }], error: null }),
+    }
+    const r = await tool.run(ctx(sup, supabase), {} as never)
+    expect(r.data).toMatchObject({ active_employees: 5, working_now: 2, on_break_now: 1, pending_corrections: 1, pending_leave: 2, pending_shift_changes: 1,
+      unhandled_meal_alerts: 3, missing_clock_outs: 1, shifts_without_clock_in: 2 })
+    expect(JSON.stringify(r.data)).not.toMatch(/hourly|rate|name/)
+    expect(supabase.rpc).toHaveBeenCalledWith('wf_missing_punches', expect.objectContaining({ target: '00000000-0000-4000-8000-0000000000aa', to_day: '2026-11-13' }))
+  })
   it('prepare_operation never executes and checks the operation permission', async () => {
     const prep = findTool('prepare_operation')!
     const r = await prep.run(ctx(MEMBER), { operation: 'record_payment', document_id: '00000000-0000-4000-8000-000000000001' } as never)

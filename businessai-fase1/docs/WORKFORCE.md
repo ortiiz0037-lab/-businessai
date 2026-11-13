@@ -1,16 +1,19 @@
 # Personal / Workforce — diseño, seguridad y reglas
 
 Migraciones **0020** (empleados, reloj, correcciones, ausencias, turnos,
-historial) y **0021** (modo PIN para tabletas, evidencia solo-anexar).
-Ambas son **borradores con `STAGING-GATE`: no aplicadas en ningún entorno.**
+historial), **0021** (modo PIN para tabletas, evidencia solo-anexar), **0022**
+(grupos de reglas, jurisdicciones, alertas de comida) y **0033** (RR. HH.:
+estado laboral, documentos privados, turnos recurrentes, cambios de turno,
+excepciones y versiones de reglas). Todas son **borradores con
+`STAGING-GATE`: no aplicadas en ningún entorno.**
 
 ## Quién ve y hace qué (lo aplica PostgreSQL con RLS y funciones)
 
 | Persona | Cómo entra | Ve | Puede |
 |---|---|---|---|
 | Propietario / administrador (`workforce.manage`) | Su cuenta de la empresa | Todo el personal de la empresa, tarifas | Empleados, departamentos, supervisores, reglas, tabletas, PIN, ponchar por otros, aprobar |
-| Supervisor (miembro asignado a un departamento) | Su cuenta de la empresa | Solo los empleados de **sus** departamentos (lista, ponches, turnos, ausencias, historial, panel en vivo, informes y CSV) | Ponchar por ellos (quiosco), programar turnos, pedir y aprobar correcciones y ausencias — **nunca las suyas** |
-| Empleado (cuenta vinculada) | `/clock` con su propia cuenta | Solo su ficha, sus ponches, turnos y solicitudes | Ponchar, pedir correcciones y ausencias, crear su PIN |
+| Supervisor (miembro asignado a un departamento, o **supervisor directo** del empleado, 0033) | Su cuenta de la empresa | Solo los empleados de **sus** departamentos o **sus reportes directos** (lista, ponches, turnos, ausencias, historial, panel en vivo, informes y CSV). **No** ve documentos laborales privados ni el contacto privado | Ponchar por ellos (quiosco), programar turnos y patrones, pedir y aprobar correcciones, ausencias y cambios de turno, registrar la acción tomada en alertas — **nunca las suyas** |
+| Empleado (cuenta vinculada) | `/clock` con su propia cuenta | Solo su ficha, sus ponches, turnos, solicitudes, **sus alertas**, los documentos que la empresa **le compartió** y su contacto de emergencia | Ponchar, pedir correcciones, ausencias y cambios de turno, crear su PIN, actualizar su contacto de emergencia |
 | Empleado en tableta | `/kiosk` con número + PIN | Su nombre, el ponche y la hora — nada más | Ponchar |
 | Miembro sin rol de personal | — | Nada del módulo | — |
 
@@ -90,7 +93,7 @@ jurisdicciones). BusinessAI calcula con la configuración elegida; **no ofrece
 asesoría legal ni garantiza el cumplimiento** de leyes laborales. La pantalla
 de reglas y los informes lo indican. Todavía **no** se calculan: periodos de
 comida obligatorios, importes de horas extra (el multiplicador se guarda para
-la futura nómina), ni reglas por empleado.
+la futura nómina). Las reglas por empleado llegaron con 0033 (excepciones).
 
 ## Reglas por empleado, jurisdicciones y comidas (0022)
 
@@ -112,8 +115,98 @@ la futura nómina), ni reglas por empleado.
   alerta “se aproxima” solo se genera si alguien tiene el panel abierto o hay
   un ponche; no se envían correos (Resend no configurado).
 
+## Recursos humanos (0033)
+
+**Estado laboral.** Activo, **suspendido**, inactivo o baja. Suspender o dar
+de baja exige un motivo (queda en el historial). Un suspendido no puede
+ponchar y **no cuenta** para el límite del plan; al reactivarlo el servidor
+vuelve a comprobar el límite (Básico 3, Pro 25, Premium 100 empleados
+activos, también con altas simultáneas). Los empleados nunca ocupan
+usuarios del plan. **Archivar** solo se permite a inactivos o dados de baja:
+los oculta de las listas sin borrar nada; se puede restaurar.
+
+**Ficha.** Tipo de empleo (tiempo completo, parcial, temporal, de temporada,
+contratista, práctica), clasificación (no exento / exento), supervisor
+directo (un miembro activo; nunca el propio empleado) y el historial con
+**valor anterior → nuevo** de los campos no sensibles (nunca tarifa, notas,
+contacto ni acceso). El **contacto privado** (dirección, contacto de
+emergencia) vive en su propia tabla: solo administradores y el empleado.
+
+**Documentos laborales privados.** Bucket privado `HR-documents`
+(`<empresa>/<empleado>/<archivo>`, PDF o imagen, 10 MB). Solo los
+administradores suben, ven y archivan; el empleado ve un documento solo si se
+le comparte; los supervisores nunca. Se descargan con un enlace firmado de 60
+segundos. No se borran (ni con la clave de servidor): se archivan. La
+interfaz pide no subir información médica.
+
+**Sucursales.** El catálogo de planes ya prevé sucursales (Básico 1, Pro 3,
+Premium 10), pero el módulo de sucursales no existe todavía: la asignación de
+empleados a sucursales queda para cuando exista (no se creó una fuente
+paralela).
+
+**Turnos.** Turnos individuales (0020) y **patrones recurrentes** (días de la
+semana, hora de inicio y fin; si la hora de fin es menor, termina al día
+siguiente). Un patrón **genera** turnos concretos para un periodo (máx. 93
+días): no duplica, omite los días con otro turno o con ausencia aprobada de
+día completo y dice cuántos omitió. El empleado puede **pedir un cambio o
+quitar** un turno futuro; lo decide su supervisor (nunca él mismo); si el
+turno cambió después de la solicitud, hay que decidir de nuevo; un cambio que
+se cruzaría con otro turno se rechaza y queda pendiente. La regla de no
+solaparse ahora se cumple también con escrituras simultáneas (bloqueo por
+empleado). **Conflictos**: turnos durante ausencias aprobadas, turnos futuros
+de empleados no activos y semanas programadas por encima del límite semanal
+de horas extra.
+
+**Turnos nocturnos.** Por defecto cuentan **el día en que empiezan**. La
+empresa puede elegir **dividirlos a medianoche** (cada parte cuenta en su día;
+los descansos van al día en que ocurrieron; el total es el mismo).
+
+**Reglas.** Precedencia: **excepciones del empleado** → clasificación exenta →
+grupo → valores de la empresa. Cualquier cambio de reglas (empresa, grupo o
+excepción) se **propone** y solo surte efecto cuando un administrador lo
+**aplica explícitamente** (con confirmación). Una propuesta queda obsoleta si
+las reglas cambiaron después (se rechaza al aplicarla). Cada cambio, por
+cualquier vía, crea una **versión** inmutable con quién, cuándo y los valores.
+Las plantillas (Puerto Rico, EE. UU. federal, California, personalizada) se
+muestran como propuesta y están marcadas como **vigencia no verificada**:
+BusinessAI no ha verificado su vigencia actual; no es asesoría legal ni
+garantía de cumplimiento.
+
+**Alertas de comida y descanso.** Al atenderla, el supervisor registra la
+**acción tomada** (comida tardía, horario ajustado, se recordó al empleado,
+no requiere acción, otra con nota). El empleado ve sus propias alertas. Sin
+programador las alertas se evalúan con cada ponche y mientras el panel en vivo
+está abierto. **Preparado, no activado:** la función `wf_meal_sweep()` evalúa
+todas las sesiones abiertas de todas las empresas; solo la puede ejecutar el
+dueño de la base de datos (no la API). Programarla requiere autorización y
+acceso al proyecto: ver `supabase/cron/wf_meal_sweep.sql`. No se envían
+correos ni notificaciones push.
+
+**Ausencias.** Nuevos tipos: duelo, servicio de jurado, licencia parental y
+servicio militar. Calendario mensual de ausencias (aprobadas y pendientes).
+No se piden diagnósticos: la interfaz lo advierte.
+
+**Ponches faltantes.** Salidas olvidadas (sesión abierta desde un día anterior)
+y turnos que empezaron sin entrada (más la tolerancia, sin ausencia
+aprobada). Aparecen en el panel en vivo; se corrigen con una corrección
+aprobada.
+
+**Informes.** Añaden ponches corregidos y anulados, y la nota «resumen de
+asistencia según las reglas configuradas; no es una nómina oficial ni
+asesoría legal». La nómina será una entrega separada.
+
+**Integraciones.** Asistente: `list_employees`, `get_attendance_report` y
+`get_workforce_status` (conteos, sin nombres ni tarifas) para administradores
+y supervisores (también directos). Document Studio usa la misma tabla de
+empleados (certificados y campos `employee.*`). Finanzas: sin cambios hasta
+la nómina. Una sola fuente de horas (ponches) y de personas (empleados).
+
 ## Decisiones pendientes
 
 | Tema | Hoy | Decidir |
 |---|---|---|
-| Turnos nocturnos | Cuentan el día en que empiezan | Confirmar para nómina |
+| Turnos nocturnos | Configurable: día de inicio (predeterminado) o división a medianoche | Confirmar para nómina |
+| Programador de alertas | `wf_meal_sweep()` preparado, no programado | Autorizar Supabase Cron (cada 5 min) |
+| Notificaciones | Solo en la app | Proveedor de correo / push |
+| Vigencia de plantillas | Marcadas «no verificada» | Revisión por un asesor laboral |
+| Sucursales | Módulo inexistente | Entrega de sucursales |

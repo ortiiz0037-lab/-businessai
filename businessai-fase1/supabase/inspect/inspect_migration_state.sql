@@ -10,7 +10,7 @@
 -- writes. It works whatever is applied: tables that may not exist are only
 -- looked up by name (to_regclass / to_regprocedure), never queried.
 --
--- One row per migration (0001–0004 together, then 0005 … 0032):
+-- One row per migration (0001–0004 together, then 0005 … 0033):
 --   status   applied | not applied | PARTIAL — review | n/a
 --   evidence what was measured (counts, flags) — compare it with the
 --            "applied when" column.
@@ -135,6 +135,9 @@ e as (
     to_regprocedure('public.assistant_insights(uuid,date,date)') is not null as f_assistant_insights,
     -- 0032
     to_regprocedure('public.assistant_bank_summary(uuid,date)') is not null as f_assistant_bank_summary,
+    -- 0033
+    to_regclass('public.shift_patterns') is not null as t_shift_patterns,
+    to_regprocedure('public.apply_rule_change(uuid)') is not null as f_apply_rule_change,
     -- staging bookkeeping (absent in Production)
     to_regclass('ba_meta.applied_migrations') is not null as t_record,
     to_regclass('ba_meta.environment') is not null        as t_marker
@@ -309,7 +312,13 @@ r(ord, migration, applied_when, status, evidence) as (
     format('assistant_bank_summary=%s', f_assistant_bank_summary)
   from e
   union all
-  select 28, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
+  select 28, '0033_workforce_hr', 'shift_patterns + apply_rule_change',
+    case when t_shift_patterns and f_apply_rule_change then 'applied'
+         when not (t_shift_patterns or f_apply_rule_change) then 'not applied' else 'PARTIAL — review' end,
+    format('shift_patterns=%s apply_rule_change=%s', t_shift_patterns, f_apply_rule_change)
+  from e
+  union all
+  select 29, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
     case when t_record or t_marker then 'present (staging?)' else 'absent' end,
     format('ba_meta.applied_migrations=%s ba_meta.environment=%s', t_record, t_marker)
   from e

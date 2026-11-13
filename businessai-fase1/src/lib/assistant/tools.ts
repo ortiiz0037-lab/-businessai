@@ -29,7 +29,9 @@ import type { Tier, ToolSpec } from '@/lib/intelligence/types'
 export const PERMISSION_KEYS = ['clients.view', 'clients.create', 'documents.view', 'documents.create', 'documents.edit', 'payments.view', 'payments.record',
   'receivables.view', 'payables.view', 'payables.create', 'accounting.view', 'bank.view', 'studio.view', 'studio.edit', 'studio.issue'] as const
 export type PermissionKey = (typeof PERMISSION_KEYS)[number]
-export type Access = { perms: Record<PermissionKey, boolean>; workforce: { manages: boolean; supervisedDepartments: string[] }; features: { employees: boolean; timeClock: boolean } }
+export type Access = { perms: Record<PermissionKey, boolean>; workforce: { manages: boolean; supervisedDepartments: string[]; directReports?: number }; features: { employees: boolean; timeClock: boolean } }
+/** Manages the workforce or supervises someone (a department or direct reports, 0033). */
+const supervises = (a: Access) => a.workforce.manages || a.workforce.supervisedDepartments.length > 0 || (a.workforce.directReports ?? 0) > 0
 
 export type ToolContext = {
   supabase: SupabaseClient; companyId: string; userId: string; locale: Locale; today: string; turnId: string
@@ -46,12 +48,17 @@ export type ToolDef = {
 const def = <S extends z.ZodObject>(d: { name: string; description: string; schema: S; minTier: Tier; allowed: (a: Access) => boolean; run: (ctx: ToolContext, input: z.infer<S>) => Promise<ToolOutput> }) => d as unknown as ToolDef
 
 /** The caller's permissions, plan features and workforce scope in ONE call (0030 assistant_access). */
-export async function loadAccess(supabase: SupabaseClient, companyId: string): Promise<Access> {
-  const { data, error } = await supabase.rpc('assistant_access', { target: companyId, keys: [...PERMISSION_KEYS] })
+export async function loadAccess(supabase: SupabaseClient, companyId: string, userId?: string): Promise<Access> {
+  const [{ data, error }, direct] = await Promise.all([
+    supabase.rpc('assistant_access', { target: companyId, keys: [...PERMISSION_KEYS] }),
+    // direct reports (0033): RLS returns only employees this user may see
+    userId ? supabase.from('employees').select('id', { count: 'exact', head: true }).eq('company_id', companyId).eq('supervisor_user_id', userId) : Promise.resolve({ count: 0, error: null }),
+  ])
   const j = (error ? null : data) as { perms?: Record<string, boolean>; features?: { employees?: boolean; time_clock?: boolean }; workforce?: { manages?: boolean; supervised?: string[] } } | null
   return {
     perms: Object.fromEntries(PERMISSION_KEYS.map((k) => [k, j?.perms?.[k] === true])) as Access['perms'],
-    workforce: { manages: j?.workforce?.manages === true, supervisedDepartments: Array.isArray(j?.workforce?.supervised) ? j!.workforce!.supervised! : [] },
+    workforce: { manages: j?.workforce?.manages === true, supervisedDepartments: Array.isArray(j?.workforce?.supervised) ? j!.workforce!.supervised! : [],
+      directReports: direct.error ? 0 : direct.count ?? 0 },
     features: { employees: j?.features?.employees === true, timeClock: j?.features?.time_clock === true },
   }
 }
@@ -332,7 +339,7 @@ const employees = def({
   description: 'Employees the user manages or supervises: name, number, position, department, status, hire date. No pay data.',
   schema: z.object({ query: z.string().max(60).optional(), include_inactive: z.boolean().optional(), limit }).strict(),
   minTier: 'P1',
-  allowed: (a) => a.features.employees && (a.workforce.manages || a.workforce.supervisedDepartments.length > 0),
+  allowed: (a) => a.features.employees && supervises(a),
   async run(ctx, input) {
     let q = ctx.supabase.from('employees').select('id, first_name, last_name, employee_number, position, status, hire_date, department_id', { count: 'exact' }).eq('company_id', ctx.companyId)
     if (!input.include_inactive) q = q.eq('status', 'active')
@@ -351,7 +358,7 @@ const attendance = def({
   description: 'Attendance per employee between two dates (YYYY-MM-DD, at most 62 days): worked, regular and overtime hours, late days, absences, leave days, days to review. Computed with the company rules from the time clock punches.',
   schema: z.object({ from: z.string().regex(DAY), to: z.string().regex(DAY), employee_id: uuid.optional() }).strict(),
   minTier: 'P2',
-  allowed: (a) => a.features.timeClock && (a.workforce.manages || a.workforce.supervisedDepartments.length > 0),
+  allowed: (a) => a.features.timeClock && supervises(a),
   async run(ctx, input) {
     if (input.from > input.to || daysBetween(input.from, input.to) > 62) fail('invalid_range')
     const rules = await workforceRules(ctx.supabase, ctx.companyId)
@@ -364,6 +371,40 @@ const attendance = def({
       link: `/workforce/reports?from=${input.from}&to=${input.to}` },
     { from: 'date', to: 'date', employees: 'count', shown: 'count', worked_hours: 'hours', regular_hours: 'hours', overtime_hours: 'hours', scheduled_hours: 'hours', late_days: 'count', absences: 'count',
       leave_days: 'count', open_sessions: 'count', days_to_review: 'count', number: 'text', name: 'text' }, { source: 'workforce buildReport', complete, from: input.from, to: input.to })
+  },
+})
+
+const workforceStatus = def({
+  name: 'get_workforce_status',
+  description: 'Workforce status now for the employees the user manages or supervises: active employees, working and on break right now, pending approvals (punch corrections, leave, shift changes), unhandled meal/break alerts and missing punches in the last 7 days (forgotten clock-outs, shifts without a clock-in). Counts only, no names or pay.',
+  schema: z.object({}).strict(),
+  minTier: 'P2',
+  allowed: (a) => a.features.timeClock && supervises(a),
+  async run(ctx) {
+    const from = new Date(Date.parse(`${ctx.today}T00:00:00Z`) - 7 * 86_400_000).toISOString().slice(0, 10)
+    const head = { count: 'exact' as const, head: true }
+    const [now, active, corr, leave, shiftReq, alerts, missing] = await Promise.all([
+      ctx.supabase.rpc('workforce_now', { target: ctx.companyId }),
+      ctx.supabase.from('employees').select('id', head).eq('company_id', ctx.companyId).eq('status', 'active'),
+      ctx.supabase.from('punch_corrections').select('id', head).eq('company_id', ctx.companyId).eq('status', 'pending'),
+      ctx.supabase.from('leave_requests').select('id', head).eq('company_id', ctx.companyId).eq('status', 'pending'),
+      ctx.supabase.from('shift_change_requests').select('id', head).eq('company_id', ctx.companyId).eq('status', 'pending'),
+      ctx.supabase.from('meal_alerts').select('id', head).eq('company_id', ctx.companyId).is('acknowledged_at', null),
+      ctx.supabase.rpc('wf_missing_punches', { target: ctx.companyId, from_day: from, to_day: ctx.today }),
+    ])
+    dbFail(now.error ?? active.error ?? corr.error ?? leave.error)
+    const states = ((now.data ?? []) as { state: string }[])
+    const miss = (missing.error ? [] : (missing.data ?? [])) as { kind: string }[]
+    return out({
+      as_of: ctx.today, active_employees: active.count ?? 0,
+      working_now: states.filter((x) => x.state === 'in' || x.state === 'break_end').length, on_break_now: states.filter((x) => x.state === 'break_start').length,
+      pending_corrections: corr.count ?? 0, pending_leave: leave.count ?? 0, pending_shift_changes: shiftReq.error ? 0 : shiftReq.count ?? 0,
+      unhandled_meal_alerts: alerts.error ? 0 : alerts.count ?? 0,
+      missing_clock_outs: miss.filter((m) => m.kind === 'no_clock_out').length, shifts_without_clock_in: miss.filter((m) => m.kind === 'no_clock_in').length,
+      link: '/workforce',
+    }, { as_of: 'date', active_employees: 'count', working_now: 'count', on_break_now: 'count', pending_corrections: 'count', pending_leave: 'count', pending_shift_changes: 'count',
+      unhandled_meal_alerts: 'count', missing_clock_outs: 'count', shifts_without_clock_in: 'count' },
+    { source: 'workforce_now, requests, meal_alerts, wf_missing_punches', complete: true, as_of: ctx.today })
   },
 })
 
@@ -493,7 +534,7 @@ const prepare = def({
   },
 })
 
-export const TOOLS: ToolDef[] = [overview, invoices, payments, bills, budget, clients, client, documents, employees, attendance, income, bank, studioDocs, calc, proposeDraft, prepare]
+export const TOOLS: ToolDef[] = [overview, invoices, payments, bills, budget, clients, client, documents, employees, attendance, workforceStatus, income, bank, studioDocs, calc, proposeDraft, prepare]
 export const TOOL_NAMES = TOOLS.map((t) => t.name)
 export const findTool = (name: string) => TOOLS.find((t) => t.name === name)
 

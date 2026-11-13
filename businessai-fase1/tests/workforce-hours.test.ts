@@ -179,7 +179,7 @@ describe('owner decisions: rules per employee / group, meal periods', () => {
     expect(r.totals).toMatchObject({ regularMinutes: 2640, overtimeMinutes: 360 })
   })
   it('an archived group falls back to the company defaults', () => {
-    expect(rulesFor(DEFAULT_RULES, group({ archived_at: '2026-01-01', exempt: true }))).toBe(DEFAULT_RULES)
+    expect(rulesFor(DEFAULT_RULES, group({ archived_at: '2026-01-01', exempt: true }))).toEqual(DEFAULT_RULES)
   })
   it('meal periods (same rules as the database): missed, met, short break, no rule', () => {
     const d = '2026-11-09'
@@ -190,5 +190,29 @@ describe('owner decisions: rules per employee / group, meal periods', () => {
     expect(mealMissed(workDay(d, '08:00', '18:00'), null, null, NOW)).toBe(false)                     // no meal rule configured
     const r = attendance({ punches: workDay(d, '08:00', '14:00'), shifts: [], leaves: [], rules: { ...DEFAULT_RULES, mealAfterMinutes: 300, mealMinMinutes: 60 }, from: d, to: d, now: NOW })
     expect(r.totals.mealMissedDays).toBe(1)
+  })
+})
+
+describe('overnight attribution (0033)', () => {
+  // 22:00 → 06:30 with a 01:00–01:30 break: 8 h worked
+  const night: Punch[] = [{ kind: 'in', at: pr('2026-11-10', '22:00') }, { kind: 'break_start', at: pr('2026-11-11', '01:00') },
+    { kind: 'break_end', at: pr('2026-11-11', '01:30') }, { kind: 'out', at: pr('2026-11-11', '06:30') }]
+  const base = { punches: night, shifts: [], leaves: [], from: '2026-11-10', to: '2026-11-11', now: NOW }
+  it('default: the whole session counts on the day it began', () => {
+    const r = attendance({ ...base, rules: DEFAULT_RULES })
+    expect(r.days.map((d) => d.workedMinutes)).toEqual([480, 0])
+  })
+  it('split at local midnight: 2 h before, 6 h after (the break goes to the day it happened)', () => {
+    const r = attendance({ ...base, rules: { ...DEFAULT_RULES, overnight: 'split_midnight' } })
+    expect(r.days.map((d) => [d.workedMinutes, d.breakMinutes])).toEqual([[120, 0], [360, 30]])
+    expect(r.totals.workedMinutes).toBe(480)
+  })
+  it('daily overtime follows the attribution', () => {
+    const long: Punch[] = [{ kind: 'in', at: pr('2026-11-10', '18:00') }, { kind: 'out', at: pr('2026-11-11', '06:00') }]
+    const start = attendance({ ...base, punches: long, rules: DEFAULT_RULES })
+    const split = attendance({ ...base, punches: long, rules: { ...DEFAULT_RULES, overnight: 'split_midnight' } })
+    expect(start.totals.overtimeMinutes).toBe(240)            // 12 h on one day: 4 h over 8
+    expect(split.totals.overtimeMinutes).toBe(0)              // 6 h + 6 h
+    expect(split.totals.workedMinutes).toBe(start.totals.workedMinutes)
   })
 })

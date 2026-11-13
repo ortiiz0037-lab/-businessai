@@ -191,4 +191,5 @@ export const TOOL_LABELS: Record<string, { es: string; en: string }> = {
   prepare_operation: { es: 'Operación preparada', en: 'Prepared operation' },
   calculate: { es: 'Cálculo exacto', en: 'Exact calculation' },
   get_bank_overview: { es: 'Bancos y conciliación', en: 'Bank and reconciliation' },
+  get_workforce_status: { es: 'Estado del personal', en: 'Workforce status' },
 }

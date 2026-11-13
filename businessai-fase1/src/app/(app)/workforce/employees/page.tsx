@@ -3,7 +3,7 @@ import { PageHeader, EmptyState } from '@/components/ui/page'
 import { SubmitButton } from '@/components/submit-button'
 import { NoWorkforceAccess, WorkforceNav } from '@/components/workforce-nav'
 import { workforcePage } from '@/lib/workforce/page'
-import { wfMessage } from '@/lib/workforce/context'
+import { EMPLOYMENT_TYPES, wfLabel, wfMessage } from '@/lib/workforce/context'
 import { featureAccess } from '@/lib/billing/features'
 import { searchTerm } from '@/lib/search'
 import { createEmployee } from '@/app/actions/workforce'
@@ -17,24 +17,26 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
   const { locale, tr, supabase, companyId, access, allowed } = await workforcePage()
   if (!allowed) return <NoWorkforceAccess tr={tr} unavailable={!access.available} />
   const q = searchTerm(params.q)
-  const status = ['active', 'inactive', 'terminated', 'all'].includes(params.status ?? '') ? params.status! : 'active'
+  const status = ['active', 'suspended', 'inactive', 'terminated', 'archived', 'all'].includes(params.status ?? '') ? params.status! : 'active'
   const page = Math.max(1, Math.min(1000, Number.parseInt(params.page ?? '1', 10) || 1))
   const { data: deptData } = await supabase.from('departments').select('id, name').eq('company_id', companyId).is('archived_at', null).order('name')
   const depts = ((deptData ?? []) as { id: string; name: string }[]).filter((d) => access.manages || access.supervisedDepartments.includes(d.id))
   const dept = depts.some((d) => d.id === params.dept) ? params.dept! : ''
-  let query = supabase.from('employees').select('id, employee_number, first_name, last_name, email, department_id, position, status, user_id', { count: 'exact' })
+  let query = supabase.from('employees').select('id, employee_number, first_name, last_name, email, department_id, position, status, user_id, employment_type', { count: 'exact' })
     .eq('company_id', companyId)
-  if (status !== 'all') query = query.eq('status', status)
+  // archived employees (0033) only appear under "Archived"; their history stays
+  if (status === 'archived') query = query.not('archived_at', 'is', null)
+  else { query = query.is('archived_at', null); if (status !== 'all') query = query.eq('status', status) }
   if (dept) query = query.eq('department_id', dept)
   if (q) query = query.or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%,email.ilike.%${q}%,employee_number.ilike.%${q}%,position.ilike.%${q}%`)
   const from = (page - 1) * PAGE_SIZE
   const { data, count } = await query.order('first_name').order('id').range(from, from + PAGE_SIZE - 1)
-  const rows = (data ?? []) as { id: string; employee_number: string | null; first_name: string; last_name: string; email: string | null; department_id: string | null; position: string | null; status: string; user_id: string | null }[]
+  const rows = (data ?? []) as { id: string; employee_number: string | null; first_name: string; last_name: string; email: string | null; department_id: string | null; position: string | null; status: string; user_id: string | null; employment_type: string | null }[]
   const pages = Math.max(1, Math.ceil((count ?? 0) / PAGE_SIZE))
   const deptName = new Map(depts.map((d) => [d.id, d.name]))
   const plan = access.manages ? await featureAccess(supabase, companyId, 'employees') : null
   const href = (n: number) => `/workforce/employees?${new URLSearchParams({ ...(q ? { q } : {}), ...(status !== 'active' ? { status } : {}), ...(dept ? { dept } : {}), ...(n > 1 ? { page: String(n) } : {}) })}`
-  const statusLabel = (s: string) => ({ active: tr('Activo', 'Active'), inactive: tr('Inactivo', 'Inactive'), terminated: tr('Baja', 'Terminated') } as Record<string, string>)[s] ?? s
+  const statusLabel = (s: string) => wfLabel(s, locale)
 
   return (
     <div className="space-y-6">
@@ -56,8 +58,8 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
           <form method="get" role="search" className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto]">
             <input name="q" defaultValue={params.q ?? ''} maxLength={60} placeholder={tr('Buscar nombre, correo, número…', 'Search name, email, number…')} aria-label={tr('Buscar', 'Search')} className="field" />
             <select name="status" defaultValue={status} aria-label={tr('Estado', 'Status')} className="field">
-              <option value="active">{tr('Activos', 'Active')}</option><option value="inactive">{tr('Inactivos', 'Inactive')}</option>
-              <option value="terminated">{tr('Bajas', 'Terminated')}</option><option value="all">{tr('Todos', 'All')}</option>
+              <option value="active">{tr('Activos', 'Active')}</option><option value="suspended">{tr('Suspendidos', 'Suspended')}</option><option value="inactive">{tr('Inactivos', 'Inactive')}</option>
+              <option value="terminated">{tr('Bajas', 'Terminated')}</option><option value="archived">{tr('Archivados', 'Archived')}</option><option value="all">{tr('Todos (sin archivados)', 'All (not archived)')}</option>
             </select>
             <select name="dept" defaultValue={dept} aria-label={tr('Departamento', 'Department')} className="field">
               <option value="">{tr('Todos los departamentos', 'All departments')}</option>
@@ -76,7 +78,8 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
                     </span>
                     <span className="flex shrink-0 gap-2">
                       {r.user_id && <span className="badge-accent">{tr('Con acceso', 'Has access')}</span>}
-                      <span className={r.status === 'active' ? 'badge-success' : 'badge-neutral'}>{statusLabel(r.status)}</span>
+                      {r.employment_type && r.employment_type !== 'full_time' && <span className="badge-neutral hidden sm:inline-flex">{wfLabel(r.employment_type, locale)}</span>}
+                      <span className={r.status === 'active' ? 'badge-success' : r.status === 'suspended' ? 'badge-warning' : 'badge-neutral'}>{statusLabel(r.status)}</span>
                     </span>
                   </Link>
                 </li>
@@ -110,6 +113,12 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
                 </label>
                 <label className="field-label">{tr('Fecha de ingreso', 'Hire date')}<input name="hire_date" type="date" className="field mt-1" /></label>
                 <label className="field-label">{tr('Tarifa por hora ($)', 'Hourly rate ($)')}<input name="hourly_rate" inputMode="decimal" className="field mt-1" /></label>
+                <label className="field-label">{tr('Tipo de empleo', 'Employment type')}
+                  <select name="employment_type" defaultValue="full_time" className="field mt-1">{EMPLOYMENT_TYPES.map((t) => <option key={t} value={t}>{wfLabel(t, locale)}</option>)}</select>
+                </label>
+                <label className="field-label">{tr('Clasificación', 'Classification')}
+                  <select name="classification" defaultValue="non_exempt" className="field mt-1"><option value="non_exempt">{wfLabel('non_exempt', locale)}</option><option value="exempt">{wfLabel('exempt', locale)}</option></select>
+                </label>
               </div>
               <SubmitButton pendingLabel={tr('Guardando…', 'Saving…')}>{tr('Crear empleado', 'Create employee')}</SubmitButton>
               <p className="text-xs text-muted">{tr('La tarifa solo la ven el propietario y los administradores.', 'Only the owner and admins see the pay rate.')}</p>

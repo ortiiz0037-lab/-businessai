@@ -91,6 +91,7 @@ ORDER=(
   0030_intelligence_core
   0031_intelligence_insights
   0032_assistant_bank_summary
+  0033_workforce_hr
 )
 EXPECTED_VERIFY="10,0,2,0,f,0,2,3,t,t,t,"
 

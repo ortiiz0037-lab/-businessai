@@ -5,7 +5,12 @@ import { SubmitButton } from '@/components/submit-button'
 import { NoWorkforceAccess, WorkforceNav } from '@/components/workforce-nav'
 import { workforcePage } from '@/lib/workforce/page'
 import { addDays, attendance, hhmm, localDay, periodFor, weekStart, type Punch } from '@/lib/workforce/hours'
-import { leaveLabel, localTime, punchLabel, ruleSets, wfMessage } from '@/lib/workforce/context'
+import { DOC_CATEGORIES, EMPLOYMENT_TYPES, employeeRuleInputs, leaveLabel, localTime, punchLabel, ruleSets, rulesFor, wfLabel, wfMessage } from '@/lib/workforce/context'
+import { roleLabel } from '@/lib/team'
+import { ruleKeyLabel, ruleValueLabel } from '@/lib/workforce/hr'
+import { HrDocumentUploader } from '@/components/workforce/hr-document-uploader'
+import { RuleProposals, type Proposal } from '@/components/workforce/rule-proposals'
+import { archiveEmployee, proposeEmployeeRules, saveEmployeeContact, setEmployeeStatus, updateEmployeeDocument } from '@/app/actions/workforce-hr'
 import { clearEmployeePin, createEmployeeAccess, decideCorrection, requestCorrection, revokeEmployeeAccess, setEmployeePin, updateEmployee } from '@/app/actions/workforce'
 
 export const dynamic = 'force-dynamic'
@@ -15,10 +20,13 @@ type Emp = {
   id: string; company_id: string; user_id: string | null; employee_number: string | null; first_name: string; last_name: string; email: string | null
   phone: string | null; department_id: string | null; position: string | null; hire_date: string | null; termination_date: string | null
   status: string; pay_type: string; notes: string | null; access_expires_at: string | null
+  employment_type?: string; classification?: string; supervisor_user_id?: string | null; status_reason?: string | null; archived_at?: string | null
 }
+type Doc = { id: string; category: string; title: string; file_name: string; size_bytes: number; visible_to_employee: boolean; created_at: string; archived_at: string | null }
+type Contact = { address: string | null; emergency_contact_name: string | null; emergency_contact_phone: string | null; emergency_contact_relation: string | null }
 type P = Punch & { id: string; source: string; recorded_by: string | null; voided_at: string | null; void_reason: string | null }
 
-export default async function EmployeePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ done?: string; error?: string; period?: string }> }) {
+export default async function EmployeePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ done?: string; error?: string; period?: string; proposal?: string }> }) {
   const { id } = await params
   const query = await searchParams
   const { locale, tr, f, supabase, user, companyId, access, rules, allowed } = await workforcePage()
@@ -28,7 +36,9 @@ export default async function EmployeePage({ params, searchParams }: { params: P
     .select('id, company_id, user_id, employee_number, first_name, last_name, email, phone, department_id, position, hire_date, termination_date, status, pay_type, notes, access_expires_at')
     .eq('id', id).eq('company_id', companyId).maybeSingle()
   if (!data) redirect('/workforce/employees?error=employee_not_found')
-  const emp = data as Emp
+  // 0033 fields (separate read so the page still works on a database without 0033)
+  const { data: hr } = await supabase.from('employees').select('employment_type, classification, supervisor_user_id, status_reason, archived_at').eq('id', id).maybeSingle()
+  const emp = { ...(data as Emp), ...((hr ?? {}) as Partial<Emp>) }
   const self = emp.user_id === user.id
 
   const today = localDay(new Date(), rules.timezone)
@@ -46,13 +56,28 @@ export default async function EmployeePage({ params, searchParams }: { params: P
     supabase.from('workforce_events').select('id, entity, action, details, created_at').eq('employee_id', id).order('created_at', { ascending: false }).limit(25),
   ])
   const sets = access.manages ? await ruleSets(supabase, companyId) : []
+  const [{ data: memberData }, { data: contactData }, { data: docData }, ruleInputs, { data: propData }] = await Promise.all([
+    access.manages ? supabase.rpc('company_members', { target: companyId }) : Promise.resolve({ data: [] }),
+    access.manages ? supabase.from('employee_contacts').select('address, emergency_contact_name, emergency_contact_phone, emergency_contact_relation').eq('employee_id', id).maybeSingle() : Promise.resolve({ data: null }),
+    access.manages ? supabase.from('employee_documents').select('id, category, title, file_name, size_bytes, visible_to_employee, created_at, archived_at').eq('employee_id', id).order('created_at', { ascending: false }) : Promise.resolve({ data: [] }),
+    employeeRuleInputs(supabase, companyId, [id]),
+    access.manages ? supabase.from('labor_rule_changes').select('id, scope, scope_id, changes, note, proposed_at, proposed_by, base_version').eq('scope', 'employee').eq('scope_id', id).eq('status', 'pending') : Promise.resolve({ data: [] }),
+  ])
+  const team = ((memberData ?? []) as { user_id: string; email: string | null; role: string; status: string }[]).filter((m) => m.status === 'active' && m.user_id !== emp.user_id)
+  const memberEmail = (uid: string | null) => (uid ? team.find((m) => m.user_id === uid)?.email ?? uid.slice(0, 8) : '—')
+  const contact = (contactData ?? null) as Contact | null
+  const docs = (docData ?? []) as Doc[]
+  const overrides = ruleInputs.overrides.get(id) ?? null
+  const pendingRules = (propData ?? []) as Proposal[]
   const { data: groupRow } = sets.length ? await supabase.from('employees').select('rule_set_id').eq('id', id).maybeSingle() : { data: null }
   const { data: pinData } = await supabase.rpc('employee_pin_status', { emp: id })
   const pin = Array.isArray(pinData) ? (pinData[0] as { pin_set: boolean; set_at: string | null; locked_until: string | null } | undefined) : undefined
   const all = (punchData ?? []) as P[]
   const valid = all.filter((p) => !p.voided_at)
   const leaves = (leaveData ?? []) as { id: string; leave_type: string; starts_on: string; ends_on: string; partial_minutes: number | null; status: string }[]
-  const report = attendance({ punches: valid, shifts: (shiftData ?? []) as never[], leaves: leaves.filter((l) => l.status === 'approved'), rules, from: period.from, to: period.to })
+  const groupId = (groupRow as { rule_set_id: string | null } | null)?.rule_set_id ?? null
+  const effective = rulesFor(rules, sets.find((g) => g.id === groupId), overrides, emp.classification)
+  const report = attendance({ punches: valid, shifts: (shiftData ?? []) as never[], leaves: leaves.filter((l) => l.status === 'approved'), rules: effective, from: period.from, to: period.to })
   const corrections = (corrData ?? []) as { id: string; action: string; kind: string | null; at: string | null; reason: string; status: string; requested_by: string; requested_at: string }[]
   const depts = (deptData ?? []) as { id: string; name: string }[]
   const rate = Array.isArray(pay) ? (pay[0] as { hourly_rate: number | null } | undefined)?.hourly_rate ?? null : null
@@ -64,6 +89,12 @@ export default async function EmployeePage({ params, searchParams }: { params: P
     correction_requested: tr('Corrección registrada; queda pendiente de aprobación.', 'Correction recorded; it awaits approval.'),
     approved: tr('Aprobado.', 'Approved.'), rejected: tr('Rechazado.', 'Rejected.'),
     pin_set: tr('PIN guardado.', 'PIN saved.'), pin_cleared: tr('PIN eliminado.', 'PIN removed.'),
+    status_active: tr('Empleado activo.', 'Employee active.'), status_suspended: tr('Empleado suspendido: no puede ponchar.', 'Employee suspended: cannot punch.'),
+    status_inactive: tr('Empleado inactivo.', 'Employee inactive.'), status_terminated: tr('Baja registrada.', 'Termination recorded.'),
+    archived: tr('Empleado archivado. Su historial se conserva.', 'Employee archived. Their history is kept.'), unarchived: tr('Empleado restaurado.', 'Employee restored.'),
+    contact_saved: tr('Contacto guardado.', 'Contact saved.'), document_updated: tr('Documento actualizado.', 'Document updated.'), document_archived: tr('Documento archivado.', 'Document archived.'),
+    proposed: tr('Excepción propuesta: aplícala abajo para que surta efecto.', 'Exception proposed: apply it below for it to take effect.'), rules_applied: tr('Excepción aplicada.', 'Exception applied.'),
+    rules_discarded: tr('Propuesta descartada.', 'Proposal discarded.'),
   }
   const st = (s: string) => ({ pending: tr('Pendiente', 'Pending'), approved: tr('Aprobada', 'Approved'), rejected: tr('Rechazada', 'Rejected'), cancelled: tr('Cancelada', 'Cancelled') } as Record<string, string>)[s] ?? s
   const field = (name: keyof Emp, label: string, props: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
@@ -77,6 +108,14 @@ export default async function EmployeePage({ params, searchParams }: { params: P
         <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-accent">{tr('Expediente', 'Employee record')}</p>
         <h1 className="mt-2 font-display text-3xl font-semibold">{emp.first_name} {emp.last_name}</h1>
         <p className="mt-1 text-sm text-white/60">{[emp.position, depts.find((d) => d.id === emp.department_id)?.name, emp.employee_number ? `#${emp.employee_number}` : null].filter(Boolean).join(' · ')}</p>
+        <p className="mt-3 flex flex-wrap gap-2" data-testid="employee-badges">
+          <span className={emp.status === 'active' ? 'badge-success' : emp.status === 'suspended' ? 'badge-warning' : 'badge-neutral'}>{wfLabel(emp.status, locale)}</span>
+          {emp.employment_type && <span className="badge-neutral">{wfLabel(emp.employment_type, locale)}</span>}
+          {emp.classification && <span className="badge-neutral">{wfLabel(emp.classification, locale)}</span>}
+          {emp.archived_at && <span className="badge-accent">{tr('Archivado', 'Archived')}</span>}
+          {emp.supervisor_user_id && access.manages && <span className="badge-neutral">{tr('Supervisor', 'Supervisor')}: {memberEmail(emp.supervisor_user_id)}</span>}
+        </p>
+        {emp.status_reason && <p className="mt-2 text-xs text-white/60">{tr('Motivo', 'Reason')}: {emp.status_reason}</p>}
       </section>
       <WorkforceNav tr={tr} current="/workforce/employees" manages={access.manages} />
       {query.done && done[query.done] && <div role="status" className="alert-success p-4">{done[query.done]}</div>}
@@ -197,9 +236,20 @@ export default async function EmployeePage({ params, searchParams }: { params: P
               <label className="field-label">{tr('Departamento', 'Department')}
                 <select name="department_id" defaultValue={emp.department_id ?? ''} className="field mt-1"><option value="">—</option>{depts.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select>
               </label>
-              <label className="field-label">{tr('Estado', 'Status')}
-                <select name="status" defaultValue={emp.status} className="field mt-1">
-                  <option value="active">{tr('Activo', 'Active')}</option><option value="inactive">{tr('Inactivo', 'Inactive')}</option><option value="terminated">{tr('Baja', 'Terminated')}</option>
+              <label className="field-label">{tr('Tipo de empleo', 'Employment type')}
+                <select name="employment_type" defaultValue={emp.employment_type ?? 'full_time'} className="field mt-1">
+                  {EMPLOYMENT_TYPES.map((t) => <option key={t} value={t}>{wfLabel(t, locale)}</option>)}
+                </select>
+              </label>
+              <label className="field-label">{tr('Clasificación', 'Classification')}
+                <select name="classification" defaultValue={emp.classification ?? 'non_exempt'} className="field mt-1">
+                  <option value="non_exempt">{wfLabel('non_exempt', locale)}</option><option value="exempt">{wfLabel('exempt', locale)}</option>
+                </select>
+              </label>
+              <label className="field-label sm:col-span-2">{tr('Supervisor directo', 'Direct supervisor')}
+                <select name="supervisor_user_id" defaultValue={emp.supervisor_user_id ?? ''} className="field mt-1">
+                  <option value="">{tr('Sin supervisor directo (usa el del departamento)', 'No direct supervisor (department supervisor)')}</option>
+                  {team.map((m) => <option key={m.user_id} value={m.user_id}>{m.email} · {roleLabel(m.role, locale)}</option>)}
                 </select>
               </label>
               {field('hire_date', tr('Ingreso', 'Hire date'), { type: 'date' })}
@@ -255,13 +305,127 @@ export default async function EmployeePage({ params, searchParams }: { params: P
                 <button type="submit" className="btn-secondary btn-sm">{tr('Eliminar PIN', 'Remove PIN')}</button></form>
             )}
             <h3 className="pt-2 font-semibold text-fg">{tr('Historial de cambios', 'Change history')}</h3>
-            <ul className="max-h-64 space-y-1 overflow-y-auto text-xs text-slate-400">
-              {((events ?? []) as { id: number; entity: string; action: string; details: Record<string, unknown>; created_at: string }[]).map((e) => (
-                <li key={e.id}>{f.dateTime(e.created_at)} · {e.entity} · {e.action}{Array.isArray(e.details.fields) ? ` (${(e.details.fields as string[]).join(', ')})` : ''}</li>
+            <ul className="max-h-64 space-y-1 overflow-y-auto text-xs text-slate-400" data-testid="employee-history">
+              {((events ?? []) as { id: number; entity: string; action: string; details: Record<string, unknown>; created_at: string }[]).map((e) => {
+                const changes = (e.details.changes ?? null) as Record<string, { from: unknown; to: unknown }> | null
+                return (
+                  <li key={e.id}>{f.dateTime(e.created_at)} · {e.entity} · {e.action}
+                    {changes ? ` — ${Object.entries(changes).map(([k, c]) => `${k}: ${c.from ?? '—'} → ${c.to ?? '—'}`).join('; ')}`
+                      : Array.isArray(e.details.fields) ? ` (${(e.details.fields as string[]).join(', ')})` : ''}</li>
+                )
+              })}
+            </ul>
+          </section>
+        </div>
+      )}
+
+      {access.manages && (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <section className="card space-y-3 p-5" aria-labelledby="status-title" data-testid="employment-status">
+            <h2 id="status-title" className="font-display text-lg font-semibold text-fg">{tr('Estado laboral', 'Employment status')}</h2>
+            <p className="text-sm text-muted">{tr('Suspender o dar de baja exige un motivo. Nada se borra: los ponches, solicitudes e historial se conservan.',
+              'Suspending or terminating requires a reason. Nothing is deleted: punches, requests and history are kept.')}</p>
+            {emp.archived_at ? (
+              <form action={archiveEmployee}><input type="hidden" name="id" value={id} /><input type="hidden" name="archive" value="no" />
+                <button type="submit" className="btn-secondary btn-sm">{tr('Restaurar del archivo', 'Restore from archive')}</button></form>
+            ) : (
+              <>
+                <form action={setEmployeeStatus} className="grid gap-2 sm:grid-cols-[auto_minmax(0,1fr)_auto]">
+                  <input type="hidden" name="id" value={id} />
+                  <select name="status" defaultValue={emp.status} aria-label={tr('Nuevo estado', 'New status')} className="field">
+                    {(['active', 'suspended', 'inactive', 'terminated'] as const).map((st2) => <option key={st2} value={st2}>{wfLabel(st2, locale)}</option>)}
+                  </select>
+                  <input name="reason" maxLength={300} placeholder={tr('Motivo (obligatorio al suspender o dar de baja)', 'Reason (required to suspend or terminate)')} aria-label={tr('Motivo', 'Reason')} className="field" />
+                  <button type="submit" className="btn-primary btn-sm">{tr('Cambiar estado', 'Change status')}</button>
+                </form>
+                {(emp.status === 'inactive' || emp.status === 'terminated') && (
+                  <form action={archiveEmployee}><input type="hidden" name="id" value={id} /><input type="hidden" name="archive" value="yes" />
+                    <button type="submit" className="btn-secondary btn-sm">{tr('Archivar (ocultar de las listas)', 'Archive (hide from lists)')}</button></form>
+                )}
+              </>
+            )}
+            <h3 className="pt-2 font-semibold text-fg">{tr('Contacto privado', 'Private contact')}</h3>
+            <p className="text-xs text-muted">{tr('Solo lo ven los administradores y el propio empleado (no los supervisores).', 'Only admins and the employee see it (not supervisors).')}</p>
+            <form action={saveEmployeeContact} className="grid gap-2 sm:grid-cols-2">
+              <input type="hidden" name="employee_id" value={id} /><input type="hidden" name="back" value={back} />
+              <label className="field-label sm:col-span-2">{tr('Dirección', 'Address')}<input name="address" maxLength={300} defaultValue={contact?.address ?? ''} className="field mt-1" /></label>
+              <label className="field-label">{tr('Contacto de emergencia', 'Emergency contact')}<input name="emergency_contact_name" maxLength={120} defaultValue={contact?.emergency_contact_name ?? ''} className="field mt-1" /></label>
+              <label className="field-label">{tr('Teléfono de emergencia', 'Emergency phone')}<input name="emergency_contact_phone" maxLength={40} defaultValue={contact?.emergency_contact_phone ?? ''} className="field mt-1" /></label>
+              <label className="field-label">{tr('Relación', 'Relationship')}<input name="emergency_contact_relation" maxLength={60} defaultValue={contact?.emergency_contact_relation ?? ''} className="field mt-1" /></label>
+              <div className="flex items-end"><SubmitButton pendingLabel="…" className="w-auto">{tr('Guardar contacto', 'Save contact')}</SubmitButton></div>
+            </form>
+          </section>
+
+          <section className="card space-y-3 p-5" aria-labelledby="docs-title" data-testid="employee-documents">
+            <h2 id="docs-title" className="font-display text-lg font-semibold text-fg">{tr('Documentos laborales privados', 'Private labor documents')}</h2>
+            <p className="text-xs text-muted">{tr('Archivo privado de la empresa (PDF o imagen, 10 MB). Los supervisores no lo ven. Compártelo con el empleado solo si corresponde. No subas información médica.',
+              'Private company file (PDF or image, 10 MB). Supervisors do not see it. Share it with the employee only when appropriate. Do not upload medical information.')}</p>
+            <HrDocumentUploader companyId={companyId} employeeId={id} copy={{
+              title: tr('Título', 'Title'), category: tr('Tipo', 'Type'), shared: tr('Visible para el empleado', 'Visible to the employee'), choose: tr('Subir documento', 'Upload document'),
+              uploading: tr('Subiendo…', 'Uploading…'), done: tr('Documento guardado.', 'Document saved.'), fallback: tr('No se pudo guardar el documento.', 'The document could not be saved.'),
+              categories: DOC_CATEGORIES.map((c) => ({ value: c, label: wfLabel(c, locale) })),
+              errors: { document_type: wfMessage('document_type', locale)!, forbidden: wfMessage('forbidden', locale)!, document_file_missing: wfMessage('document_file_missing', locale)! },
+            }} />
+            <ul className="divide-y divide-line text-sm">
+              {docs.length === 0 && <li className="py-2 text-muted">{tr('Sin documentos.', 'No documents.')}</li>}
+              {docs.map((d) => (
+                <li key={d.id} className={`flex flex-col gap-2 py-2 sm:flex-row sm:items-center sm:justify-between ${d.archived_at ? 'opacity-50' : ''}`}>
+                  <span><a href={`/api/workforce/documents/${d.id}`} className="font-semibold text-fg hover:text-blue-400">{d.title}</a>
+                    <span className="text-xs text-muted"> · {wfLabel(d.category, locale)} · {f.date(d.created_at.slice(0, 10))}{d.visible_to_employee ? ` · ${tr('compartido', 'shared')}` : ''}{d.archived_at ? ` · ${tr('archivado', 'archived')}` : ''}</span></span>
+                  {!d.archived_at && (
+                    <span className="flex gap-2">
+                      <form action={updateEmployeeDocument}><input type="hidden" name="id" value={d.id} /><input type="hidden" name="employee_id" value={id} />
+                        <input type="hidden" name="shared" value={d.visible_to_employee ? 'no' : 'yes'} />
+                        <button type="submit" className="btn-secondary btn-sm">{d.visible_to_employee ? tr('Dejar de compartir', 'Stop sharing') : tr('Compartir', 'Share')}</button></form>
+                      <form action={updateEmployeeDocument}><input type="hidden" name="id" value={d.id} /><input type="hidden" name="employee_id" value={id} /><input type="hidden" name="archive" value="yes" />
+                        <button type="submit" className="btn-secondary btn-sm">{tr('Archivar', 'Archive')}</button></form>
+                    </span>
+                  )}
+                </li>
               ))}
             </ul>
           </section>
         </div>
+      )}
+
+      {access.manages && (
+        <>
+          <RuleProposals tr={tr} locale={locale} proposals={pendingRules} current={() => (overrides ?? {}) as Record<string, unknown>} title={() => tr('Excepciones de este empleado', 'This employee\'s exceptions')}
+            back={back} highlight={query.proposal ?? null} who={(uid) => memberEmail(uid)} date={(d) => f.dateTime(d)} />
+          <section className="card p-5" aria-labelledby="exc-title" data-testid="rule-exceptions">
+            <h2 id="exc-title" className="font-display text-lg font-semibold text-fg">{tr('Reglas de este empleado', 'This employee\'s rules')}</h2>
+            <p className="mt-1 text-sm text-muted">
+              {tr('Vigentes', 'In effect')}: {effective.exempt ? tr('exento de horas extra', 'overtime exempt')
+                : `${tr('extra después de', 'overtime after')} ${ruleValueLabel('daily_overtime_after_minutes', effective.dailyOvertimeAfter, locale)} / ${ruleValueLabel('weekly_overtime_after_minutes', effective.weeklyOvertimeAfter, locale)}`}
+              {' · '}{tr('comida antes de', 'meal before')} {ruleValueLabel('meal_break_after_minutes', effective.mealAfterMinutes ?? null, locale)}
+              {overrides && Object.keys(overrides).length > 0 && <> · <span className="badge-accent">{tr('con excepciones', 'with exceptions')}: {Object.keys(overrides).map((k) => ruleKeyLabel(k, locale)).join(', ')}</span></>}
+            </p>
+            <form action={proposeEmployeeRules} className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <input type="hidden" name="employee_id" value={id} />
+              {([['daily_hours', 'daily_overtime_after_minutes', tr('Extra/día (h)', 'OT/day (h)')], ['weekly_hours', 'weekly_overtime_after_minutes', tr('Extra/semana (h)', 'OT/week (h)')],
+                ['meal_after_hours', 'meal_break_after_minutes', tr('Comida antes de (h)', 'Meal before (h)')]] as const).map(([field, key, label]) => {
+                const has = overrides ? key in overrides : false
+                const val = has ? (overrides as Record<string, number | null>)[key] : undefined
+                return (
+                  <fieldset key={field} className="space-y-1">
+                    <legend className="field-label">{label}</legend>
+                    <select name={`${field}_mode`} defaultValue={!has ? 'inherit' : val === null ? 'none' : 'value'} className="field" aria-label={label}>
+                      <option value="inherit">{tr('Heredar', 'Inherit')}</option><option value="none">{tr('No aplica', 'Does not apply')}</option><option value="value">{tr('Valor propio', 'Own value')}</option>
+                    </select>
+                    <input name={field} inputMode="decimal" defaultValue={typeof val === 'number' ? val / 60 : ''} aria-label={`${label} — ${tr('valor', 'value')}`} className="field" />
+                  </fieldset>
+                )
+              })}
+              <label className="field-label">{tr('Exento de extras', 'Overtime exempt')}
+                <select name="exempt" defaultValue={overrides && 'exempt' in overrides ? (overrides.exempt ? 'yes' : 'no') : 'inherit'} className="field mt-1">
+                  <option value="inherit">{tr('Heredar', 'Inherit')}</option><option value="yes">{tr('Sí', 'Yes')}</option><option value="no">{tr('No', 'No')}</option>
+                </select></label>
+              <label className="field-label sm:col-span-2 lg:col-span-3">{tr('Motivo de la excepción (obligatorio)', 'Reason for the exception (required)')}<input name="reason" required minLength={3} maxLength={300} className="field mt-1" /></label>
+              <div className="flex items-end"><SubmitButton pendingLabel="…" className="w-auto">{tr('Proponer excepción', 'Propose exception')}</SubmitButton></div>
+            </form>
+            <p className="mt-2 text-xs text-muted">{tr('La excepción no surte efecto hasta que se aplica. Referencia configurable; no es asesoría legal.', 'The exception takes effect only once applied. Configurable reference; not legal advice.')}</p>
+          </section>
+        </>
       )}
     </div>
   )

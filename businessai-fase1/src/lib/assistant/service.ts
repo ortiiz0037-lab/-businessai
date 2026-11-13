@@ -154,7 +154,7 @@ export async function runSignedTurn(s: Session, cfg: Extract<AssistantConfig, { 
   // 2) context: history, access (one call), routing
   const [prior, access, settings, company] = await Promise.all([
     supabase.from('assistant_messages').select('role, content, status, turn_id').eq('conversation_id', conversationId).order('id', { ascending: false }).limit(21),
-    loadAccess(supabase, member.companyId),
+    loadAccess(supabase, member.companyId, user.id),
     supabase.from('ledger_settings').select('base_currency').eq('company_id', member.companyId).maybeSingle(),
     supabase.from('companies').select('name').eq('id', member.companyId).maybeSingle(),
   ])

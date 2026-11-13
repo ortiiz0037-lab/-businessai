@@ -7,20 +7,26 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Locale } from '@/lib/i18n/app'
 import { DEFAULT_RULES, type Rules } from '@/lib/workforce/hours'
 
-export type WorkforceAccess = { companyId: string; manages: boolean; supervisedDepartments: string[]; available: boolean }
+export type WorkforceAccess = { companyId: string; manages: boolean; supervisedDepartments: string[]; directReports: number; available: boolean }
 
 export async function workforceAccess(supabase: SupabaseClient, companyId: string, userId: string): Promise<WorkforceAccess> {
-  const [{ data: manages, error }, { data: sup }] = await Promise.all([
+  const [{ data: manages, error }, { data: sup }, direct] = await Promise.all([
     supabase.rpc('wf_manages', { target: companyId }),
     supabase.from('department_supervisors').select('department_id').eq('company_id', companyId).eq('user_id', userId),
+    // direct reports (0033): employees whose direct supervisor is this member
+    supabase.from('employees').select('id', { count: 'exact', head: true }).eq('company_id', companyId).eq('supervisor_user_id', userId),
   ])
   return {
     companyId,
     manages: !error && manages === true,
     supervisedDepartments: ((sup ?? []) as { department_id: string }[]).map((r) => r.department_id),
+    directReports: direct.error ? 0 : direct.count ?? 0,
     available: !error,
   }
 }
+
+/** Supervises someone (department or direct reports) or manages the module. */
+export const supervisesAnyone = (a: WorkforceAccess) => a.manages || a.supervisedDepartments.length > 0 || a.directReports > 0
 
 export async function workforceRules(supabase: SupabaseClient, companyId: string): Promise<Rules> {
   const { data } = await supabase.from('workforce_settings').select('*').eq('company_id', companyId).maybeSingle()
@@ -33,6 +39,7 @@ export async function workforceRules(supabase: SupabaseClient, companyId: string
     graceMinutes: data.grace_minutes ?? 5,
     mealAfterMinutes: data.meal_break_after_minutes ?? null,
     mealMinMinutes: data.meal_break_min_minutes ?? null,
+    overnight: data.overnight_attribution === 'split_midnight' ? 'split_midnight' : 'start_day',
   }
 }
 
@@ -42,16 +49,43 @@ export type RuleSet = {
   meal_break_min_minutes: number | null; meal_alert_before_minutes: number; archived_at: string | null
 }
 
-/** Rules of one employee: its group (0022) over the company defaults. Mirrors public.wf_rules. */
-export function rulesFor(defaults: Rules, set: RuleSet | null | undefined): Rules {
-  if (!set || set.archived_at) return defaults
-  return {
+/** Exceptions of one employee (0033): a present key replaces the inherited value (null = does not apply). */
+export type RuleOverrides = Partial<{ exempt: boolean | null; daily_overtime_after_minutes: number | null; weekly_overtime_after_minutes: number | null
+  overtime_multiplier: number | null; meal_break_after_minutes: number | null; meal_break_min_minutes: number | null; meal_alert_before_minutes: number | null }>
+
+/**
+ * Rules of one employee: its exceptions (0033), then its classification
+ * (exempt), then its group (0022), else the company defaults. Mirrors public.wf_rules.
+ */
+export function rulesFor(defaults: Rules, set: RuleSet | null | undefined, overrides?: RuleOverrides | null, classification?: string | null): Rules {
+  const base: Rules = !set || set.archived_at ? { ...defaults } : {
     ...defaults,
     exempt: set.exempt,
     dailyOvertimeAfter: set.daily_overtime_after_minutes,
     weeklyOvertimeAfter: set.weekly_overtime_after_minutes,
     mealAfterMinutes: set.meal_break_after_minutes,
     mealMinMinutes: set.meal_break_min_minutes,
+  }
+  if (classification === 'exempt') base.exempt = true
+  const o = overrides ?? {}
+  if ('exempt' in o && typeof o.exempt === 'boolean') base.exempt = o.exempt
+  if ('daily_overtime_after_minutes' in o) base.dailyOvertimeAfter = o.daily_overtime_after_minutes ?? null
+  if ('weekly_overtime_after_minutes' in o) base.weeklyOvertimeAfter = o.weekly_overtime_after_minutes ?? null
+  if ('meal_break_after_minutes' in o) base.mealAfterMinutes = o.meal_break_after_minutes ?? null
+  if ('meal_break_min_minutes' in o) base.mealMinMinutes = o.meal_break_min_minutes ?? null
+  return base
+}
+
+/** Per-employee exceptions and classification (empty without migration 0033). */
+export async function employeeRuleInputs(supabase: SupabaseClient, companyId: string, ids: string[]) {
+  if (!ids.length) return { overrides: new Map<string, RuleOverrides>(), classification: new Map<string, string>() }
+  const [o, c] = await Promise.all([
+    supabase.from('employee_rule_overrides').select('employee_id, overrides').eq('company_id', companyId).in('employee_id', ids),
+    supabase.from('employees').select('id, classification').in('id', ids),
+  ])
+  return {
+    overrides: new Map(o.error ? [] : ((o.data ?? []) as { employee_id: string; overrides: RuleOverrides }[]).map((r) => [r.employee_id, r.overrides])),
+    classification: new Map(c.error ? [] : ((c.data ?? []) as { id: string; classification: string }[]).map((r) => [r.id, r.classification])),
   }
 }
 
@@ -61,12 +95,33 @@ export async function ruleSets(supabase: SupabaseClient, companyId: string): Pro
   return error ? [] : ((data ?? []) as RuleSet[])
 }
 
-export const LEAVE_TYPES = ['vacation', 'sick', 'personal', 'unpaid', 'day_off', 'other'] as const
+export const LEAVE_TYPES = ['vacation', 'sick', 'personal', 'unpaid', 'day_off', 'bereavement', 'jury_duty', 'parental', 'military', 'other'] as const
+export const EMPLOYMENT_TYPES = ['full_time', 'part_time', 'temporary', 'seasonal', 'contractor', 'intern'] as const
+export const EMPLOYEE_STATUSES = ['active', 'suspended', 'inactive', 'terminated'] as const
+export const DOC_CATEGORIES = ['contract', 'policy', 'evaluation', 'certification', 'training', 'other'] as const
+export const ALERT_ACTIONS = ['break_taken_late', 'schedule_adjusted', 'employee_reminded', 'no_action_needed', 'other'] as const
+export const WEEKDAY_NUMBERS = [1, 2, 3, 4, 5, 6, 0] as const
+
+const LABELS: Record<string, [string, string]> = {
+  full_time: ['Tiempo completo', 'Full time'], part_time: ['Tiempo parcial', 'Part time'], temporary: ['Temporal', 'Temporary'], seasonal: ['De temporada', 'Seasonal'],
+  contractor: ['Contratista', 'Contractor'], intern: ['Práctica', 'Intern'], non_exempt: ['No exento', 'Non-exempt'], exempt: ['Exento', 'Exempt'],
+  active: ['Activo', 'Active'], suspended: ['Suspendido', 'Suspended'], inactive: ['Inactivo', 'Inactive'], terminated: ['Baja', 'Terminated'],
+  contract: ['Contrato', 'Contract'], policy: ['Política firmada', 'Signed policy'], evaluation: ['Evaluación', 'Evaluation'], certification: ['Certificación', 'Certification'],
+  training: ['Adiestramiento', 'Training'], other: ['Otro', 'Other'],
+  break_taken_late: ['Tomó la comida tarde', 'Meal taken late'], schedule_adjusted: ['Horario ajustado', 'Schedule adjusted'], employee_reminded: ['Se le recordó al empleado', 'Employee reminded'],
+  no_action_needed: ['No requiere acción', 'No action needed'],
+}
+/** Label of a workforce code (types, classification, status, document category, alert action). */
+export const wfLabel = (code: string, locale: Locale) => LABELS[code]?.[locale === 'en' ? 1 : 0] ?? code
+export const weekdayLabel = (n: number, locale: Locale) =>
+  (locale === 'en' ? ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] : ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'])[n] ?? String(n)
 export const PUNCH_KINDS = ['in', 'break_start', 'break_end', 'out'] as const
 
 export function leaveLabel(t: string, locale: Locale): string {
-  const es: Record<string, string> = { vacation: 'Vacaciones', sick: 'Enfermedad', personal: 'Asunto personal', unpaid: 'Sin sueldo', day_off: 'Día libre', other: 'Otro' }
-  const en: Record<string, string> = { vacation: 'Vacation', sick: 'Sick', personal: 'Personal', unpaid: 'Unpaid', day_off: 'Day off', other: 'Other' }
+  const es: Record<string, string> = { vacation: 'Vacaciones', sick: 'Enfermedad', personal: 'Asunto personal', unpaid: 'Sin sueldo', day_off: 'Día libre', other: 'Otro',
+    bereavement: 'Duelo', jury_duty: 'Servicio de jurado', parental: 'Licencia parental', military: 'Servicio militar' }
+  const en: Record<string, string> = { vacation: 'Vacation', sick: 'Sick', personal: 'Personal', unpaid: 'Unpaid', day_off: 'Day off', other: 'Other',
+    bereavement: 'Bereavement', jury_duty: 'Jury duty', parental: 'Parental leave', military: 'Military service' }
   return (locale === 'en' ? en : es)[t] ?? t
 }
 
@@ -98,6 +153,11 @@ const CODES = [
   'LEAVE_OVERLAP', 'LEAVE_NOT_FOUND', 'LEAVE_NOT_PENDING', 'SHIFT_OVERLAP', 'ACCESS_INVALID', 'ACCESS_EXPIRED',
   'ACCESS_EMAIL_MISMATCH', 'ACCESS_ALREADY_LINKED', 'COMPANY_IMMUTABLE',
   'RULE_SET_INVALID', 'JURISDICTION_INVALID', 'MEAL_ALERT_NOT_FOUND', 'PIN_INVALID', 'PIN_TOO_SIMPLE', 'KIOSK_NAME_INVALID', 'KIOSK_LIMIT', 'KIOSK_NOT_FOUND', 'HISTORY_IMMUTABLE',
+  // 0033
+  'SUPERVISOR_INVALID', 'EMPLOYEE_ARCHIVED', 'EMPLOYEE_ACTIVE', 'EMPLOYEE_STATUS_INVALID', 'REASON_REQUIRED', 'DOCUMENT_PATH_INVALID', 'DOCUMENT_FILE_MISSING',
+  'DOCUMENT_NOT_FOUND', 'DOCUMENT_ARCHIVED', 'PATTERN_INVALID', 'PATTERN_NOT_FOUND', 'PATTERN_ENDED', 'PATTERN_EMPLOYEE_LOCKED', 'RANGE_INVALID',
+  'SHIFT_NOT_FOUND', 'SHIFT_STARTED', 'SHIFT_CHANGE_INVALID', 'SHIFT_CHANGE_PENDING', 'SHIFT_CHANGE_NOT_FOUND', 'SHIFT_CHANGE_NOT_PENDING', 'SHIFT_CHANGED',
+  'RULE_SCOPE_INVALID', 'RULE_VALUES_INVALID', 'RULE_CHANGE_NOT_FOUND', 'RULE_CHANGE_NOT_PENDING', 'RULES_CHANGED_SINCE', 'ALERT_ACTION_INVALID', 'MEAL_ALERT_HANDLED',
 ] as const
 
 export function wfErrorCode(error: { message?: string | null; code?: string | null } | null): string {
@@ -142,6 +202,20 @@ const MESSAGES: Record<Locale, Record<string, string>> = {
     kiosk_name_invalid: 'Escribe un nombre para la tableta (máximo 60 caracteres).', kiosk_limit: 'Máximo 20 tabletas activas por empresa.',
     kiosk_not_found: 'No encontramos esa tableta.', history_immutable: 'Los registros de asistencia y su historial no se modifican.',
     confirm: 'Marca la casilla de confirmación.', save: 'No se pudo completar la acción. Inténtalo nuevamente.',
+    supervisor_invalid: 'El supervisor debe ser un miembro activo de la empresa y no el propio empleado.', employee_archived: 'El empleado está archivado: desarchívalo primero.',
+    employee_active: 'Solo se archiva un empleado inactivo o dado de baja.', employee_status_invalid: 'Ese estado no es válido.',
+    reason_required: 'Escribe el motivo (al menos 3 caracteres).', document_path_invalid: 'El archivo no corresponde a ese empleado.',
+    document_file_missing: 'El archivo no se subió. Inténtalo de nuevo.', document_not_found: 'No encontramos ese documento.', document_archived: 'El documento está archivado.',
+    document_type: 'Solo PDF o imágenes (JPG, PNG, WEBP) de hasta 10 MB.',
+    pattern_invalid: 'Revisa el patrón: días, horas y un descanso menor que el turno.', pattern_not_found: 'No encontramos ese patrón (o no está a tu cargo).',
+    pattern_ended: 'Ese patrón ya terminó.', pattern_employee_locked: 'Un patrón no se mueve a otro empleado.', range_invalid: 'El periodo es demasiado largo o no es válido.',
+    shift_not_found: 'No encontramos ese turno.', shift_started: 'Ese turno ya empezó: no se puede cambiar.', shift_change_invalid: 'Revisa las horas propuestas (futuras, máximo 24 horas).',
+    shift_change_pending: 'Ese turno ya tiene una solicitud pendiente.', shift_change_not_found: 'No encontramos esa solicitud (o no te corresponde decidirla).',
+    shift_change_not_pending: 'Esa solicitud ya fue decidida.', shift_changed: 'El turno cambió después de la solicitud: revísalo y decide de nuevo.',
+    rule_scope_invalid: 'Ese grupo o empleado no pertenece a la empresa.', rule_values_invalid: 'Algún valor está fuera de rango.',
+    rule_change_not_found: 'No encontramos ese cambio.', rule_change_not_pending: 'Ese cambio ya fue aplicado o descartado.',
+    rules_changed_since: 'Las reglas cambiaron después de esta propuesta. Descártala y propón de nuevo con los valores actuales.',
+    alert_action_invalid: 'Elige la acción tomada.', meal_alert_handled: 'Esa alerta ya fue atendida.',
   },
   en: {
     auth_required: 'Sign in to continue.', forbidden: 'Your role cannot do this.', invalid: 'Check the details.',
@@ -172,6 +246,20 @@ const MESSAGES: Record<Locale, Record<string, string>> = {
     kiosk_name_invalid: 'Write a name for the tablet (60 characters max).', kiosk_limit: 'Up to 20 active tablets per company.',
     kiosk_not_found: 'We could not find that tablet.', history_immutable: 'Attendance records and their history are never changed.',
     confirm: 'Tick the confirmation box.', save: 'The action could not be completed. Please try again.',
+    supervisor_invalid: 'The supervisor must be an active member of the company and not the employee.', employee_archived: 'The employee is archived: unarchive first.',
+    employee_active: 'Only an inactive or terminated employee can be archived.', employee_status_invalid: 'That status is not valid.',
+    reason_required: 'Write the reason (at least 3 characters).', document_path_invalid: 'The file does not belong to that employee.',
+    document_file_missing: 'The file was not uploaded. Try again.', document_not_found: 'We could not find that document.', document_archived: 'The document is archived.',
+    document_type: 'Only PDF or images (JPG, PNG, WEBP) up to 10 MB.',
+    pattern_invalid: 'Check the pattern: days, times and a break shorter than the shift.', pattern_not_found: 'We could not find that pattern (or it is not under you).',
+    pattern_ended: 'That pattern has ended.', pattern_employee_locked: 'A pattern cannot move to another employee.', range_invalid: 'The period is too long or not valid.',
+    shift_not_found: 'We could not find that shift.', shift_started: 'That shift already started: it cannot be changed.', shift_change_invalid: 'Check the proposed times (future, 24 hours at most).',
+    shift_change_pending: 'That shift already has a pending request.', shift_change_not_found: 'We could not find that request (or it is not yours to decide).',
+    shift_change_not_pending: 'That request was already decided.', shift_changed: 'The shift changed after the request: review it and decide again.',
+    rule_scope_invalid: 'That group or employee does not belong to the company.', rule_values_invalid: 'A value is out of range.',
+    rule_change_not_found: 'We could not find that change.', rule_change_not_pending: 'That change was already applied or discarded.',
+    rules_changed_since: 'The rules changed after this proposal. Discard it and propose again with the current values.',
+    alert_action_invalid: 'Choose the action taken.', meal_alert_handled: 'That alert was already handled.',
   },
 }
 

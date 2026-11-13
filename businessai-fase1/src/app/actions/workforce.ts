@@ -10,7 +10,7 @@ import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { getActiveMembership } from '@/lib/active-company'
 import { resolveAppOrigin } from '@/lib/app-origin'
-import { LEAVE_TYPES, PUNCH_KINDS, wfErrorCode, workforceRules, zonedToIso } from '@/lib/workforce/context'
+import { EMPLOYMENT_TYPES, LEAVE_TYPES, PUNCH_KINDS, wfErrorCode, workforceRules, zonedToIso } from '@/lib/workforce/context'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const text = (f: FormData, k: string) => String(f.get(k) ?? '').trim()
@@ -74,6 +74,10 @@ function employeeFields(f: FormData) {
     pay_type: text(f, 'pay_type') === 'salary' ? 'salary' : 'hourly',
     hourly_rate: rate && /^\d+(\.\d{1,2})?$/.test(rate) ? Number(rate) : null,
     notes: opt(f, 'notes', 2000),
+    // 0033: employment type, classification, direct supervisor (validated again by the database)
+    ...(f.has('employment_type') ? { employment_type: (EMPLOYMENT_TYPES as readonly string[]).includes(text(f, 'employment_type')) ? text(f, 'employment_type') : 'full_time' } : {}),
+    ...(f.has('classification') ? { classification: text(f, 'classification') === 'exempt' ? 'exempt' : 'non_exempt' } : {}),
+    ...(f.has('supervisor_user_id') ? { supervisor_user_id: UUID.test(text(f, 'supervisor_user_id')) ? text(f, 'supervisor_user_id') : null } : {}),
   }
 }
 
@@ -93,10 +97,9 @@ export async function updateEmployee(formData: FormData) {
   if (!UUID.test(id)) go('/workforce/employees', { error: 'employee_not_found' })
   const { supabase } = await session()
   const fields = employeeFields(formData)
-  const status = text(formData, 'status')
+  // the status changes only through set_employee_status (reason, plan limit, history): see workforce-hr.ts
   const update = {
     ...fields,
-    ...(['active', 'inactive', 'terminated'].includes(status) ? { status } : {}),
     termination_date: /^\d{4}-\d{2}-\d{2}$/.test(text(formData, 'termination_date')) ? text(formData, 'termination_date') : null,
     ...(formData.has('rule_set_id') ? { rule_set_id: UUID.test(text(formData, 'rule_set_id')) ? text(formData, 'rule_set_id') : null } : {}),
   }
@@ -256,35 +259,7 @@ export async function deleteShift(formData: FormData) {
   go(back, { done: 'shift_deleted' })
 }
 
-// ------------------------------------------------------------- settings
-export async function saveWorkforceSettings(formData: FormData) {
-  const { supabase, companyId } = await company()
-  const num = (k: string) => (text(formData, k) === '' ? null : Number(text(formData, k)))
-  const daily = num('daily_hours'); const weekly = num('weekly_hours')
-  const tz = text(formData, 'timezone')
-  let validTz = true
-  try { new Intl.DateTimeFormat('en-US', { timeZone: tz }) } catch { validTz = false }
-  if (!validTz) go('/workforce/settings', { error: 'invalid' })
-  const row = {
-    company_id: companyId, timezone: tz,
-    week_starts_on: Math.min(Math.max(Number(text(formData, 'week_starts_on') || 1), 0), 6),
-    daily_overtime_after_minutes: daily === null ? null : Math.round(daily * 60),
-    weekly_overtime_after_minutes: weekly === null ? null : Math.round(weekly * 60),
-    overtime_multiplier: Number(text(formData, 'overtime_multiplier') || 1.5),
-    grace_minutes: Number(text(formData, 'grace_minutes') || 5),
-    updated_at: new Date().toISOString(),
-    // Meal rules (0022): only sent when the form has them.
-    ...(formData.has('meal_after_hours') ? {
-      meal_break_after_minutes: num('meal_after_hours') === null ? null : Math.round(num('meal_after_hours')! * 60),
-      meal_break_min_minutes: num('meal_min_minutes'),
-      meal_alert_before_minutes: num('meal_alert_before') ?? 15,
-    } : {}),
-  }
-  const { error } = await supabase.from('workforce_settings').upsert(row, { onConflict: 'company_id' })
-  if (error) go('/workforce/settings', { error: wfErrorCode(error) })
-  refresh()
-  go('/workforce/settings', { done: 'saved' })
-}
+// ------------------------------------------------------------- settings (rules: proposals in workforce-hr.ts)
 
 export async function createDepartment(formData: FormData) {
   const { supabase, companyId } = await company()
@@ -384,14 +359,6 @@ export async function kioskPunch(formData: FormData) {
 }
 
 // ------------------------------------------------------------- rules per group, jurisdictions, meal alerts (0022)
-export async function applyJurisdiction(formData: FormData) {
-  const { supabase, companyId } = await company()
-  const set = text(formData, 'rule_set_id')
-  const { error } = await supabase.rpc('apply_jurisdiction_template', { target: companyId, code: text(formData, 'code'), rule_set: UUID.test(set) ? set : null })
-  if (error) go('/workforce/settings', { error: wfErrorCode(error) })
-  refresh()
-  go('/workforce/settings', { done: 'template' })
-}
 
 function ruleSetFields(f: FormData) {
   const n = (k: string) => (text(f, k) === '' ? null : Number(text(f, k)))
@@ -415,9 +382,8 @@ export async function saveRuleSet(formData: FormData) {
   const id = text(formData, 'id')
   const fields = ruleSetFields(formData)
   if (!fields.name) go('/workforce/settings', { error: 'invalid' })
-  const { error } = UUID.test(id)
-    ? await supabase.from('labor_rule_sets').update({ ...fields, updated_at: new Date().toISOString() }).eq('id', id)
-    : await supabase.from('labor_rule_sets').insert({ company_id: companyId, ...fields })
+  if (UUID.test(id)) go('/workforce/settings', { error: 'invalid' })   // existing groups: proposeGroupRules
+  const { error } = await supabase.from('labor_rule_sets').insert({ company_id: companyId, ...fields })
   if (error) go('/workforce/settings', { error: wfErrorCode(error) })
   refresh()
   go('/workforce/settings', { done: 'group' })

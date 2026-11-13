@@ -114,6 +114,7 @@ confirmación, otra persona o una propuesta caducada —30 min— se rechazan), 
 | `get_attendance_report` | plan `time_clock` + gestionar o supervisar | `buildReport` (reglas de la empresa) |
 | `get_income_statement` | accounting.view | `fs_income_statement` |
 | `get_bank_overview` | bank.view (saldo en libros solo con accounting.view) | `assistant_bank_summary` (0032) |
+| `get_workforce_status` | plan `time_clock` + gestionar o supervisar (departamento o reportes directos) | `workforce_now`, solicitudes, `meal_alerts`, `wf_missing_punches` (0033); solo conteos |
 | `list_studio_documents` | studio.view | `studio_documents` |
 | `propose_studio_draft` | studio.edit | `assistant_propose_action` → tras confirmar, `studio_save_document` |
 | `prepare_operation` | el permiso de la operación | solo devuelve un enlace |

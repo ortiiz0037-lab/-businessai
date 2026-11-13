@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getActiveMembership } from '@/lib/active-company'
 import { getLocale } from '@/lib/i18n/server'
-import { workforceAccess, workforceRules } from '@/lib/workforce/context'
+import { supervisesAnyone, workforceAccess, workforceRules } from '@/lib/workforce/context'
 import { buildReport, reportCsv } from '@/lib/workforce/report'
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/
@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
   const member = await getActiveMembership(supabase, user.id)
   if (!member) return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   const access = await workforceAccess(supabase, member.companyId, user.id)
-  if (!access.manages && access.supervisedDepartments.length === 0) return NextResponse.json({ error: 'forbidden' }, { status: 403 })
+  if (!supervisesAnyone(access)) return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   const sp = request.nextUrl.searchParams
   const from = sp.get('from') ?? ''; const to = sp.get('to') ?? ''
   if (!DAY.test(from) || !DAY.test(to) || to < from || Date.parse(to) - Date.parse(from) > 370 * 86_400_000) {

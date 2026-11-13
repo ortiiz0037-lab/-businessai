@@ -1,6 +1,7 @@
 /** Workforce app helpers: local times, next punches, error messages, CSV report. */
 import { describe, expect, it } from 'vitest'
-import { leaveLabel, localTime, nextPunches, punchLabel, stateLabel, wfErrorCode, wfMessage, zonedToIso } from '@/lib/workforce/context'
+import { leaveLabel, localTime, nextPunches, punchLabel, rulesFor, stateLabel, wfErrorCode, wfMessage, zonedToIso } from '@/lib/workforce/context'
+import { DEFAULT_RULES } from '@/lib/workforce/hours'
 import { reportCsv, type ReportRow } from '@/lib/workforce/report'
 
 describe('company time zone', () => {
@@ -56,11 +57,15 @@ describe('CSV export', () => {
     id: '1', name: 'Pérez, Ana', number: '7', department: 'Taller',
     totals: { workedMinutes: 2880, regularMinutes: 2400, overtimeMinutes: 480, breakMinutes: 300, scheduledMinutes: 2400, lateDays: 1, lateMinutes: 20, absences: 0, leaveDays: 0, openSessions: 0, reviewDays: 0, mealMissedDays: 0 },
     days: [{ day: '2026-11-09', firstIn: '2026-11-09T12:00:00Z', lastOut: '2026-11-09T21:00:00Z', workedMinutes: 480, breakMinutes: 60, regularMinutes: 480, overtimeMinutes: 0, scheduledMinutes: 480, lateMinutes: 0, absent: false, leave: null, openSession: false, needsReview: false, mealMissed: false }],
+    correctedPunches: 2, voidedPunches: 1,
   }
   it('summary per employee with Spanish headers', () => {
     const csv = reportCsv([row], false, 'es')
     expect(csv.split('\r\n')[0]).toContain('Empleado,Número,Departamento,Trabajado,Regular,Extra')
     expect(csv).toContain('"Pérez, Ana",7,Taller,48:00,40:00,8:00')
+    expect(csv.split('\r\n')[0]).toContain('Ponches corregidos,Ponches anulados')
+    expect(csv.split('\r\n')[1].endsWith(',2,1')).toBe(true)
+    expect(csv).toContain('No es una nómina oficial')
   })
   it('daily detail with English headers', () => {
     const csv = reportCsv([row], true, 'en')
@@ -79,5 +84,30 @@ describe('kiosk answers (0021)', () => {
   it('PIN errors in both languages', () => {
     expect(wfMessage('pin_too_simple', 'es')).toMatch(/1234/)
     expect(wfMessage('history_immutable', 'en')).toMatch(/never changed/)
+  })
+})
+
+describe('rules of one employee (0033): exceptions > classification > group > company', () => {
+  const company = { ...DEFAULT_RULES, mealAfterMinutes: 300, mealMinMinutes: 60 }
+  const group = { id: 'g', name: 'G', jurisdiction: null, exempt: false, daily_overtime_after_minutes: 600, weekly_overtime_after_minutes: 2400,
+    overtime_multiplier: 1.5, meal_break_after_minutes: 360, meal_break_min_minutes: 30, meal_alert_before_minutes: 15, archived_at: null }
+  it('a group replaces the company values; an archived group does not', () => {
+    expect(rulesFor(company, group).dailyOvertimeAfter).toBe(600)
+    expect(rulesFor(company, { ...group, archived_at: '2026-01-01' }).dailyOvertimeAfter).toBe(480)
+  })
+  it('an exempt classification exempts; an explicit exception wins', () => {
+    expect(rulesFor(company, null, null, 'exempt').exempt).toBe(true)
+    expect(rulesFor(company, null, { exempt: false }, 'exempt').exempt).toBe(false)
+  })
+  it('a present key replaces the value (null = does not apply); absent keys are inherited', () => {
+    const r = rulesFor(company, group, { daily_overtime_after_minutes: null, weekly_overtime_after_minutes: 2700 })
+    expect(r).toMatchObject({ dailyOvertimeAfter: null, weeklyOvertimeAfter: 2700, mealAfterMinutes: 360, mealMinMinutes: 30 })
+  })
+  it('new messages exist in both languages', () => {
+    for (const c of ['rules_changed_since', 'shift_change_pending', 'supervisor_invalid', 'employee_archived', 'document_file_missing', 'meal_alert_handled']) {
+      expect(wfMessage(c, 'es')).not.toBe(wfMessage('save', 'es'))
+      expect(wfMessage(c, 'en')).not.toBe(wfMessage(c, 'es'))
+    }
+    expect(wfErrorCode({ message: 'RULES_CHANGED_SINCE' })).toBe('rules_changed_since')
   })
 })

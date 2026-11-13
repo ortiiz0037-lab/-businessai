@@ -8,8 +8,9 @@ import { Brand } from '@/components/ui/brand'
 import { SubmitButton } from '@/components/submit-button'
 import { HtmlLang } from '@/components/html-lang'
 import { attendance, hhmm, localDay, weekStart, addDays } from '@/lib/workforce/hours'
-import { LEAVE_TYPES, leaveLabel, localTime, nextPunches, punchLabel, stateLabel, wfMessage, workforceRules } from '@/lib/workforce/context'
+import { LEAVE_TYPES, employeeRuleInputs, leaveLabel, localTime, nextPunches, punchLabel, ruleSets, rulesFor, stateLabel, wfLabel, wfMessage, workforceRules } from '@/lib/workforce/context'
 import { cancelCorrection, cancelLeave, punchAction, requestCorrection, requestLeave, setEmployeePin } from '@/app/actions/workforce'
+import { cancelShiftChange, requestShiftChange, saveEmployeeContact } from '@/app/actions/workforce-hr'
 import { signOut } from '@/app/actions/auth'
 
 export const dynamic = 'force-dynamic'
@@ -46,14 +47,18 @@ export default async function ClockPage({ searchParams }: { searchParams: Promis
     )
   }
 
-  const rules = await workforceRules(supabase, emp.company_id)
+  const companyRules = await workforceRules(supabase, emp.company_id)
+  // the employee's own rules: exceptions > classification > group > company (the employee may read its own group and exceptions)
+  const [sets, inputs, { data: grp }] = await Promise.all([ruleSets(supabase, emp.company_id), employeeRuleInputs(supabase, emp.company_id, [emp.id]),
+    supabase.from('employees').select('rule_set_id').eq('id', emp.id).maybeSingle()])
+  const rules = rulesFor(companyRules, sets.find((g) => g.id === (grp as { rule_set_id: string | null } | null)?.rule_set_id), inputs.overrides.get(emp.id), inputs.classification.get(emp.id))
   const now = new Date()
   const today = localDay(now, rules.timezone)
   const ws = weekStart(today, rules.weekStartsOn)
   const since = new Date(Date.parse(`${addDays(ws, -1)}T00:00:00Z`)).toISOString()
   const [{ data: punchData }, { data: shiftData }, { data: leaveData }, { data: corrData }, { data: company }] = await Promise.all([
     supabase.from('time_punches').select('id, kind, at, source, voided_at').eq('employee_id', emp.id).gte('at', since).order('at'),
-    supabase.from('work_shifts').select('starts_at, ends_at, break_minutes').eq('employee_id', emp.id).gte('ends_at', since).order('starts_at').limit(60),
+    supabase.from('work_shifts').select('id, starts_at, ends_at, break_minutes').eq('employee_id', emp.id).gte('ends_at', since).order('starts_at').limit(60),
     supabase.from('leave_requests').select('id, leave_type, starts_on, ends_on, partial_minutes, status, reason').eq('employee_id', emp.id).order('starts_on', { ascending: false }).limit(20),
     supabase.from('punch_corrections').select('id, action, kind, at, reason, status, requested_at, decision_note').eq('employee_id', emp.id).order('requested_at', { ascending: false }).limit(10),
     supabase.from('companies').select('name').eq('id', emp.company_id).maybeSingle(),
@@ -61,7 +66,19 @@ export default async function ClockPage({ searchParams }: { searchParams: Promis
   const punches = ((punchData ?? []) as P[]).filter((p) => !p.voided_at)
   const state = punches.at(-1)?.kind ?? 'out'
   const next = emp.status === 'active' ? nextPunches(state) : []
-  const shifts = (shiftData ?? []) as { starts_at: string; ends_at: string; break_minutes: number }[]
+  const shifts = (shiftData ?? []) as { id: string; starts_at: string; ends_at: string; break_minutes: number }[]
+  // 0033: own alerts, shift change requests, shared documents, own private contact
+  const [{ data: myAlerts }, { data: myChanges }, { data: myDocs }, { data: myContact }] = await Promise.all([
+    supabase.from('meal_alerts').select('id, kind, due_at, acknowledged_at, action_taken').eq('employee_id', emp.id).order('detected_at', { ascending: false }).limit(10),
+    supabase.from('shift_change_requests').select('id, shift_id, kind, old_starts_at, new_starts_at, new_ends_at, status, decision_note').eq('employee_id', emp.id).order('requested_at', { ascending: false }).limit(10),
+    supabase.from('employee_documents').select('id, title, category, created_at').eq('employee_id', emp.id).order('created_at', { ascending: false }),
+    supabase.from('employee_contacts').select('address, emergency_contact_name, emergency_contact_phone, emergency_contact_relation').eq('employee_id', emp.id).maybeSingle(),
+  ])
+  const alerts = (myAlerts ?? []) as { id: string; kind: string; due_at: string; acknowledged_at: string | null; action_taken: string | null }[]
+  const changes = (myChanges ?? []) as { id: string; shift_id: string | null; kind: string; old_starts_at: string; new_starts_at: string | null; new_ends_at: string | null; status: string; decision_note: string | null }[]
+  const docs = (myDocs ?? []) as { id: string; title: string; category: string; created_at: string }[]
+  const contact = (myContact ?? null) as { address: string | null; emergency_contact_name: string | null; emergency_contact_phone: string | null; emergency_contact_relation: string | null } | null
+  const pendingShift = new Set(changes.filter((c) => c.status === 'pending' && c.shift_id).map((c) => c.shift_id as string))
   const leaves = (leaveData ?? []) as { id: string; leave_type: string; starts_on: string; ends_on: string; partial_minutes: number | null; status: string; reason: string | null }[]
   const week = attendance({ punches, shifts, leaves: leaves.filter((l) => l.status === 'approved'), rules, from: ws, to: addDays(ws, 6), now })
   const todayRow = week.days.find((d) => d.day === today)
@@ -75,7 +92,8 @@ export default async function ClockPage({ searchParams }: { searchParams: Promis
     punch_break_start: tr('Descanso iniciado.', 'Break started.'), punch_break_end: tr('Descanso terminado.', 'Break ended.'),
     correction_requested: tr('Corrección enviada a tu supervisor.', 'Correction sent to your supervisor.'),
     leave_requested: tr('Solicitud enviada a tu supervisor.', 'Request sent to your supervisor.'),
-    cancelled: tr('Solicitud cancelada.', 'Request cancelled.'), pin_set: tr('Tu PIN quedó guardado.', 'Your PIN was saved.'), linked: tr('Tu cuenta quedó vinculada. Ya puedes ponchar.', 'Your account is linked. You can punch now.'),
+    cancelled: tr('Solicitud cancelada.', 'Request cancelled.'), pin_set: tr('Tu PIN quedó guardado.', 'Your PIN was saved.'),
+    shift_change_requested: tr('Solicitud de cambio de turno enviada a tu supervisor.', 'Shift change request sent to your supervisor.'), contact_saved: tr('Contacto de emergencia guardado.', 'Emergency contact saved.'), linked: tr('Tu cuenta quedó vinculada. Ya puedes ponchar.', 'Your account is linked. You can punch now.'),
   }
   const big: Record<string, string> = { in: 'btn-accent', out: 'btn-danger', break_start: 'btn-secondary', break_end: 'btn-primary' }
 
@@ -152,12 +170,91 @@ export default async function ClockPage({ searchParams }: { searchParams: Promis
       {upcoming.length > 0 && (
         <section className="card p-5" aria-labelledby="sched-title">
           <h2 id="sched-title" className="font-display text-lg font-semibold text-fg">{tr('Próximos turnos', 'Upcoming shifts')}</h2>
-          <ul className="mt-2 space-y-1 text-sm text-slate-300">
-            {upcoming.map((s) => <li key={s.starts_at}>{f.date(localDay(s.starts_at, rules.timezone))} · {localTime(s.starts_at, rules.timezone, locale)}–{localTime(s.ends_at, rules.timezone, locale)}</li>)}
+          <ul className="mt-2 divide-y divide-line text-sm text-slate-300">
+            {upcoming.map((s) => (
+              <li key={s.id} className="py-2">
+                <p>{f.date(localDay(s.starts_at, rules.timezone))} · {localTime(s.starts_at, rules.timezone, locale)}–{localTime(s.ends_at, rules.timezone, locale)}</p>
+                {Date.parse(s.starts_at) > now.getTime() && (pendingShift.has(s.id)
+                  ? <p className="text-xs text-warning">{tr('Cambio solicitado: pendiente de tu supervisor.', 'Change requested: pending your supervisor.')}</p>
+                  : (
+                    <details className="mt-1">
+                      <summary className="cursor-pointer text-xs text-blue-400">{tr('Pedir un cambio de este turno', 'Request a change to this shift')}</summary>
+                      <form action={requestShiftChange} className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        <input type="hidden" name="shift_id" value={s.id} /><input type="hidden" name="back" value={back} />
+                        <label className="field-label col-span-2 sm:col-span-1">{tr('Pedido', 'Request')}
+                          <select name="kind" className="field mt-1"><option value="change">{tr('Cambiar horas', 'Change times')}</option><option value="drop">{tr('Quitar el turno', 'Drop the shift')}</option></select></label>
+                        <label className="field-label">{tr('Día', 'Day')}<input name="day" type="date" defaultValue={localDay(s.starts_at, rules.timezone)} className="field mt-1" /></label>
+                        <label className="field-label">{tr('Desde', 'From')}<input name="start" type="time" className="field mt-1" /></label>
+                        <label className="field-label">{tr('Hasta', 'To')}<input name="end" type="time" className="field mt-1" /></label>
+                        <label className="field-label col-span-2 sm:col-span-3">{tr('Motivo *', 'Reason *')}<input name="reason" required minLength={3} maxLength={300} className="field mt-1" /></label>
+                        <div className="col-span-2 flex items-end sm:col-span-1"><SubmitButton pendingLabel="…" className="w-auto">{tr('Enviar', 'Send')}</SubmitButton></div>
+                      </form>
+                    </details>
+                  ))}
+              </li>
+            ))}
           </ul>
         </section>
       )}
 
+
+      {(alerts.length > 0 || changes.length > 0) && (
+        <div className="grid gap-5 md:grid-cols-2">
+          <section className="card p-5" aria-labelledby="my-alerts-title" data-testid="my-alerts">
+            <h2 id="my-alerts-title" className="font-display text-lg font-semibold text-fg">{tr('Mis alertas de comida', 'My meal alerts')}</h2>
+            <ul className="mt-2 divide-y divide-line text-sm">
+              {alerts.length === 0 && <li className="py-2 text-muted">{tr('Sin alertas.', 'No alerts.')}</li>}
+              {alerts.map((a) => (
+                <li key={a.id} className="py-2 text-slate-300">
+                  <span className={a.kind === 'missed' ? 'badge-danger' : 'badge-warning'}>{a.kind === 'missed' ? tr('Incumplido', 'Missed') : tr('Se aproxima', 'Approaching')}</span>{' '}
+                  {tr('comida antes de las', 'meal due by')} {localTime(a.due_at, rules.timezone, locale)} · {f.date(localDay(a.due_at, rules.timezone))}
+                  {a.acknowledged_at && <span className="text-xs text-muted"> · {tr('atendida', 'handled')}{a.action_taken ? `: ${wfLabel(a.action_taken, locale)}` : ''}</span>}
+                </li>
+              ))}
+            </ul>
+          </section>
+          <section className="card p-5" aria-labelledby="my-changes-title" data-testid="my-shift-changes">
+            <h2 id="my-changes-title" className="font-display text-lg font-semibold text-fg">{tr('Mis cambios de turno', 'My shift changes')}</h2>
+            <ul className="mt-2 divide-y divide-line text-sm">
+              {changes.length === 0 && <li className="py-2 text-muted">{tr('Sin solicitudes.', 'No requests.')}</li>}
+              {changes.map((c) => (
+                <li key={c.id} className="flex items-center justify-between gap-2 py-2">
+                  <span className="text-slate-300">{c.kind === 'drop' ? tr('Quitar', 'Drop') : tr('Cambiar', 'Change')} · {f.date(localDay(c.old_starts_at, rules.timezone))} {localTime(c.old_starts_at, rules.timezone, locale)}
+                    {c.new_starts_at && c.new_ends_at ? ` → ${localTime(c.new_starts_at, rules.timezone, locale)}–${localTime(c.new_ends_at, rules.timezone, locale)}` : ''} · <span className="text-muted">{statusText(c.status)}</span>
+                    {c.decision_note && <span className="block text-xs text-muted">“{c.decision_note}”</span>}</span>
+                  {c.status === 'pending' && (
+                    <form action={cancelShiftChange}><input type="hidden" name="id" value={c.id} /><input type="hidden" name="back" value={back} />
+                      <button type="submit" className="btn-secondary btn-sm">{tr('Cancelar', 'Cancel')}</button></form>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+        </div>
+      )}
+
+      <div className="grid gap-5 md:grid-cols-2">
+        <section className="card p-5" aria-labelledby="my-docs-title" data-testid="my-documents">
+          <h2 id="my-docs-title" className="font-display text-lg font-semibold text-fg">{tr('Mis documentos', 'My documents')}</h2>
+          <p className="mt-1 text-xs text-muted">{tr('Documentos laborales que tu empresa compartió contigo.', 'Labor documents your company shared with you.')}</p>
+          <ul className="mt-2 divide-y divide-line text-sm">
+            {docs.length === 0 && <li className="py-2 text-muted">{tr('No hay documentos compartidos.', 'No shared documents.')}</li>}
+            {docs.map((d) => <li key={d.id} className="py-2"><a href={`/api/workforce/documents/${d.id}`} className="font-semibold text-fg hover:text-blue-400">{d.title}</a> <span className="text-xs text-muted">· {wfLabel(d.category, locale)}</span></li>)}
+          </ul>
+        </section>
+        <details className="card p-5" data-testid="my-contact">
+          <summary className="cursor-pointer font-display text-lg font-semibold text-fg">{tr('Mi contacto de emergencia', 'My emergency contact')}</summary>
+          <p className="mt-2 text-xs text-muted">{tr('Solo lo ven tú y los administradores de la empresa.', 'Only you and the company admins see it.')}</p>
+          <form action={saveEmployeeContact} className="mt-3 grid gap-2 sm:grid-cols-2">
+            <input type="hidden" name="employee_id" value={emp.id} /><input type="hidden" name="back" value={back} />
+            <label className="field-label sm:col-span-2">{tr('Dirección', 'Address')}<input name="address" maxLength={300} defaultValue={contact?.address ?? ''} className="field mt-1" /></label>
+            <label className="field-label">{tr('Nombre', 'Name')}<input name="emergency_contact_name" maxLength={120} defaultValue={contact?.emergency_contact_name ?? ''} className="field mt-1" /></label>
+            <label className="field-label">{tr('Teléfono', 'Phone')}<input name="emergency_contact_phone" maxLength={40} defaultValue={contact?.emergency_contact_phone ?? ''} className="field mt-1" /></label>
+            <label className="field-label">{tr('Relación', 'Relationship')}<input name="emergency_contact_relation" maxLength={60} defaultValue={contact?.emergency_contact_relation ?? ''} className="field mt-1" /></label>
+            <div className="flex items-end"><SubmitButton pendingLabel="…" className="w-auto">{tr('Guardar', 'Save')}</SubmitButton></div>
+          </form>
+        </details>
+      </div>
       <div className="grid gap-5 md:grid-cols-2">
         <section className="card p-5" aria-labelledby="corr-title">
           <h2 id="corr-title" className="font-display text-lg font-semibold text-fg">{tr('Corregir un ponche', 'Correct a punch')}</h2>
@@ -209,6 +306,7 @@ export default async function ClockPage({ searchParams }: { searchParams: Promis
             </div>
             <label className="field-label">{tr('Horas (solo si es parte de un día)', 'Hours (only for part of a day)')}<input name="hours" inputMode="decimal" className="field mt-1" placeholder="2" /></label>
             <label className="field-label">{tr('Motivo', 'Reason')}<input name="reason" maxLength={300} className="field mt-1" /></label>
+            <p className="text-xs text-muted">{tr('No escribas diagnósticos ni información médica: basta con el tipo de ausencia.', 'Do not write diagnoses or medical information: the type of leave is enough.')}</p>
             <SubmitButton pendingLabel={tr('Enviando…', 'Sending…')}>{tr('Solicitar', 'Request')}</SubmitButton>
           </form>
           {leaves.length > 0 && (

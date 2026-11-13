@@ -1,0 +1,14 @@
+-- PREPARED, NOT APPLIED. Requires migration 0033 and the owner's explicit
+-- authorization to enable Supabase Cron (pg_cron) on the project.
+-- Evaluates meal / break alerts for every open session every 5 minutes, so an
+-- "approaching" or "missed" alert exists even when nobody has the live panel
+-- open. It only records alerts (no emails, no push): showing them is the app's job.
+--
+--   create extension if not exists pg_cron;     -- Dashboard → Database → Extensions
+--   select cron.schedule('ba_wf_meal_sweep', '*/5 * * * *', $$select public.wf_meal_sweep()$$);
+--
+-- To stop it:
+--   select cron.unschedule('ba_wf_meal_sweep');
+--
+-- Tested locally by calling public.wf_meal_sweep() directly
+-- (supabase/tests/local/102_workforce_hr.test.sql).

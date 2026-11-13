@@ -21,7 +21,9 @@ end $$;
 
 insert into auth.users (id, email) values
   ('e1000000-0000-4000-8000-000000000001', 'owner@e2e.local'), ('e1000000-0000-4000-8000-000000000002', 'admin@e2e.local'),
-  ('e1000000-0000-4000-8000-000000000003', 'member@e2e.local'), ('e1000000-0000-4000-8000-000000000004', 'other@e2e.local');
+  ('e1000000-0000-4000-8000-000000000003', 'member@e2e.local'), ('e1000000-0000-4000-8000-000000000004', 'other@e2e.local'),
+  -- an employee account (not a company member): the Workforce browser test links it through the employee access link
+  ('e1000000-0000-4000-8000-000000000009', 'worker@e2e.local');
 insert into public.companies (id, name, created_by) values
   ('e2000000-0000-4000-8000-000000000001', 'Finanzas E2E', 'e1000000-0000-4000-8000-000000000001'),
   ('e2000000-0000-4000-8000-000000000002', 'Otra Empresa E2E', 'e1000000-0000-4000-8000-000000000004');
