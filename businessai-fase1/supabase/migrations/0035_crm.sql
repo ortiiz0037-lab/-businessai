@@ -742,6 +742,9 @@ begin
     if idem is null then raise exception 'CRM_IDEMPOTENCY_REQUIRED' using errcode = 'P0001'; end if;
     select x.id into oid from public.crm_opportunities x where x.company_id = target and x.idempotency_key = idem;
     if oid is not null then return oid; end if;                      -- the same submission again
+    if exists (select 1 from public.clients c where c.id = client and c.archived_at is not null) then
+      raise exception 'CLIENT_ARCHIVED' using errcode = 'P0001';    -- like documents (0019): history kept, nothing new
+    end if;
     select * into s from public.crm_pipeline_stages x where x.company_id = target and x.active and x.outcome = 'open'
       and (x.id = stage or (stage is null and x.key = 'new')) order by x.position limit 1;
     if s.id is null then raise exception 'CRM_STAGE_NOT_FOUND' using errcode = 'P0001'; end if;

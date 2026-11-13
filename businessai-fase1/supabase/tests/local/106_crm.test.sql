@@ -225,6 +225,8 @@ do $$ declare q uuid; qd uuid; inv uuid; inv2 uuid; ji integer; e text; dB uuid;
   perform at.err('owner', format('update public.documents set status = ''sent'' where id = %L', qd));
   perform at.err('owner', format('update public.documents set status = ''accepted'' where id = %L', qd));
   perform at.ok(at.err('owner', format('select public.crm_convert_quote(%L, null, current_date + 30, gen_random_uuid())', qd)) like '%CLIENT_ARCHIVED%', 'an archived client receives no new invoice');
+  perform at.ok(at.err('member', format('select public.crm_save_opportunity(%L, null, %L, null, ''Nueva'', null, 1, null, null, null, null, null, null, null, gen_random_uuid())', at.id('A'), at.id('c2'))) like '%CLIENT_ARCHIVED%',
+    'an archived client receives no new opportunity');
   perform at.ok(at.n('owner', format('select count(*) from public.documents where client_id = %L', at.id('c2'))) = 1
             and at.n('owner', format('select count(*) from public.crm_opportunities where client_id = %L', at.id('c2'))) = 2, 'an archived client keeps its documents and opportunities');
   perform at.ok(at.err('owner', format('delete from public.clients where id = %L', at.id('c1'))) <> '', 'a client with history is never deleted');

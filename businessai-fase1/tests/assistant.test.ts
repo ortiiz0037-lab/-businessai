@@ -222,6 +222,21 @@ describe('tool registry', () => {
     for (const n of ['list_invoices', 'list_bills', 'get_budget_status', 'get_income_statement', 'list_employees', 'get_attendance_report']) expect(member).not.toContain(n)
     expect(toolsFor({ ...OWNER, features: { employees: true, timeClock: false } }).map((t) => t.name)).not.toContain('get_attendance_report')
   })
+  it('CRM tools (0035): reads with crm.view, proposals only with crm.manage, never offered without the CRM', () => {
+    const crmTools = ['get_crm_pipeline', 'list_opportunities', 'list_crm_followups', 'propose_crm_activity']
+    expect(toolsFor(MEMBER).map((t) => t.name).filter((n) => crmTools.includes(n))).toEqual([])
+    const viewer = toolsFor({ ...MEMBER, perms: { ...MEMBER.perms, 'crm.view': true } }).map((t) => t.name)
+    expect(viewer).toEqual(expect.arrayContaining(['get_crm_pipeline', 'list_opportunities', 'list_crm_followups']))
+    expect(viewer).not.toContain('propose_crm_activity')
+    expect(toolsFor({ ...MEMBER, perms: { ...MEMBER.perms, 'crm.view': true, 'crm.manage': true } }).map((t) => t.name)).toContain('propose_crm_activity')
+    const prop = findTool('propose_crm_activity')!
+    const client = '7d6c2b1a-1111-4222-8333-444455556666'
+    expect(prop.schema.safeParse({ kind: 'task', subject: 'Llamar', client_id: client, due_date: '2026-11-20' }).success).toBe(true)
+    expect(prop.schema.safeParse({ kind: 'email', subject: 'x', client_id: client }).success).toBe(false)          // no emails: only notes and tasks
+    expect(prop.schema.safeParse({ kind: 'note', subject: 'x', client_id: client, company_id: client }).success).toBe(false)
+    expect(prop.schema.safeParse({ kind: 'task', subject: 'x', client_id: client, due_date: '20/11/2026' }).success).toBe(false)
+    expect(findTool('list_opportunities')!.schema.safeParse({ status: 'archived' }).success).toBe(false)
+  })
   it('inputs are validated (extra fields, wrong types, bad dates are refused)', () => {
     const inv = findTool('list_invoices')!
     expect(inv.schema.safeParse({ status: 'open' }).success).toBe(true)
