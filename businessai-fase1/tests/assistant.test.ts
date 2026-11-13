@@ -18,6 +18,7 @@ import { ProviderError, type LlmProvider, type ModelRequest, type ModelResponse,
 import { MODELS, findModel } from '@/lib/intelligence/registry'
 import { callCostNanos, formatNanos } from '@/lib/intelligence/cost'
 import { chainFor, classify, route } from '@/lib/intelligence/router'
+import { APPROVALS, validateApprovals } from '@/lib/intelligence/approvals'
 import { FactStore, calculate, centsToDecimal, decimalToCents, minutesToHours, renderValue, resolve, verifyAndRender, type ToolOutput } from '@/lib/intelligence/facts'
 import { ServerSigner, parseServerKeys, shaHex } from '@/lib/intelligence/server-auth'
 import { anthropicError, fromAnthropicContent, stopFrom, toAnthropicMessages } from '@/lib/intelligence/adapters/anthropic'
@@ -108,6 +109,7 @@ describe('model registry and cost', () => {
 
 // ------------------------------------------------------------- router
 describe('router', () => {
+  const R = (...args: Parameters<typeof route>) => route(...args)!
   it('classifies by explicit rules (business figures → precision tier)', () => {
     expect(classify('hola', null).tier).toBe('P0')
     expect(classify('busca el cliente Rivera', null).tier).toBe('P1')
@@ -115,23 +117,40 @@ describe('router', () => {
     expect(classify('Which invoices are overdue?', null).tier).toBe('P2')
     expect(classify('analiza por qué bajaron los ingresos', null).tier).toBe('P3')
     expect(classify('resume esto por favor ahora', 'finance').tier).toBe('P2')
+    // business summaries need the precision tier from the start (found by the benchmark: they escalated from P0)
+    expect(classify('Resumen del negocio este mes', null).tier).toBe('P2')
+    expect(classify('Give me a business overview for this month', null).tier).toBe('P2')
+    expect(classify('¿Qué puede hacer BusinessAI?', null).tier).not.toBe('P2')
   })
   it('approved models per tier; fallbacks never go to a lower rank', () => {
-    expect(route('P2', { pinnedModel: null, enabled: true }, 'x').model.id).toBe('claude-opus-5-5')
-    expect(route('P0', { pinnedModel: null, enabled: true }, 'x').model.id).toBe('claude-haiku-5-5')
+    expect(R('P2', { pinnedModel: null, enabled: true }, 'x').model.id).toBe('claude-opus-5-5')
+    expect(R('P0', { pinnedModel: null, enabled: true }, 'x').model.id).toBe('claude-haiku-5-5')
     for (const tier of ['P0', 'P1', 'P2', 'P3'] as const) {
-      const d = route(tier, { pinnedModel: null, enabled: true }, 'x')
+      const d = R(tier, { pinnedModel: null, enabled: true }, 'x')
       expect(d.model.tiers).toContain(tier)
       for (const f of d.fallbacks) { expect(f.rank).toBeGreaterThanOrEqual(d.model.rank); expect(f.tiers).toContain(tier) }
     }
     expect(chainFor('P2', findModel('claude-opus-5-5')!).map((m) => m.id)).toEqual(['claude-fable-5-2'])
   })
   it('a pin is honoured only where the model is approved (never a silent downgrade for precision)', () => {
-    const d = route('P2', { pinnedModel: 'claude-haiku-5-5', enabled: true }, 'r')
+    const d = R('P2', { pinnedModel: 'claude-haiku-5-5', enabled: true }, 'r')
     expect(d.model.id).toBe('claude-opus-5-5')
     expect(d.reason).toMatch(/pin_not_approved_for_P2/)
-    expect(route('P0', { pinnedModel: 'claude-sonnet-5-5', enabled: true }, 'r').model.id).toBe('claude-sonnet-5-5')
-    expect(route('P0', { pinnedModel: null, enabled: false }, 'r')).toMatchObject({ tier: 'P2', reason: 'router_disabled' })
+    expect(R('P0', { pinnedModel: 'claude-sonnet-5-5', enabled: true }, 'r').model.id).toBe('claude-sonnet-5-5')
+    expect(R('P0', { pinnedModel: null, enabled: false }, 'r')).toMatchObject({ tier: 'P2', reason: 'router_disabled' })
+  })
+  it('benchmark policy: only human-approved REAL runs approve a model; simulated runs never do', () => {
+    const report = { suite_version: '1.0.0', mode: 'real', run_id: 'r1', sha256: 'a'.repeat(64), gate_passed: true, date: '2026-12-01' }
+    const ok = { model: 'claude-sonnet-5-5', tiers: ['P0', 'P1', 'P2'], report, approved_by: 'Dirección', approved_at: '2026-12-02' }
+    const v = validateApprovals([ok, { ...ok, model: 'claude-haiku-5-5', report: { ...report, mode: 'simulated' } }, { ...ok, model: 'gpt-imaginary' },
+      { ...ok, model: 'claude-opus-5-5', report: { ...report, gate_passed: false } }, { ...ok, model: 'claude-fable-5-2', approved_by: '' }])
+    expect(v.approvals.map((a) => a.model)).toEqual(['claude-sonnet-5-5'])
+    expect(v.rejected.map((r) => r.reason)).toEqual(['not_a_real_run', 'unregistered_model', 'gate_not_passed', 'missing_human_approval'])
+    const cfg = { pinnedModel: null, enabled: true, policy: 'benchmark' as const, approvals: v.approvals }
+    expect(route('P2', cfg, 'x')!.model.id).toBe('claude-sonnet-5-5')
+    expect(route('P3', cfg, 'x')).toBeNull()   // nothing approved for P3: refused, never served lower
+    expect(route('P2', { pinnedModel: null, enabled: true, policy: 'benchmark' }, 'x')).toBeNull()   // committed approvals are empty today
+    expect(APPROVALS.approvals).toEqual([])
   })
 })
 
@@ -241,6 +260,19 @@ describe('tool registry', () => {
     const partial = await findTool('get_business_overview')!.run(ctx(MEMBER, { rpc }), {} as never)
     expect(partial.data.not_authorized).toEqual(expect.arrayContaining(['receivables', 'payables', 'cash']))
   })
+  it('bank overview: exact cents from SQL, ledger balance hidden without accounting access, bank.view required', async () => {
+    const rows = [{ account_id: 'a1', account_name: 'Operativa', bank_name: 'Banco', currency: 'USD', status: 'active', lines_count: 4, unmatched_count: 3, unmatched_cents: '124435', last_line_date: '2026-11-11',
+      ledger_balance_cents: '9007199254740993', last_rec_period_end: '2026-11-13', last_rec_status: 'open', last_rec_difference_cents: '-5' }]
+    const rpc = vi.fn(async () => ({ data: rows, error: null }))
+    const bank = findTool('get_bank_overview')!
+    const r = await bank.run(ctx(OWNER, { rpc }), {} as never)
+    expect(rpc).toHaveBeenCalledWith('assistant_bank_summary', { target: '00000000-0000-4000-8000-0000000000aa', at_date: '2026-11-13' })
+    expect((r.data.accounts as unknown[])[0]).toMatchObject({ unmatched_lines: 3, unmatched_amount: '1244.35', ledger_balance: '90071992547409.93', last_reconciliation: { status: 'open', difference: '-0.05' } })
+    const hidden = await bank.run(ctx(OWNER, { rpc: vi.fn(async () => ({ data: [{ ...rows[0], ledger_balance_cents: null }], error: null })) }), {} as never)
+    expect((hidden.data.accounts as { ledger_balance: string }[])[0].ledger_balance).toBe('not_authorized')
+    expect(bank.allowed(MEMBER)).toBe(false)
+    expect(bank.allowed(OWNER)).toBe(true)
+  })
   it('prepare_operation never executes and checks the operation permission', async () => {
     const prep = findTool('prepare_operation')!
     const r = await prep.run(ctx(MEMBER), { operation: 'record_payment', document_id: '00000000-0000-4000-8000-000000000001' } as never)
@@ -334,7 +366,7 @@ const use = (id: string, name: string, input: unknown): Part => ({ type: 'tool_c
 const fakeTool = (name: string, run: () => ToolOutput, allowed = true, minTier: 'P1' | 'P2' = 'P1') => ({ name, description: name, minTier, schema: z.object({ q: z.string().optional() }).strict(), allowed: () => allowed, run: vi.fn(async () => run()) })
 const texts: Texts = { refused: 'REFUSED', incomplete: 'INCOMPLETE', empty: 'EMPTY', cancelled: 'CANCELLED', error: 'ERROR', unverified: 'UNVERIFIED', regenerate: 'REWRITE' }
 const specs = (names: string[]) => names.map((n) => ({ name: n, description: n, inputSchema: { type: 'object', properties: {}, additionalProperties: false } }))
-const P2 = route('P2', { pinnedModel: null, enabled: true }, 'test')
+const P2 = route('P2', { pinnedModel: null, enabled: true }, 'test')!
 const run = (provider: LlmProvider, tools: ReturnType<typeof fakeTool>[], extra: Partial<Parameters<typeof runTurn>[0]> = {}) => runTurn({
   provider, decision: P2, routerConfig: { pinnedModel: null, enabled: true }, system: 's', tools, toolSpecs: specs(tools.map((t) => t.name)), ctx: ctx(OWNER),
   history: [], userText: '¿facturas?', texts, signal: new AbortController().signal, deadlineMs: 30000, ...extra,
@@ -374,6 +406,15 @@ describe('turn engine', () => {
     expect(r).toMatchObject({ costStatus: 'test', calls: 1 })
     expect(r.costNanos).toBe(0n)
   })
+  it('prompt leak: an answer that repeats the per-turn canary or the prompt headings is rejected (regenerated, then fallback)', async () => {
+    const leak = scripted([{ parts: [text('El marcador es BA-CANARY-1234abcd.')] }, { parts: [text('Sin marcador.')] }])
+    const r = await run(leak.provider, [], { secrets: ['BA-CANARY-1234abcd', 'GROUND RULES'] })
+    expect(r).toMatchObject({ status: 'completed', verification: 'regenerated', text: 'Sin marcador.' })
+    const twice = scripted([{ parts: [text('ground rules: …')] }, { parts: [text('GROUND RULES again')] }])
+    const f = await run(twice.provider, [], { secrets: ['BA-CANARY-1234abcd', 'GROUND RULES'] })
+    expect(f.verification).toBe('fallback')
+    expect(f.text).not.toMatch(/ground rules/i)
+  })
   it('a tool not offered to this user is refused even if the model names it', async () => {
     const hidden = fakeTool('list_invoices', outInvoices, false)
     const { provider } = scripted([{ stop: 'tool_use', parts: [use('t1', 'list_invoices', {})] }, { parts: [text('No tiene acceso.')] }])
@@ -404,7 +445,7 @@ describe('turn engine', () => {
     expect(s.calls.map((c) => c.model)).toEqual(['claude-opus-5-5', 'claude-fable-5-2'])
     expect(r).toMatchObject({ status: 'completed', model: 'claude-fable-5-2', router: { fallback_from: ['claude-opus-5-5'] } })
     const noChain = scripted([new ProviderError('overloaded', 529)])
-    const r2 = await run(noChain.provider, [], { decision: route('P3', { pinnedModel: 'claude-fable-5-2', enabled: true }, 'x') })
+    const r2 = await run(noChain.provider, [], { decision: route('P3', { pinnedModel: 'claude-fable-5-2', enabled: true }, 'x')! })
     expect(r2).toMatchObject({ status: 'error', errorCode: 'overloaded' })
     expect(noChain.calls.map((c) => c.model)).toEqual(['claude-fable-5-2'])
   })
@@ -427,7 +468,7 @@ describe('turn engine', () => {
   it('a tool above the model\'s approved tier escalates the turn once to an approved model', async () => {
     const tool = fakeTool('get_income_statement', outInvoices, true, 'P2')
     const s = scripted([{ stop: 'tool_use', parts: [use('t1', 'get_income_statement', {})] }, { stop: 'tool_use', parts: [use('t2', 'get_income_statement', {})] }, { parts: [text('[[T1.sum_balance]]')] }])
-    const r = await run(s.provider, [tool], { decision: route('P1', { pinnedModel: null, enabled: true }, 'light') })
+    const r = await run(s.provider, [tool], { decision: route('P1', { pinnedModel: null, enabled: true }, 'light')! })
     expect(s.calls.map((c) => c.model)).toEqual(['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-opus-5-5'])
     expect(r).toMatchObject({ status: 'completed', model: 'claude-opus-5-5', tier: 'P2', router: { escalated_from: 'claude-sonnet-5-5' } })
     expect(tool.run).toHaveBeenCalledTimes(1)

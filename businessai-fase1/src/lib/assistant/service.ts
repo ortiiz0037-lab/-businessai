@@ -24,7 +24,8 @@ import { formatNanos } from '@/lib/intelligence/cost'
 import type { LlmProvider } from '@/lib/intelligence/types'
 import { loadAccess, toolsFor, TOOLS, type ToolContext } from '@/lib/assistant/tools'
 import { runTurn, type HistoryItem, type TraceEntry, type TurnResult } from '@/lib/assistant/engine'
-import { screenFromPath, systemPrompt, titleFrom } from '@/lib/assistant/prompt'
+import { PROMPT_MARKERS, screenFromPath, systemPrompt, titleFrom } from '@/lib/assistant/prompt'
+import { randomUUID } from 'node:crypto'
 import { COPY } from '@/lib/assistant/copy'
 import { KINDS, type Kind } from '@/lib/studio/model'
 import { createAssistantDraft } from '@/lib/studio/draft'
@@ -37,7 +38,7 @@ export type AssistantStatus = { configured: boolean; reason: string | null; allo
 
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Puerto_Rico', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
 
-type Session = { supabase: SupabaseClient; user: User; member: MembershipOption; locale: Locale }
+export type Session = { supabase: SupabaseClient; user: Pick<User, 'id'>; member: Pick<MembershipOption, 'companyId' | 'role' | 'companyName'>; locale: Locale }
 async function session(): Promise<Session | null> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -46,7 +47,7 @@ async function session(): Promise<Session | null> {
   if (!member) return null
   return { supabase, user, member, locale: await getLocale() }
 }
-const signerFor = (cfg: AssistantConfig, user: User) => (cfg.configured ? new ServerSigner(cfg.serverKeys[0], user.id) : null)
+const signerFor = (cfg: AssistantConfig, user: Pick<User, 'id'>) => (cfg.configured ? new ServerSigner(cfg.serverKeys[0], user.id) : null)
 
 /** Usable now? (configuration, server key registered in the database, plan, quota, budget) */
 export async function assistantStatus(): Promise<AssistantStatus | null> {
@@ -112,13 +113,29 @@ export async function streamTurn(raw: unknown, emit: (e: StreamEvent) => void, s
   if (!parsed.success) return emit({ type: 'error', error: 'invalid' })
   const s = await session()
   if (!s) return emit({ type: 'error', error: 'forbidden' })
-  const { supabase, member, user, locale } = s
-  const t = COPY[locale]
   const cfg = readAssistantConfig()
   if (!cfg.configured) return emit({ type: 'error', error: 'not_configured', reason: cfg.reason })
+  return runSignedTurn(s, cfg, parsed.data, emit, signal, providerOverride)
+}
+
+/**
+ * The signed turn itself (begin → engine → finish), with an already verified
+ * session. Exported so the benchmark (bench/) runs exactly the production
+ * path, only with a different session source and the local provider double.
+ */
+export async function runSignedTurn(s: Session, cfg: Extract<AssistantConfig, { configured: true }>, input: z.infer<typeof SendInput>,
+  emit: (e: StreamEvent) => void, signal: AbortSignal, providerOverride?: LlmProvider): Promise<void> {
+  const { supabase, member, user, locale } = s
+  const t = COPY[locale]
   const signer = signerFor(cfg, user)!
-  const { conversationId: existing, text, screen: screenPath } = parsed.data
+  const { conversationId: existing, text, screen: screenPath } = input
   const screen = screenFromPath(screenPath)
+
+  // 0) routing first: without a model approved for the request nothing starts (no quota consumed)
+  const routerConfig = { pinnedModel: cfg.pinnedModel, enabled: cfg.routerEnabled, policy: cfg.routerPolicy }
+  const c = classify(text, screen?.area ?? null)
+  const decision = route(c.tier, routerConfig, c.reason)
+  if (!decision) return emit({ type: 'error', error: 'not_configured', reason: 'no_approved_model' })
 
   // 1) start the turn (signed): quota, conversation, the user's message — atomically in the database
   const b = signer.begin(member.companyId, existing, text)
@@ -145,12 +162,11 @@ export async function streamTurn(raw: unknown, emit: (e: StreamEvent) => void, s
     .filter((m) => m.turn_id !== turnId && (m.role === 'user' || m.status === 'ok'))
   const currency = (settings.data as { base_currency?: string } | null)?.base_currency ?? 'USD'
   const toolSpecs = toolsFor(access)
-  const routerConfig = { pinnedModel: cfg.pinnedModel, enabled: cfg.routerEnabled }
-  const c = classify(text, screen?.area ?? null)
-  const decision = route(c.tier, routerConfig, c.reason)
   emit({ type: 'start', turnId, conversationId, model: decision.model.id, tier: decision.tier })
   const ctx: ToolContext = { supabase, companyId: member.companyId, userId: user.id, locale, today: today(), turnId, access, currency, facts: new FactStore() }
-  const system = systemPrompt({ locale, today: ctx.today, companyName: (company.data as { name?: string } | null)?.name ?? member.companyName ?? '', role: member.role,
+  // a per-turn canary: an answer that repeats it (or the prompt's headings) is a prompt leak and is rejected
+  const canary = `BA-CANARY-${randomUUID().slice(0, 8)}`
+  const system = systemPrompt({ canary, locale, today: ctx.today, companyName: (company.data as { name?: string } | null)?.name ?? member.companyName ?? '', role: member.role,
     screen, tools: toolSpecs.map((d) => d.name), currency })
   const provider = providerOverride ?? anthropicProvider({ apiKey: cfg.apiKey, baseURL: cfg.baseURL, testDouble: cfg.testDouble })
   const started0 = Date.now()
@@ -158,7 +174,7 @@ export async function streamTurn(raw: unknown, emit: (e: StreamEvent) => void, s
   let r: TurnResult
   try {
     r = await runTurn({
-      provider, decision, routerConfig, system, tools: TOOLS, toolSpecs, ctx, history, userText: text, signal, deadlineMs: cfg.deadlineMs,
+      provider, decision, routerConfig, system, tools: TOOLS, toolSpecs, ctx, history, userText: text, signal, deadlineMs: cfg.deadlineMs, secrets: [canary, ...PROMPT_MARKERS],
       texts: { refused: t.refused, incomplete: t.incomplete, empty: t.empty, cancelled: t.cancelled, error: t.providerError, unverified: t.unverified, regenerate: REGENERATE },
       events: {
         onTool: (e) => {

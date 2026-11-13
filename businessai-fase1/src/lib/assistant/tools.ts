@@ -27,7 +27,7 @@ import { calculate, centsToDecimal, minutesToHours, type FactStore, type Kind, t
 import type { Tier, ToolSpec } from '@/lib/intelligence/types'
 
 export const PERMISSION_KEYS = ['clients.view', 'clients.create', 'documents.view', 'documents.create', 'documents.edit', 'payments.view', 'payments.record',
-  'receivables.view', 'payables.view', 'payables.create', 'accounting.view', 'studio.view', 'studio.edit', 'studio.issue'] as const
+  'receivables.view', 'payables.view', 'payables.create', 'accounting.view', 'bank.view', 'studio.view', 'studio.edit', 'studio.issue'] as const
 export type PermissionKey = (typeof PERMISSION_KEYS)[number]
 export type Access = { perms: Record<PermissionKey, boolean>; workforce: { manages: boolean; supervisedDepartments: string[] }; features: { employees: boolean; timeClock: boolean } }
 
@@ -398,6 +398,28 @@ const income = def({
   },
 })
 
+const bank = def({
+  name: 'get_bank_overview',
+  description: 'Bank accounts with their statement lines (count, unmatched count and amount), the posted ledger balance of each linked account (only with accounting access) and the last reconciliation (period end, open / closed, difference). Computed in the database over every line. Use it for bank balance and reconciliation questions.',
+  schema: z.object({ as_of: z.string().regex(DAY).optional() }).strict(),
+  minTier: 'P2',
+  allowed: (a) => a.perms['bank.view'],
+  async run(ctx, input) {
+    const asOf = input.as_of ?? ctx.today
+    const { data, error } = await ctx.supabase.rpc('assistant_bank_summary', { target: ctx.companyId, at_date: asOf }); dbFail(error)
+    type A = { account_id: string; account_name: string; bank_name: string | null; currency: string; status: string; lines_count: number; unmatched_count: number; unmatched_cents: string; last_line_date: string | null;
+      ledger_balance_cents: string | null; last_rec_period_end: string | null; last_rec_status: string | null; last_rec_difference_cents: string | null }
+    const rows = (data ?? []) as A[]
+    return out({ as_of: asOf, accounts_count: rows.length, accounts: rows.map((a) => ({
+      name: a.account_name, bank: a.bank_name, currency: a.currency, status: a.status, statement_lines: a.lines_count, unmatched_lines: a.unmatched_count, unmatched_amount: money(a.unmatched_cents),
+      last_statement_date: a.last_line_date, ledger_balance: a.ledger_balance_cents === null ? 'not_authorized' : money(a.ledger_balance_cents),
+      last_reconciliation: a.last_rec_period_end ? { period_end: a.last_rec_period_end, status: a.last_rec_status, difference: money(a.last_rec_difference_cents) } : null,
+      link: `/bank/accounts/${a.account_id}` })) },
+    { as_of: 'date', accounts_count: 'count', statement_lines: 'count', unmatched_lines: 'count', unmatched_amount: 'money', last_statement_date: 'date', ledger_balance: 'money', period_end: 'date', difference: 'money', name: 'text', bank: 'text' },
+    { source: 'assistant_bank_summary (bank lines, posted ledger, reconciliations)', complete: true, as_of: asOf })
+  },
+})
+
 const studioDocs = def({
   name: 'list_studio_documents',
   description: 'Document Studio documents (letters, contracts, reports, certificates…): title, kind, status (draft, final, archived), number.',
@@ -471,7 +493,7 @@ const prepare = def({
   },
 })
 
-export const TOOLS: ToolDef[] = [overview, invoices, payments, bills, budget, clients, client, documents, employees, attendance, income, studioDocs, calc, proposeDraft, prepare]
+export const TOOLS: ToolDef[] = [overview, invoices, payments, bills, budget, clients, client, documents, employees, attendance, income, bank, studioDocs, calc, proposeDraft, prepare]
 export const TOOL_NAMES = TOOLS.map((t) => t.name)
 export const findTool = (name: string) => TOOLS.find((t) => t.name === name)
 

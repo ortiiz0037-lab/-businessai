@@ -76,7 +76,7 @@ export default async function AssistantInsightsPage({ searchParams }: { searchPa
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label={tr('Solicitudes', 'Requests')} value={int.format(d.turns)} hint={`${d.from} → ${d.to}`} icon="sparkle" />
         <StatCard label={tr('Costo estimado del período', 'Estimated cost of the period')} value={usd(d.cost_nanos)} hint={d.test_turns ? tr(`${d.test_turns} con el doble de pruebas (costo 0)`, `${d.test_turns} with the test double (no cost)`) : tr('Precios oficiales del registro de modelos', 'Official prices from the model registry')} icon="wallet" />
-        <StatCard label={tr('Presupuesto del mes', 'Budget this month')} value={pct === null ? '—' : `${pct.toFixed(1)} %`} hint={budget > 0n ? `${usd(monthCost.toString())} / ${usd(budget.toString())}` : tr('Sin plan con asistente', 'No plan with the assistant')} icon="chart" tone={pct !== null && pct >= 80 ? 'warning' : 'neutral'} />
+        <StatCard label={tr('Presupuesto provisional del mes', 'Provisional budget this month')} value={pct === null ? '—' : `${pct.toFixed(1)} %`} hint={budget > 0n ? `${usd(monthCost.toString())} / ${usd(budget.toString())}` : tr('Sin plan con asistente', 'No plan with the assistant')} icon="chart" tone={pct !== null && pct >= 80 ? 'warning' : 'neutral'} />
         <StatCard label={tr('Cifras verificadas', 'Verified figures')} value={answered ? `${int.format((v.verified ?? 0) + (v.regenerated ?? 0))} / ${int.format(answered)}` : '—'} hint={tr(`${v.fallback ?? 0} mostradas solo como datos verificados`, `${v.fallback ?? 0} shown as verified data only`)} icon="shield" tone="success" />
       </div>
       <section className="card overflow-x-auto p-0">

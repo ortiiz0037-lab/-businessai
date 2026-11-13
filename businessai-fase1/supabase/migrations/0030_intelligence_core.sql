@@ -132,7 +132,8 @@ $$;
 -- ------------------------------------------------------------- budgets and limits
 alter table public.assistant_limits add column if not exists company_monthly_budget_nanos bigint not null default 0 check (company_monthly_budget_nanos between 0 and 100000000000000);
 alter table public.assistant_limits add column if not exists company_per_minute integer not null default 20 check (company_per_minute between 1 and 600);
--- USD 5 / 25 / 100 per company and month (configurable here; 1 USD = 1e9 nano-dollars)
+-- PROVISIONAL values (not an approved commercial decision): USD 5 / 25 / 100 per company and
+-- month; configurable in assistant_limits (1 USD = 1e9 nano-dollars). See docs/INTELLIGENCE.md.
 update public.assistant_limits set company_monthly_budget_nanos = case plan when 'basic' then 5000000000 when 'pro' then 25000000000 when 'premium' then 100000000000 else company_monthly_budget_nanos end
  where company_monthly_budget_nanos = 0;
 

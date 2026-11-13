@@ -190,4 +190,5 @@ export const TOOL_LABELS: Record<string, { es: string; en: string }> = {
   propose_studio_draft: { es: 'Propuesta de borrador', en: 'Draft proposal' },
   prepare_operation: { es: 'Operación preparada', en: 'Prepared operation' },
   calculate: { es: 'Cálculo exacto', en: 'Exact calculation' },
+  get_bank_overview: { es: 'Bancos y conciliación', en: 'Bank and reconciliation' },
 }

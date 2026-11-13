@@ -20,7 +20,7 @@
 import type { z } from 'zod'
 import { ProviderError, TIER_RANK, ZERO_USAGE, addUsage, type LlmProvider, type Message, type ModelResponse, type Part, type Tier, type ToolSpec, type Usage } from '@/lib/intelligence/types'
 import { findModel, type ModelEntry } from '@/lib/intelligence/registry'
-import { route, type RouteDecision, type RouterConfig } from '@/lib/intelligence/router'
+import { route, tiersFor, type RouteDecision, type RouterConfig } from '@/lib/intelligence/router'
 import { callCostNanos, type CostStatus } from '@/lib/intelligence/cost'
 import { FactStore, fallbackText, verifyAndRender } from '@/lib/intelligence/facts'
 import { ToolError, type Access, type ToolContext } from '@/lib/assistant/tools'
@@ -56,13 +56,16 @@ export function normalizeHistory(items: HistoryItem[], max = 20): Message[] {
 }
 
 const textOf = (parts: Part[]) => parts.filter((p): p is Extract<Part, { type: 'text' }> => p.type === 'text').map((p) => p.text).join('\n').trim()
-const maxTierOf = (m: ModelEntry): Tier => m.tiers.reduce<Tier>((a, t) => (TIER_RANK[t] > TIER_RANK[a] ? t : a), 'P0')
+/** Highest tier the model is approved for under the active policy (none approved: below P0). */
+const maxRank = (m: ModelEntry, cfg: RouterConfig): number => tiersFor(m, cfg).reduce((a, t) => Math.max(a, TIER_RANK[t]), -1)
 
 export async function runTurn(input: {
   provider: LlmProvider; decision: RouteDecision; routerConfig: RouterConfig
   system: string; tools: ToolLike[]; toolSpecs: ToolSpec[]; ctx: ToolContext
   history: HistoryItem[]; userText: string; texts: Texts; events?: TurnEvents
   signal: AbortSignal; deadlineMs: number; maxOutputTokens?: number
+  /** strings that must never appear in an answer (per-turn canary, prompt headings): a leak is rejected like an unsourced figure */
+  secrets?: string[]
 }): Promise<TurnResult> {
   const started = Date.now()
   const base = normalizeHistory(input.history)
@@ -128,11 +131,13 @@ export async function runTurn(input: {
       const toolParts = res.parts.filter((p): p is Extract<Part, { type: 'tool_call' }> => p.type === 'tool_call')
       // a tool that needs a higher tier than this model is approved for: restart the turn once on an approved model
       const needs = toolParts.map((p) => input.tools.find((t) => t.name === p.name)).filter((t): t is ToolLike => !!t)
-        .reduce<Tier | null>((a, t) => (TIER_RANK[t.minTier] > TIER_RANK[maxTierOf(model)] && (!a || TIER_RANK[t.minTier] > TIER_RANK[a]) ? t.minTier : a), null)
+        .reduce<Tier | null>((a, t) => (TIER_RANK[t.minTier] > maxRank(model, input.routerConfig) && (!a || TIER_RANK[t.minTier] > TIER_RANK[a]) ? t.minTier : a), null)
       if (needs && !escalated) {
         escalated = true
         router.escalated_from = model.id
-        decision = route(needs, input.routerConfig, `escalated:${decision.reason}`)
+        const up = route(needs, input.routerConfig, `escalated:${decision.reason}`)
+        if (!up) return result('error', input.texts.error, { errorCode: 'no_approved_model' })
+        decision = up
         chain = [...decision.fallbacks]; model = decision.model
         messages = [...initial]; facts = input.ctx.facts = new FactStore(); trace.length = 0; actions.length = 0
         input.events?.onReset?.(); input.events?.onModel?.(model.id, decision.tier)
@@ -153,6 +158,8 @@ export async function runTurn(input: {
     const raw = textOf(res.parts)
     if (!raw) return result('incomplete', input.texts.empty)
     const v = verifyAndRender(raw, facts, { locale: input.ctx.locale, question: input.userText })
+    const leaked = (input.secrets ?? []).some((x) => x && raw.toLowerCase().includes(x.toLowerCase()))
+    if (leaked) { v.ok = false; v.violations.push('prompt_leak') }
     if (v.ok) return result('completed', sanitizeAnswer(v.rendered), { verification: regenerated ? 'regenerated' : facts.all().length || v.refs.length ? 'verified' : 'none', refs: v.refs })
     if (!regenerated) {
       regenerated = true
@@ -175,7 +182,7 @@ async function runTool(call: Extract<Part, { type: 'tool_call' }>, input: Parame
   const tool = input.tools.find((t) => t.name === name)
   // offered tools only; a tool the user may not use is refused even if the model names it
   if (!tool || !tool.allowed(input.ctx.access) || !input.toolSpecs.some((d) => d.name === name)) return done({ name, ok: false, error: 'not_allowed' }, 'Error: this tool is not available to this user.', true)
-  if (TIER_RANK[tool.minTier] > TIER_RANK[maxTierOf(model)]) return done({ name, ok: false, error: 'tier' }, 'Error: this tool is not available at this precision level.', true)
+  if (TIER_RANK[tool.minTier] > maxRank(model, input.routerConfig)) return done({ name, ok: false, error: 'tier' }, 'Error: this tool is not available at this precision level.', true)
   const parsed = tool.schema.safeParse(call.input)
   if (!parsed.success) {
     const issues = parsed.error.issues.slice(0, 5).map((i) => `${i.path.join('.') || 'input'}: ${i.message}`).join('; ')

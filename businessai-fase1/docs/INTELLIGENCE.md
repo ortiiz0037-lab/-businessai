@@ -112,7 +112,8 @@ registro; el motor, las herramientas y la interfaz no cambian.
 - Costo por llamada = tokens por categoría × precio del registro (nano-dólares); `cost_status`: `estimated`
   (precio verificado), `test` (doble local), `unpriced`, `none`.
 - Presupuesto mensual por empresa y plan (`assistant_limits.company_monthly_budget_nanos`): basic USD 5, pro
-  USD 25, premium USD 100 (configurable). Alertas de auditoría al 50 %, 80 % y 100 %. Al superarlo, el
+  USD 25, premium USD 100. **Valores PROVISIONALES**: no son precios ni límites comerciales aprobados; se
+  configuran en la tabla y deben decidirse comercialmente antes de activar el asistente. Alertas de auditoría al 50 %, 80 % y 100 %. Al superarlo, el
   asistente se detiene para la empresa hasta el mes siguiente.
 - Ráfaga por usuario (6/min) y por empresa (20/min); límites diarios de 0029; el límite de tokens cuenta solo
   tokens sin caché.
@@ -143,3 +144,14 @@ de Puerto Rico). **Solo metadatos**: nunca el texto ni el título de las convers
 
 Los turnos atendidos por el doble de pruebas local registran costo 0 (`cost_status = test`): no son gasto
 real y no consumen el presupuesto.
+
+## 11. Benchmark y aprobación de modelos (Entrega 11)
+
+El benchmark reproducible (datos ficticios, doble local, evaluador con fallos
+críticos, compuerta, regresiones) está en `bench/` y se documenta en
+[`docs/BENCHMARK.md`](BENCHMARK.md). El enrutador admite
+`ASSISTANT_ROUTER_POLICY=benchmark`, que usa solo aprobaciones humanas de
+corridas **reales** (`src/lib/intelligence/approvals.json`, vacío); la
+política de producción sigue siendo la provisional. Nueva herramienta
+`get_bank_overview` (0032, `bank.view`; saldo en libros solo con
+`accounting.view`) y canario por turno contra fugas del prompt.

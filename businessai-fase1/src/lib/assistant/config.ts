@@ -9,6 +9,8 @@
  *                           The same key must be registered in the database.
  *   ASSISTANT_MODEL         optional: pins a REGISTERED model for the tiers it is approved for
  *   ASSISTANT_ROUTER=off    optional: one model (P2 policy) for every request
+ *   ASSISTANT_ROUTER_POLICY=benchmark  optional: approved tiers come ONLY from human-approved real
+ *                           benchmark runs (src/lib/intelligence/approvals.json); default: provisional
  *   ASSISTANT_TURN_DEADLINE_MS  optional, 10 000 – 55 000 (default 50 000; the
  *                           stream route allows 60 s of execution)
  *   ANTHROPIC_BASE_URL      optional; https only. Outside production a loopback http URL
@@ -20,7 +22,7 @@ import { findModel } from '@/lib/intelligence/registry'
 import { parseServerKeys, type ServerKey } from '@/lib/intelligence/server-auth'
 
 export type AssistantConfig =
-  | { configured: true; apiKey: string; baseURL: string | undefined; testDouble: boolean; serverKeys: ServerKey[]; pinnedModel: string | null; routerEnabled: boolean; deadlineMs: number }
+  | { configured: true; apiKey: string; baseURL: string | undefined; testDouble: boolean; serverKeys: ServerKey[]; pinnedModel: string | null; routerEnabled: boolean; routerPolicy: 'provisional' | 'benchmark'; deadlineMs: number }
   | { configured: false; reason: 'missing_key' | 'missing_server_key' | 'disabled' | 'invalid_base_url' | 'invalid_model' }
 
 export function readAssistantConfig(env: Record<string, string | undefined> = process.env): AssistantConfig {
@@ -37,6 +39,7 @@ export function readAssistantConfig(env: Record<string, string | undefined> = pr
   const testDouble = !!baseURL && new URL(baseURL).protocol === 'http:'
   const d = Number(env.ASSISTANT_TURN_DEADLINE_MS ?? 50000)
   return { configured: true, apiKey, baseURL, testDouble, serverKeys, pinnedModel: pinned, routerEnabled: env.ASSISTANT_ROUTER !== 'off',
+    routerPolicy: env.ASSISTANT_ROUTER_POLICY === 'benchmark' ? 'benchmark' : 'provisional',
     deadlineMs: Number.isFinite(d) ? Math.min(55000, Math.max(10000, Math.round(d))) : 50000 }
 }
 

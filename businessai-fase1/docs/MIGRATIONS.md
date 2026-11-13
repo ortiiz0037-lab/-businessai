@@ -41,7 +41,8 @@ Las pruebas de `tests/staging-scripts.test.ts` hacen cumplir 3 y 4.
 | 0029 | `0029_assistant.sql` | **Borrador, no aplicada en ningún entorno.** Asistente BusinessAI: conversaciones privadas de cada usuario, mensajes (solo anexar), acciones propuestas que requieren confirmación del autor (una sola vez, con caducidad), consumo y límites por plan, auditoría sin texto de las conversaciones. No copia datos de negocio. Rollback: `supabase/rollback/0029_rollback.sql`. |
 | 0030 | `0030_intelligence_core.sql` | **Borrador, no aplicada en ningún entorno.** Núcleo del Intelligence Engine: escrituras internas del asistente firmadas por el servidor (HMAC con clave en `ba_private`, sin service role), turnos con proveedor, modelo, tokens, costo y latencia, presupuesto mensual por plan con alertas, acciones con arrendamiento e idempotencia, agregados financieros completos en SQL, mapa de permisos en una consulta. Revoca a `authenticated` las funciones de 0029 que permitían falsificar auditoría, cuota o historial. Rollback: `supabase/rollback/0030_rollback.sql`. |
 | 0031 | `0031_intelligence_insights.sql` | **Borrador, no aplicada en ningún entorno.** Centro de inteligencia: agregados de solo lectura de turnos y auditoría del asistente (solicitudes, modelos, tokens, costo, latencia, verificación, herramientas, seguridad) para `assistant.audit`. Sin texto de conversaciones. Rollback: `supabase/rollback/0031_rollback.sql`. |
-| **0032** | — | **Siguiente número libre** |
+| 0032 | `0032_assistant_bank_summary.sql` | **Borrador, no aplicada en ningún entorno.** Resumen bancario de solo lectura para el asistente (`assistant_bank_summary`): líneas del estado, no conciliadas (conteo y monto exactos), última conciliación; el saldo en libros solo con `accounting.view`. Requiere `bank.view`; SECURITY INVOKER (RLS). Rollback: `supabase/rollback/0032_rollback.sql`. |
+| **0033** | — | **Siguiente número libre** |
 
 ### Borradores y `staging:migrate` (hallazgo I12)
 

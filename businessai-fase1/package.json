@@ -14,7 +14,9 @@
     "test:db": "bash supabase/tests/local/run.sh",
     "test:e2e": "node e2e/public.e2e.mjs",
     "test:e2e:finance": "node e2e/finance.auth.e2e.mjs",
-    "test:e2e:assistant": "node e2e/assistant.auth.e2e.mjs"
+    "test:e2e:assistant": "node e2e/assistant.auth.e2e.mjs",
+    "bench": "node bench/run.mjs",
+    "test:e2e:benchmark": "node bench/run.mjs --mode both"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",

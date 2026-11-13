@@ -13,7 +13,8 @@ import { randomBytes, createHmac } from 'node:crypto'
 export const USERS = { 'owner@e2e.local': 'e1000000-0000-4000-8000-000000000001', 'admin@e2e.local': 'e1000000-0000-4000-8000-000000000002',
   'member@e2e.local': 'e1000000-0000-4000-8000-000000000003', 'other@e2e.local': 'e1000000-0000-4000-8000-000000000004' }
 
-export async function startStack({ root, port, pgrstBin, pgSocket, pgPort, db, publicKey, nextEnv = {} }) {
+export async function startStack({ root, port, pgrstBin, pgSocket, pgPort, db, publicKey, nextEnv = {}, extraUsers = {} }) {
+  const ALL = { ...USERS, ...extraUsers }
   if (!pgrstBin || !pgSocket?.startsWith('/')) throw new Error('Set PGRST_BIN and PG_SOCKET (a local unix-socket directory).')
   const APP = port, PGRST = port + 1, STUB = port + 2
   const BASE = `http://127.0.0.1:${APP}`
@@ -35,7 +36,7 @@ export async function startStack({ root, port, pgrstBin, pgSocket, pgPort, db, p
     procs.push(p)
   }
   start('pgrst', pgrstBin, [join(work, 'postgrest.conf')], {})
-  start('stub', process.execPath, ['e2e/local-stack/auth-stub.mjs'], { STUB_PORT: String(STUB), PGRST_URL: `http://127.0.0.1:${PGRST}`, JWT_SECRET: SECRET, TEST_PASSWORD: PASSWORD, USERS: JSON.stringify(USERS), STORAGE_DIR: join(work, 'storage') })
+  start('stub', process.execPath, ['e2e/local-stack/auth-stub.mjs'], { STUB_PORT: String(STUB), PGRST_URL: `http://127.0.0.1:${PGRST}`, JWT_SECRET: SECRET, TEST_PASSWORD: PASSWORD, USERS: JSON.stringify(ALL), STORAGE_DIR: join(work, 'storage') })
   start('next', 'npx', ['next', 'start', '-p', String(APP), '-H', '127.0.0.1'], { NODE_ENV: 'production', APP_ENV: 'development', NEXT_PUBLIC_SUPABASE_URL: `http://127.0.0.1:${STUB}`,
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: publicKey ?? ANON, NEXT_PUBLIC_APP_URL: BASE, STRIPE_SECRET_KEY: '', SUPABASE_SERVICE_ROLE_KEY: '', ...nextEnv })
   const alive = (p) => { try { process.kill(-p.pid, 0); return true } catch { return false } }
@@ -61,7 +62,7 @@ export async function startStack({ root, port, pgrstBin, pgSocket, pgPort, db, p
   // read-only counts with the service role (to prove that no record is duplicated)
   const api = (email, path, init = {}) => {
     const t = Math.floor(Date.now() / 1000)
-    const token = email ? jwt({ sub: USERS[email], email, role: 'authenticated', aud: 'authenticated', iat: t, exp: t + 600 }) : ANON
+    const token = email ? jwt({ sub: ALL[email], email, role: 'authenticated', aud: 'authenticated', iat: t, exp: t + 600 }) : ANON
     return fetch(`http://127.0.0.1:${STUB}${path}`, { ...init, headers: { 'content-type': 'application/json', authorization: `Bearer ${token}`, apikey: ANON, ...(init.headers ?? {}) } })
   }
   const count = async (table, filter = '') => {
@@ -74,5 +75,7 @@ export async function startStack({ root, port, pgrstBin, pgSocket, pgPort, db, p
     const t = Math.floor(Date.now() / 1000)
     return fetch(`http://127.0.0.1:${PGRST}${path}`, { ...init, headers: { 'content-type': 'application/json', authorization: `Bearer ${jwt({ role: 'service_role', iat: t, exp: t + 60 })}`, ...(init.headers ?? {}) } })
   }
-  return { BASE, PASSWORD, logs, stop, work, api, count, admin, STUB_URL: `http://127.0.0.1:${STUB}` }
+  // a short-lived access token of a test user (the benchmark's in-process engine runs with it, exactly like a signed-in session)
+  const tokenFor = (email, ttl = 3600) => { const t = Math.floor(Date.now() / 1000); return jwt({ sub: ALL[email], email, role: 'authenticated', aud: 'authenticated', iat: t, exp: t + ttl }) }
+  return { BASE, PASSWORD, logs, stop, work, api, count, admin, tokenFor, ANON, STUB_URL: `http://127.0.0.1:${STUB}`, PGRST_URL: `http://127.0.0.1:${PGRST}` }
 }

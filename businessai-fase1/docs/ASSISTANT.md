@@ -22,7 +22,7 @@ proveedor configurada el asistente lo dice y no responde.
   cuando el proveedor falla o el usuario detiene la respuesta.
 - **Acciones idempotentes y reanudables**: confirmación con clave de solicitud, ejecución con arrendamiento
   (máx. 3 intentos), progreso guardado para no duplicar el borrador, botón Reintentar.
-- **Presupuesto mensual en USD por plan** con alertas 50/80/100 % y límite de ráfaga por empresa.
+- **Presupuesto mensual en USD por plan (valores provisionales, no aprobados comercialmente)** con alertas 50/80/100 % y límite de ráfaga por empresa.
 - **Streaming** con texto provisional, botón Detener, fuentes con fecha de los datos y modelo usado.
 - **Voz**: aviso de privacidad y consentimiento antes del primer uso del micrófono.
 - La interfaz usa `POST /api/assistant/stream`; la acción `assistantSend` de la Entrega 8 se retiró.
@@ -113,6 +113,7 @@ confirmación, otra persona o una propuesta caducada —30 min— se rechazan), 
 | `list_employees` | plan `employees` + gestionar o supervisar personal | `employees` (sin tarifas ni datos de pago) |
 | `get_attendance_report` | plan `time_clock` + gestionar o supervisar | `buildReport` (reglas de la empresa) |
 | `get_income_statement` | accounting.view | `fs_income_statement` |
+| `get_bank_overview` | bank.view (saldo en libros solo con accounting.view) | `assistant_bank_summary` (0032) |
 | `list_studio_documents` | studio.view | `studio_documents` |
 | `propose_studio_draft` | studio.edit | `assistant_propose_action` → tras confirmar, `studio_save_document` |
 | `prepare_operation` | el permiso de la operación | solo devuelve un enlace |
