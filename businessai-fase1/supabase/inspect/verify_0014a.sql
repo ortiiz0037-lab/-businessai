@@ -31,6 +31,8 @@
 --      (public.studio_documents): studio.view / studio.edit (owner, admin, member), studio.issue / studio.templates / studio.brand (owner, admin)
 --      (public.assistant_actions): assistant.use (owner, admin, member), assistant.audit (owner, admin)
 --      (public.payroll_runs, 0034): payroll.view / payroll.manage (owner, admin), payroll.approve (owner)
+--      (public.crm_opportunities, 0035): crm.view / crm.manage (everyone), crm.view_all / crm.configure /
+--      branches.manage (owner, admin)
 --      (no documents.void either).
 --   2. has_permission, is_company_member, has_company_role: SECURITY DEFINER,
 --      search_path="", executable by authenticated, not by anon or PUBLIC.
@@ -57,8 +59,9 @@ has27 as (select to_regclass('public.budgets') is not null as yes),
 has28 as (select to_regclass('public.studio_documents') is not null as yes),
 has29 as (select to_regclass('public.assistant_actions') is not null as yes),
 has34 as (select to_regclass('public.payroll_runs') is not null as yes),
+has35 as (select to_regclass('public.crm_opportunities') is not null as yes),
 expected_count as (select 18 + (select yes::int from has15) + 2 * (select yes::int from has18) + (select yes::int from has19)
-                          + (select yes::int from has20) + 5 * (select yes::int from has23) + 6 * (select yes::int from has24) + 3 * (select yes::int from has25) + 5 * (select yes::int from has26) + 2 * (select yes::int from has27) + 5 * (select yes::int from has28) + 2 * (select yes::int from has29) + 3 * (select yes::int from has34) as n),
+                          + (select yes::int from has20) + 5 * (select yes::int from has23) + 6 * (select yes::int from has24) + 3 * (select yes::int from has25) + 5 * (select yes::int from has26) + 2 * (select yes::int from has27) + 5 * (select yes::int from has28) + 2 * (select yes::int from has29) + 3 * (select yes::int from has34) + 5 * (select yes::int from has35) as n),
 member_lacks(key) as (values ('billing.manage'), ('clients.delete'), ('company.branding.manage'),
                              ('company.settings.manage'), ('documents.delete'), ('documents.void'),
                              ('members.invite'), ('members.manage'), ('clients.archive'), ('workforce.manage'),
@@ -69,7 +72,8 @@ member_lacks(key) as (values ('billing.manage'), ('clients.delete'), ('company.b
                              ('budgets.manage'), ('budgets.approve'),
                              ('studio.issue'), ('studio.templates'), ('studio.brand'),
                              ('assistant.audit'),
-                             ('payroll.view'), ('payroll.manage'), ('payroll.approve')),
+                             ('payroll.view'), ('payroll.manage'), ('payroll.approve'),
+                             ('crm.view_all'), ('crm.configure'), ('branches.manage')),
 admin_lacks(key) as (select 'billing.manage' from has15 where yes
                      union all select 'members.manage' from has18 where yes
                      union all select 'accounting.reopen' from has23 where yes

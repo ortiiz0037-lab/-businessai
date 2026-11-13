@@ -10,7 +10,7 @@
 -- writes. It works whatever is applied: tables that may not exist are only
 -- looked up by name (to_regclass / to_regprocedure), never queried.
 --
--- One row per migration (0001–0004 together, then 0005 … 0034):
+-- One row per migration (0001–0004 together, then 0005 … 0035):
 --   status   applied | not applied | PARTIAL — review | n/a
 --   evidence what was measured (counts, flags) — compare it with the
 --            "applied when" column.
@@ -141,6 +141,9 @@ e as (
     -- 0034
     to_regclass('public.payroll_runs') is not null as t_payroll_runs,
     to_regprocedure('public.payroll_approve(uuid,integer)') is not null as f_payroll_approve,
+    -- 0035
+    to_regclass('public.crm_opportunities') is not null as t_crm_opportunities,
+    to_regprocedure('public.crm_convert_quote(uuid,uuid,date,uuid)') is not null as f_crm_convert_quote,
     -- staging bookkeeping (absent in Production)
     to_regclass('ba_meta.applied_migrations') is not null as t_record,
     to_regclass('ba_meta.environment') is not null        as t_marker
@@ -327,7 +330,13 @@ r(ord, migration, applied_when, status, evidence) as (
     format('payroll_runs=%s payroll_approve=%s', t_payroll_runs, f_payroll_approve)
   from e
   union all
-  select 30, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
+  select 30, '0035_crm', 'crm_opportunities + crm_convert_quote',
+    case when t_crm_opportunities and f_crm_convert_quote then 'applied'
+         when not (t_crm_opportunities or f_crm_convert_quote) then 'not applied' else 'PARTIAL — review' end,
+    format('crm_opportunities=%s crm_convert_quote=%s', t_crm_opportunities, f_crm_convert_quote)
+  from e
+  union all
+  select 31, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
     case when t_record or t_marker then 'present (staging?)' else 'absent' end,
     format('ba_meta.applied_migrations=%s ba_meta.environment=%s', t_record, t_marker)
   from e
