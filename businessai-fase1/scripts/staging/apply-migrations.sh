@@ -89,6 +89,7 @@ ORDER=(
   0028_document_studio
   0029_assistant
   0030_intelligence_core
+  0031_intelligence_insights
 )
 EXPECTED_VERIFY="10,0,2,0,f,0,2,3,t,t,t,"
 

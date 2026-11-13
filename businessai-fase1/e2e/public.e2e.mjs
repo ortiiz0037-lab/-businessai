@@ -66,7 +66,7 @@ const PROTECTED = ['/dashboard', '/documents', '/documents/new', '/payments', '/
   '/receivables', '/receivables/aging', '/receivables/reports', '/receivables/settings',
   '/bank', '/bank/accounts', '/bank/import', '/bank/reconciliations', '/bank/reports', '/bank/export?kind=lines',
   '/finance', '/finance/income-statement', '/finance/balance-sheet', '/finance/cash-flow', '/finance/budgets', '/finance/projections', '/finance/export?report=income&format=csv',
-  '/studio', '/studio/new', '/studio/templates', '/studio/brand', '/studio/00000000-0000-4000-8000-000000000000/pdf', '/studio/image?key=logo', '/assistant', '/assistant?c=00000000-0000-4000-8000-000000000000']
+  '/studio', '/studio/new', '/studio/templates', '/studio/brand', '/studio/00000000-0000-4000-8000-000000000000/pdf', '/studio/image?key=logo', '/assistant', '/assistant?c=00000000-0000-4000-8000-000000000000', '/assistant/insights']
 
 try {
   await waitForServer()

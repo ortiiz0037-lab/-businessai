@@ -121,7 +121,8 @@ export async function runTurn(input: {
     calls++
     usage = addUsage(usage, res.usage)
     const c = callCostNanos(findModel(model.id), res.usage)
-    if (c === null) unpriced = true; else cost += c
+    // a local test double is not a real spend: no cost, and nothing is charged to the company's budget
+    if (c === null) unpriced = true; else if (!input.provider.testDouble) cost += c
 
     if (res.stop === 'tool_use') {
       const toolParts = res.parts.filter((p): p is Extract<Part, { type: 'tool_call' }> => p.type === 'tool_call')

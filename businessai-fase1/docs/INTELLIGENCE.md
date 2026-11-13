@@ -131,3 +131,15 @@ registro; el motor, las herramientas y la interfaz no cambian.
 Ver los resultados en el informe de la entrega. Suites: SQL `98_intelligence.test.sql`, concurrencia
 `99_intelligence_race.sh`, arnés (escenario 36), unitarias `tests/assistant.test.ts` y
 `tests/assistant-boundaries.test.ts`, E2E `e2e/assistant.auth.e2e.mjs` con el doble en streaming.
+
+## 10. Centro de inteligencia (0031, `/assistant/insights`)
+
+Panel para propietario y administrador (`assistant.audit`) con el uso del asistente en la empresa: solicitudes
+por resultado, nivel y usuario; por modelo, tokens (entrada, salida, caché), costo, latencia media y p95,
+respaldos y escalados; costo del período y del mes frente al presupuesto del plan; verificación de cifras;
+herramientas usadas o denegadas; instrucciones sospechosas, límites, errores del proveedor y alertas de
+presupuesto. Calculado en SQL sobre todos los turnos del período (`assistant_insights`, máximo un año, días
+de Puerto Rico). **Solo metadatos**: nunca el texto ni el título de las conversaciones. Los miembros no lo ven.
+
+Los turnos atendidos por el doble de pruebas local registran costo 0 (`cost_status = test`): no son gasto
+real y no consumen el presupuesto.

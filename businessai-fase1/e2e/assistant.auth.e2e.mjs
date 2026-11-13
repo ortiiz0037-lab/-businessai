@@ -337,6 +337,24 @@ try {
     await s.ctx.close()
   }
 
+  // ------------------------------------------------------------ Intelligence Center (assistant.audit)
+  await owner.ctx.addCookies([{ name: 'ba_locale', value: 'es', url: BASE }])
+  r = await open(BASE, p, '/assistant')
+  check(await p.getByRole('link', { name: /Centro de inteligencia/ }).count() === 1, 'Insights: the owner sees the link to the Intelligence Center')
+  r = await open(BASE, p, '/assistant/insights')
+  const models = await p.getByTestId('insights-models').innerText().catch(() => '')
+  const turnsTotal = await count('assistant_turns', `company_id=eq.${CO}`)
+  check(/Costo estimado del período\s*0\.000000 USD/.test(r.body), 'Insights: turns served by the local test double cost nothing (no fictitious spend)')
+  check(r.status === 200 && /claude-opus-5-5/.test(models) && /claude-fable-5-2/.test(models) && /claude-haiku-5-5/.test(models) && r.body.includes(String(turnsTotal)),
+    'Insights: requests per model (including the fallback) and the total match the recorded turns', `${turnsTotal}`)
+  check(/Instrucciones sospechosas detectadas\s*1/.test(await p.getByTestId('insights-events').innerText()) && !/Inyeccion|vencidas/.test(r.body), 'Insights: security events counted, never the conversation text')
+  check(await noOverflow(p), 'Insights: fits the screen')
+  await shot(p, 'b-insights')
+  const mi = await session(BASE, PASSWORD, 'member@e2e.local')
+  r = await open(BASE, mi.page, '/assistant/insights')
+  check(await mi.page.getByTestId('insights-denied').count() === 1 && !/claude-opus/.test(r.body), 'Insights: a member is refused')
+  await mi.ctx.close()
+
   // ------------------------------------------------------------ no secret reaches the browser
   const files = []
   const walk = (d) => { for (const n of readdirSync(d)) { const f = join(d, n); if (statSync(f).isDirectory()) walk(f); else if (/\.(js|css|html|json)$/.test(n)) files.push(f) } }

@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { getLocale } from '@/lib/i18n/server'
 import { translator } from '@/lib/i18n/t'
 import { createClient } from '@/lib/supabase/server'
+import { getActiveMembership } from '@/lib/active-company'
 import { assistantStatus, listConversations, loadConversation } from '@/lib/assistant/service'
 import { COPY } from '@/lib/assistant/copy'
 import { AssistantChat } from '@/components/assistant/chat'
@@ -20,11 +21,14 @@ export default async function AssistantPage({ searchParams }: { searchParams: Pr
   if (!user) redirect('/login?next=/assistant')
   const sp = await searchParams
   const archived = sp.view === 'archived'
-  const [status, conversations, current] = await Promise.all([
+  const member = await getActiveMembership(supabase, user.id)
+  const [status, conversations, current, audit] = await Promise.all([
     assistantStatus(),
     listConversations(archived),
     sp.c ? loadConversation(sp.c) : Promise.resolve(null),
+    member ? supabase.rpc('has_permission', { target: member.companyId, permission: 'assistant.audit' }) : Promise.resolve({ data: false }),
   ])
+  const canAudit = audit.data === true
   if (!status) redirect('/onboarding')
   return (
     <div className="space-y-5">
@@ -34,7 +38,10 @@ export default async function AssistantPage({ searchParams }: { searchParams: Pr
           <h1 className="page-title">{t.center}</h1>
           <p className="muted mt-1 max-w-2xl text-sm">{t.privacy}</p>
         </div>
-        <Link href="/assistant" className="btn btn-primary btn-sm"><Icon name="plus" className="h-4 w-4" />{t.newChat}</Link>
+        <div className="flex flex-wrap gap-2">
+          {canAudit && <Link href="/assistant/insights" className="btn btn-secondary btn-sm"><Icon name="chart" className="h-4 w-4" />{tr('Centro de inteligencia', 'Intelligence Center')}</Link>}
+          <Link href="/assistant" className="btn btn-primary btn-sm"><Icon name="plus" className="h-4 w-4" />{t.newChat}</Link>
+        </div>
       </div>
       <div className="grid gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]">
         <aside className="card p-3" aria-label={t.conversations}>

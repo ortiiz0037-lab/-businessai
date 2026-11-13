@@ -368,6 +368,12 @@ describe('turn engine', () => {
     expect(r.text).not.toMatch(/999/)
     expect(r.text).toMatch(/1,500\.05/)
   })
+  it('a local test double records no cost (cost status test, nothing charged to the budget)', async () => {
+    const s = scripted([{ parts: [text('Hola')] }])
+    const r = await run({ ...s.provider, testDouble: true }, [])
+    expect(r).toMatchObject({ costStatus: 'test', calls: 1 })
+    expect(r.costNanos).toBe(0n)
+  })
   it('a tool not offered to this user is refused even if the model names it', async () => {
     const hidden = fakeTool('list_invoices', outInvoices, false)
     const { provider } = scripted([{ stop: 'tool_use', parts: [use('t1', 'list_invoices', {})] }, { parts: [text('No tiene acceso.')] }])

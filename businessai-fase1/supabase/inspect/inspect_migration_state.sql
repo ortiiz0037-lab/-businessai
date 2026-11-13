@@ -10,7 +10,7 @@
 -- writes. It works whatever is applied: tables that may not exist are only
 -- looked up by name (to_regclass / to_regprocedure), never queried.
 --
--- One row per migration (0001–0004 together, then 0005 … 0030):
+-- One row per migration (0001–0004 together, then 0005 … 0031):
 --   status   applied | not applied | PARTIAL — review | n/a
 --   evidence what was measured (counts, flags) — compare it with the
 --            "applied when" column.
@@ -131,6 +131,8 @@ e as (
     -- 0030
     to_regclass('public.assistant_turns') is not null as t_assistant_turns,
     to_regprocedure('public.assistant_finish_turn(uuid,text,text,text)') is not null as f_assistant_finish_turn,
+    -- 0031
+    to_regprocedure('public.assistant_insights(uuid,date,date)') is not null as f_assistant_insights,
     -- staging bookkeeping (absent in Production)
     to_regclass('ba_meta.applied_migrations') is not null as t_record,
     to_regclass('ba_meta.environment') is not null        as t_marker
@@ -295,7 +297,12 @@ r(ord, migration, applied_when, status, evidence) as (
     format('assistant_turns=%s assistant_finish_turn=%s', t_assistant_turns, f_assistant_finish_turn)
   from e
   union all
-  select 26, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
+  select 26, '0031_intelligence_insights', 'assistant_insights',
+    case when f_assistant_insights then 'applied' else 'not applied' end,
+    format('assistant_insights=%s', f_assistant_insights)
+  from e
+  union all
+  select 27, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
     case when t_record or t_marker then 'present (staging?)' else 'absent' end,
     format('ba_meta.applied_migrations=%s ba_meta.environment=%s', t_record, t_marker)
   from e
