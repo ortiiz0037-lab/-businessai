@@ -17,3 +17,4 @@ next-env.d.ts
 
 # benchmark outputs (reports, engine bundle)
 /bench/out/
+/.audit-evidence/
