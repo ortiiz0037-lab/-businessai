@@ -86,6 +86,7 @@ ORDER=(
   0025_receivables
   0026_bank_reconciliation
   0027_statements_budgets
+  0028_document_studio
 )
 EXPECTED_VERIFY="10,0,2,0,f,0,2,3,t,t,t,"
 

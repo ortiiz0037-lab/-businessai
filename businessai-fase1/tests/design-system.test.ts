@@ -58,8 +58,8 @@ describe('no gold, yellow-gold, cream or warm tones left (Black & Electric Blue)
     expect(hits).toEqual([])
   })
   it('no light surfaces or dark-on-dark text outside the printable document sheet', () => {
-    // The document detail page renders a white paper sheet on purpose (print/PDF): excluded.
-    const screens = files.filter((f) => !f.includes('documents/[id]'))
+    // The document detail page and the Document Studio preview render a white paper sheet on purpose (print/PDF): excluded.
+    const screens = files.filter((f) => !f.includes('documents/[id]') && !f.endsWith('studio/preview.tsx'))
     const light = /(?<![\w-])(?:bg-white(?:\/(?:[2-9]\d|100))?(?![\w/-])|text-slate-(?:600|700|800|900)\b)/
     const hits = screens.flatMap((f) => readFileSync(f, 'utf8').split('\n')
       .map((line, i) => (light.test(line) ? `${f.replace(ROOT, '')}:${i + 1}: ${line.trim().slice(0, 90)}` : null))

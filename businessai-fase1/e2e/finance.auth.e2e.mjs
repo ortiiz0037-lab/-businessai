@@ -48,9 +48,12 @@ start('pgrst', PGRST_BIN, [join(work, 'postgrest.conf')], {})
 start('stub', process.execPath, ['e2e/local-stack/auth-stub.mjs'], { STUB_PORT: String(STUB), PGRST_URL: `http://127.0.0.1:${PGRST}`, JWT_SECRET: SECRET, TEST_PASSWORD: PASSWORD, USERS: JSON.stringify(USERS) })
 start('next', 'npx', ['next', 'start', '-p', String(APP), '-H', '127.0.0.1'], { NODE_ENV: 'production', APP_ENV: 'development', NEXT_PUBLIC_SUPABASE_URL: `http://127.0.0.1:${STUB}`,
   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ANON, NEXT_PUBLIC_APP_URL: BASE, STRIPE_SECRET_KEY: '', SUPABASE_SERVICE_ROLE_KEY: '' })
-const stop = () => { for (const p of procs) try { process.kill(-p.pid, 'SIGTERM') } catch { /* gone */ } ; rmSync(work, { recursive: true, force: true }) }
-process.on('exit', stop)
-for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { stop(); process.exit(130) })
+const signal = (sig) => { for (const p of procs) try { process.kill(-p.pid, sig) } catch { /* gone */ } }
+const alive = () => procs.some((p) => { try { process.kill(-p.pid, 0); return true } catch { return false } })
+// SIGTERM, wait up to 4 s for a graceful exit, then SIGKILL (next-server can linger on open connections)
+const stop = async () => { signal('SIGTERM'); for (let i = 0; i < 20 && alive(); i++) await new Promise((r) => setTimeout(r, 200)); signal('SIGKILL'); rmSync(work, { recursive: true, force: true }) }
+process.on('exit', () => { signal('SIGKILL'); rmSync(work, { recursive: true, force: true }) })
+for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, async () => { await stop(); process.exit(130) })
 async function ready(url, ms = 60000) {
   for (const t0 = Date.now(); Date.now() - t0 < ms;) { try { const r = await fetch(url, { redirect: 'manual' }); if (r.status < 500) return } catch { /* not yet */ } await new Promise((r) => setTimeout(r, 400)) }
   throw new Error(`not ready: ${url}\n${JSON.stringify(logs, null, 1).slice(0, 3000)}`)
@@ -323,5 +326,5 @@ check(!/unhandled/.test(logs.stub), 'the app used only the auth endpoints the lo
 const ce = consoleErrors.filter((c) => !/favicon/.test(c))
 check(ce.length === 0, 'no browser console errors', ce.slice(0, 5).join(' | '))
 console.log(`\nAuthenticated E2E (local stack): ${passed} passed, ${failed} failed`)
-stop()
+await stop()
 process.exit(failed ? 1 : 0)

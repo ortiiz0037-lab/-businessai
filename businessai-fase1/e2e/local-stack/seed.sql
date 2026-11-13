@@ -72,3 +72,12 @@ do $$ declare bid uuid; begin
   perform e2e.as_user('e1000000-0000-4000-8000-000000000001', format('select public.bill_submit(%L)::text', bid));
   perform e2e.as_user('e1000000-0000-4000-8000-000000000001', format('select public.bill_approve(%L)::text', bid));
 end $$;
+
+-- Document Studio (0028): company profile used by merge fields, an employee for certificates
+insert into public.company_profiles (company_id, legal_name, display_name, email, phone, address, city, payment_info)
+values ('e2000000-0000-4000-8000-000000000001', 'Finanzas E2E LLC', 'Finanzas E2E', 'hola@e2e.local', '787-555-0100', 'Calle Principal 1', 'San Juan', 'ACH · Banco Local · 000123')
+on conflict (company_id) do update set legal_name = excluded.legal_name, display_name = excluded.display_name, email = excluded.email, phone = excluded.phone,
+  address = excluded.address, city = excluded.city, payment_info = excluded.payment_info;
+update public.clients set business_name = 'Uno Corp', address = 'Avenida 2', city = 'Ponce' where id = 'e3000000-0000-4000-8000-000000000001';
+insert into public.employees (id, company_id, first_name, last_name, position, hire_date)
+values ('e6000000-0000-4000-8000-000000000001', 'e2000000-0000-4000-8000-000000000001', 'Ana', 'Rivera', 'Contadora', '2024-03-01');

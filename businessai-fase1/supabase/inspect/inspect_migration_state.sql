@@ -10,7 +10,7 @@
 -- writes. It works whatever is applied: tables that may not exist are only
 -- looked up by name (to_regclass / to_regprocedure), never queried.
 --
--- One row per migration (0001–0004 together, then 0005 … 0027):
+-- One row per migration (0001–0004 together, then 0005 … 0028):
 --   status   applied | not applied | PARTIAL — review | n/a
 --   evidence what was measured (counts, flags) — compare it with the
 --            "applied when" column.
@@ -122,6 +122,9 @@ e as (
     -- 0027
     to_regclass('public.budgets') is not null as t_budgets,
     to_regprocedure('public.fs_balance_sheet(uuid,date)') is not null as f_balance_sheet,
+    -- 0028
+    to_regclass('public.studio_documents') is not null as t_studio,
+    to_regprocedure('public.studio_finalize(uuid,integer,jsonb)') is not null as f_studio_finalize,
     -- staging bookkeeping (absent in Production)
     to_regclass('ba_meta.applied_migrations') is not null as t_record,
     to_regclass('ba_meta.environment') is not null        as t_marker
@@ -268,7 +271,13 @@ r(ord, migration, applied_when, status, evidence) as (
     format('budgets=%s fs_balance_sheet=%s', t_budgets, f_balance_sheet)
   from e
   union all
-  select 23, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
+  select 23, '0028_document_studio', 'studio_documents + studio_finalize',
+    case when t_studio and f_studio_finalize then 'applied'
+         when not (t_studio or f_studio_finalize) then 'not applied' else 'PARTIAL — review' end,
+    format('studio_documents=%s studio_finalize=%s', t_studio, f_studio_finalize)
+  from e
+  union all
+  select 24, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
     case when t_record or t_marker then 'present (staging?)' else 'absent' end,
     format('ba_meta.applied_migrations=%s ba_meta.environment=%s', t_record, t_marker)
   from e

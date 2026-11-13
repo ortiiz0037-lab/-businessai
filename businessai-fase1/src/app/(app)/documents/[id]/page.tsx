@@ -319,6 +319,10 @@ export default async function DocumentDetailPage({
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge status={shownStatus} locale={locale} />
             <PrintButton />
+            {['invoice', 'quote', 'receipt', 'work_order'].includes(doc.document_type ?? '') && (
+              <Link href={`/studio/new?source=${doc.id}&template=sys:${({ invoice: 'invoice_classic', quote: 'quote_classic', receipt: 'receipt_classic', work_order: 'work_order' } as Record<string, string>)[doc.document_type ?? '']}`}
+                className="print:hidden rounded-xl border border-line bg-card px-4 py-2 text-sm font-semibold text-slate-300 hover:bg-white/[0.03]">{tr('Diseñar en Document Studio', 'Design in Document Studio')}</Link>
+            )}
           </div>
         </div>
 
