@@ -4,6 +4,10 @@ import { createClient } from '@/lib/supabase/server'
 import { updateClient } from '@/app/actions/clients'
 import { getLocale } from '@/lib/i18n/server'
 import { translator, type Tr } from '@/lib/i18n/t'
+import { crmProAvailable } from '@/lib/documents/capabilities'
+import { loadMembers } from '@/lib/crm/page'
+import { ClientCrmFields, type ClientCrmDefaults } from '@/components/client-crm-fields'
+import { crmMessage } from '@/lib/crm/core'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -12,6 +16,8 @@ const errors = (tr: Tr): Record<string, string> => ({
   too_long: tr('Uno de los campos es demasiado largo.', 'One of the fields is too long.'),
   email: tr('Escribe un correo válido o déjalo vacío.', 'Enter a valid email or leave it empty.'),
   status: tr('Elige si el cliente está activo o inactivo.', 'Choose whether the client is active or inactive.'),
+  kind: tr('Tipo de cliente no válido.', 'Invalid client type.'),
+  lifecycle: tr('Etapa del cliente no válida.', 'Invalid client stage.'),
   forbidden: tr('Tu rol no permite editar este cliente.', 'Your role cannot edit this client.'),
   save: tr('No se pudo guardar. Inténtalo nuevamente.', 'It could not be saved. Please try again.'),
 })
@@ -31,7 +37,8 @@ export default async function EditClientPage({
   const { id } = await params
   const query = (await searchParams) ?? {}
   if (!UUID.test(id)) redirect('/clients?error=not_found')
-  const tr = translator(await getLocale())
+  const locale = await getLocale()
+  const tr = translator(locale)
   const ERRORS = errors(tr)
 
   const supabase = await createClient()
@@ -48,6 +55,13 @@ export default async function EditClientPage({
     .from('memberships').select('company_id').eq('user_id', user.id).eq('company_id', data.company_id).maybeSingle()
   if (!member) redirect('/clients?error=not_found')
   const client = data as Client
+  const crm35 = await crmProAvailable()
+  const [crmRow, members, branchRows] = crm35 ? await Promise.all([
+    supabase.from('clients').select('kind, legal_name, tax_id, lifecycle, source, owner_id, branch_id').eq('id', id).maybeSingle(),
+    loadMembers(supabase, client.company_id, { id: user.id, email: user.email }),
+    supabase.from('branches').select('id, name, code').eq('company_id', client.company_id).is('archived_at', null).order('name'),
+  ]) : [null, [], null]
+  const crmDefaults = (crmRow?.data ?? {}) as ClientCrmDefaults
 
   const field = (name: keyof Client, label: string, props: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
     <label className="field-label">{label}
@@ -65,7 +79,7 @@ export default async function EditClientPage({
         <p className="mt-2 text-sm text-muted">{tr('Los cambios se verán en los documentos de este cliente al abrirlos o imprimirlos. Un cliente inactivo se conserva con todo su historial.', 'Changes show on this client\'s documents when they are opened or printed. An inactive client is kept with its full history.')}</p>
 
         {query.error && (
-          <div role="alert" className="alert-danger mt-5 p-4">{ERRORS[query.error] ?? ERRORS.save}</div>
+          <div role="alert" className="alert-danger mt-5 p-4">{ERRORS[query.error] ?? crmMessage(query.error, locale)}</div>
         )}
 
         <form action={updateClient} className="mt-6 space-y-4">
@@ -91,6 +105,8 @@ export default async function EditClientPage({
               <option value="inactive">{tr('Inactivo (se conserva con su historial)', 'Inactive (kept with its history)')}</option>
             </select>
           </label>
+          {crm35 && <ClientCrmFields tr={tr} locale={locale} d={crmDefaults} members={members} branches={(branchRows?.data ?? []) as { id: string; name: string; code: string }[]} />}
+          {crm35 && <input type="hidden" name="crm" value="1" />}
           <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
             <Link href={`/clients/${client.id}`} className="btn-secondary">{tr('Cancelar', 'Cancel')}</Link>
             <button type="submit" className="btn-primary">{tr('Guardar cambios', 'Save changes')}</button>

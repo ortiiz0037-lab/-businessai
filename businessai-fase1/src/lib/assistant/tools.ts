@@ -27,7 +27,8 @@ import { calculate, centsToDecimal, minutesToHours, type FactStore, type Kind, t
 import type { Tier, ToolSpec } from '@/lib/intelligence/types'
 
 export const PERMISSION_KEYS = ['clients.view', 'clients.create', 'documents.view', 'documents.create', 'documents.edit', 'payments.view', 'payments.record',
-  'receivables.view', 'payables.view', 'payables.create', 'accounting.view', 'bank.view', 'studio.view', 'studio.edit', 'studio.issue'] as const
+  'receivables.view', 'payables.view', 'payables.create', 'accounting.view', 'bank.view', 'studio.view', 'studio.edit', 'studio.issue',
+  'crm.view', 'crm.manage'] as const
 export type PermissionKey = (typeof PERMISSION_KEYS)[number]
 export type Access = { perms: Record<PermissionKey, boolean>; workforce: { manages: boolean; supervisedDepartments: string[]; directReports?: number }; features: { employees: boolean; timeClock: boolean } }
 /** Manages the workforce or supervises someone (a department or direct reports, 0033). */
@@ -511,6 +512,99 @@ const proposeDraft = def({
   },
 })
 
+// ------------------------------------------------------------- CRM (0035): reads through RLS, writes only as confirmed proposals
+const bpPercent = (bp: number) => (Math.round(bp / 10) / 10).toFixed(1)
+const pipeline = def({
+  name: 'get_crm_pipeline',
+  description: 'Sales pipeline per stage: number of opportunities, total value and weighted value (value × probability), plus the open totals. Only the opportunities this user may see (members: their own; owner / admins: all).',
+  schema: z.object({}).strict(),
+  minTier: 'P1',
+  allowed: (a) => a.perms['crm.view'],
+  async run(ctx) {
+    const { data, error } = await ctx.supabase.rpc('crm_pipeline_summary', { target: ctx.companyId, branch: null }); dbFail(error)
+    const rows = (data ?? []) as { key: string; name_es: string; name_en: string; outcome: string; probability_bp: number; opportunities: number; amount_cents: string | number; weighted_cents: string | number }[]
+    const open = rows.filter((r) => r.outcome === 'open')
+    return out({
+      as_of: ctx.today,
+      open_opportunities: open.reduce((n, r) => n + Number(r.opportunities), 0),
+      open_value: money(open.reduce((n, r) => n + toCents(r.amount_cents), 0n)),
+      open_weighted_value: money(open.reduce((n, r) => n + toCents(r.weighted_cents), 0n)),
+      stages: rows.map((r) => ({ stage: ctx.locale === 'en' ? r.name_en : r.name_es, outcome: r.outcome, probability: bpPercent(r.probability_bp), opportunities: Number(r.opportunities), value: money(r.amount_cents), weighted_value: money(r.weighted_cents) })),
+      link: '/crm/pipeline',
+    }, { as_of: 'date', open_opportunities: 'count', open_value: 'money', open_weighted_value: 'money', stage: 'text', outcome: 'text', probability: 'percent', opportunities: 'count', value: 'money', weighted_value: 'money' },
+    { source: 'crm_pipeline_summary', complete: true, as_of: ctx.today, currency: ctx.currency })
+  },
+})
+
+const opportunities = def({
+  name: 'list_opportunities',
+  description: 'Opportunities the user may see, optionally for one client or status (open / won / lost), ordered by expected close date. Returns name, client, stage, value, probability, expected close and link.',
+  schema: z.object({ client_id: uuid.optional(), status: z.enum(['open', 'won', 'lost']).optional(), limit }).strict(),
+  minTier: 'P1',
+  allowed: (a) => a.perms['crm.view'],
+  async run(ctx, input) {
+    let q = ctx.supabase.from('crm_opportunities').select('id, name, client_id, amount_cents, probability_bp, expected_close, status, stage_id', { count: 'exact' }).eq('company_id', ctx.companyId).is('archived_at', null)
+    if (input.client_id) q = q.eq('client_id', input.client_id)
+    q = q.eq('status', input.status ?? 'open')
+    const [{ data, error, count }, { data: st, error: e2 }] = await Promise.all([q.order('expected_close', { ascending: true, nullsFirst: false }).limit(cap(input.limit)),
+      ctx.supabase.from('crm_pipeline_stages').select('id, name_es, name_en').eq('company_id', ctx.companyId)]); dbFail(error); dbFail(e2)
+    const rows = (data ?? []) as { id: string; name: string; client_id: string; amount_cents: string | number; probability_bp: number; expected_close: string | null; status: string; stage_id: string }[]
+    const names = await clientNames(ctx.supabase, ctx.companyId, rows.map((r) => r.client_id))
+    const sn = new Map(((st ?? []) as { id: string; name_es: string; name_en: string }[]).map((x) => [x.id, ctx.locale === 'en' ? x.name_en : x.name_es]))
+    return out({ total_matching: count ?? rows.length, shown: rows.length, opportunities: rows.map((o) => ({ name: o.name, client: names.get(o.client_id) ?? null, client_id: o.client_id, stage: sn.get(o.stage_id) ?? null, status: o.status,
+      value: money(o.amount_cents), probability: bpPercent(o.probability_bp), expected_close: o.expected_close, link: `/crm/opportunities/${o.id}` })) },
+    { total_matching: 'count', shown: 'count', name: 'text', client: 'text', client_id: 'text', stage: 'text', status: 'text', value: 'money', probability: 'percent', expected_close: 'date' },
+    { source: 'crm_opportunities', complete: (count ?? rows.length) <= rows.length, currency: ctx.currency })
+  },
+})
+
+const followups = def({
+  name: 'list_crm_followups',
+  description: 'Pending CRM follow-ups (calls, logged emails, meetings, tasks, reminders) the user may see: the OVERDUE ones and those due in the next `days` days (default 7), with counts. Nothing is sent by BusinessAI: an "email" activity is only a log.',
+  schema: z.object({ days: z.number().int().min(1).max(60).optional(), only_mine: z.boolean().optional(), client_id: uuid.optional() }).strict(),
+  minTier: 'P1',
+  allowed: (a) => a.perms['crm.view'],
+  async run(ctx, input) {
+    const now = new Date()
+    const until = new Date(now.getTime() + (input.days ?? 7) * 86_400_000).toISOString()
+    let q = ctx.supabase.from('crm_activities').select('id, kind, subject, due_at, client_id, opportunity_id, assigned_to', { count: 'exact' }).eq('company_id', ctx.companyId).eq('status', 'pending')
+      .not('due_at', 'is', null).lte('due_at', until)
+    if (input.only_mine) q = q.eq('assigned_to', ctx.userId)
+    if (input.client_id) q = q.eq('client_id', input.client_id)
+    const { data, error, count } = await q.order('due_at').limit(50); dbFail(error)
+    const rows = (data ?? []) as { id: string; kind: string; subject: string; due_at: string; client_id: string | null; opportunity_id: string | null; assigned_to: string | null }[]
+    const names = await clientNames(ctx.supabase, ctx.companyId, rows.map((r) => r.client_id))
+    const item = (a: (typeof rows)[number]) => ({ kind: a.kind, subject: a.subject, due: a.due_at.slice(0, 10), client: a.client_id ? names.get(a.client_id) ?? null : null, mine: a.assigned_to === ctx.userId,
+      link: a.opportunity_id ? `/crm/opportunities/${a.opportunity_id}` : a.client_id ? `/clients/${a.client_id}` : '/crm/activities' })
+    const overdue = rows.filter((a) => Date.parse(a.due_at) < now.getTime())
+    const upcoming = rows.filter((a) => Date.parse(a.due_at) >= now.getTime())
+    return out({ as_of: ctx.today, overdue_count: overdue.length, upcoming_count: upcoming.length, overdue: overdue.map(item), upcoming: upcoming.map(item), link: '/crm/activities?view=overdue' },
+      { as_of: 'date', overdue_count: 'count', upcoming_count: 'count', kind: 'text', subject: 'text', due: 'date', client: 'text' },
+      { source: 'crm_activities', complete: (count ?? rows.length) <= 50, as_of: ctx.today })
+  },
+})
+
+const proposeActivity = def({
+  name: 'propose_crm_activity',
+  description: 'PROPOSE a CRM NOTE or TASK for a client (and optionally one of its opportunities). Nothing is saved until the user presses Confirm; tell the user to review and confirm it. A task needs a due date (YYYY-MM-DD, Puerto Rico time 09:00). It never sends emails or messages.',
+  schema: z.object({ kind: z.enum(['note', 'task']), subject: z.string().min(1).max(160), body: z.string().max(2000).optional(), client_id: uuid, opportunity_id: uuid.optional(),
+    due_date: z.string().regex(DAY).optional() }).strict(),
+  minTier: 'P1',
+  allowed: (a) => a.perms['crm.manage'],
+  async run(ctx, input) {
+    if (input.kind === 'task' && !input.due_date) fail('due_date_required')
+    const { data: c, error: ce } = await ctx.supabase.from('clients').select('id, name').eq('company_id', ctx.companyId).eq('id', input.client_id).maybeSingle(); dbFail(ce)
+    if (!c) fail('not_found')
+    const payload = { kind: input.kind, subject: input.subject.replace(/[<>]/g, ''), body: (input.body ?? '').replace(/[<>]/g, '') || null, client_id: input.client_id,
+      opportunity_id: input.opportunity_id ?? null, due_at: input.kind === 'task' && input.due_date ? `${input.due_date}T09:00:00${PR}` : null }
+    const summary = `${input.kind === 'task' ? (ctx.locale === 'en' ? 'CRM task' : 'Tarea CRM') : (ctx.locale === 'en' ? 'CRM note' : 'Nota CRM')} · ${(c as { name: string }).name}: ${payload.subject}`.slice(0, 400)
+    const { data, error } = await ctx.supabase.rpc('assistant_propose', { turn: ctx.turnId, act_kind: input.kind === 'task' ? 'crm_task' : 'crm_note', act_summary: summary, act_payload: payload })
+    if (error) fail(/FORBIDDEN/.test(error.message) ? 'forbidden' : /too_many_pending/.test(`${error.hint ?? ''}${error.message}`) ? 'too_many_pending_actions' : 'proposal_failed')
+    return out({ action_id: data as string, status: 'awaiting_user_confirmation', level: 'draft', subject: payload.subject, due: input.due_date ?? null }, { action_id: 'text', subject: 'text', due: 'date' },
+      { source: 'assistant_propose', complete: true, note: 'Shown to the user with Confirm / Cancel buttons. Not saved yet.' })
+  },
+})
+
 const OPERATIONS = {
   new_invoice: { perm: 'documents.create', level: 'execute', link: (i: { client_id?: string }) => `/documents/new?type=invoice${i.client_id ? `&client=${i.client_id}` : ''}` },
   new_quote: { perm: 'documents.create', level: 'execute', link: (i: { client_id?: string }) => `/documents/new?type=quote${i.client_id ? `&client=${i.client_id}` : ''}` },
@@ -534,7 +628,7 @@ const prepare = def({
   },
 })
 
-export const TOOLS: ToolDef[] = [overview, invoices, payments, bills, budget, clients, client, documents, employees, attendance, workforceStatus, income, bank, studioDocs, calc, proposeDraft, prepare]
+export const TOOLS: ToolDef[] = [overview, invoices, payments, bills, budget, clients, client, documents, employees, attendance, workforceStatus, income, bank, studioDocs, pipeline, opportunities, followups, calc, proposeDraft, proposeActivity, prepare]
 export const TOOL_NAMES = TOOLS.map((t) => t.name)
 export const findTool = (name: string) => TOOLS.find((t) => t.name === name)
 

@@ -15,6 +15,7 @@ import { createReceipt, deleteDraft, registerPayment, setDocumentStatus, voidDoc
 import { DepositAccountField } from '@/components/deposit-account-field'
 import { lifecycleAvailable, newIdempotencyKey } from '@/lib/documents/capabilities'
 import { SubmitButton } from '@/components/submit-button'
+import { QuoteConversion } from '@/components/quote-conversion'
 
 type DocumentRow = {
   id: string
@@ -168,7 +169,7 @@ export default async function DocumentDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>
-  searchParams?: Promise<{ done?: string; actionError?: string; paymentError?: string; receiptError?: string }>
+  searchParams?: Promise<{ done?: string; actionError?: string; paymentError?: string; receiptError?: string; error?: string; converted?: string }>
 }) {
   const { id } = await params
   const query = searchParams ? await searchParams : undefined
@@ -343,6 +344,9 @@ export default async function DocumentDetailPage({
             {voidInfo?.reason ? ` ${tr('Motivo', 'Reason')}: ${voidInfo.reason}` : ''} {tr('Se conserva en el historial y no se puede reabrir.', 'It is kept in the history and cannot be reopened.')}
           </div>
         )}
+
+        <QuoteConversion supabase={supabase} doc={{ id: doc.id, document_type: doc.document_type ?? null, status: doc.status ?? null, client_id: doc.client_id ?? null, metadata: meta }}
+          tr={tr} locale={locale} today={today} canCreate={role === 'owner' || role === 'admin' || role === 'member'} converted={query?.converted === '1'} error={query?.error} />
 
         {/* Actions: only what this document and this role allow (re-checked on the server). */}
         {(actions.send || actions.accept || actions.reject || actions.void || actions.delete) && (

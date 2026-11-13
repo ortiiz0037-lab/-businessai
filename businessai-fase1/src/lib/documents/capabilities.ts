@@ -29,3 +29,10 @@ export const crmAvailable = cache(async (): Promise<boolean> => {
   const { error } = await supabase.from('clients').select('archived_at').limit(1)
   return !error
 })
+
+/** Does the database have migration 0035 (CRM fields on clients, pipeline)? */
+export const crmProAvailable = cache(async (): Promise<boolean> => {
+  const supabase = await createClient()
+  const { error } = await supabase.from('clients').select('lifecycle').limit(1)
+  return !error
+})

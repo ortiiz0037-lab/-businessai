@@ -308,9 +308,10 @@ do $$ begin
   perform l.ok((select count(*) from public.role_permissions where permission_key = 'documents.void') = 2
                and not exists (select 1 from public.role_permissions where role = 'member' and permission_key = 'documents.void'),
                'documents.void: owner and admin');
-  -- (the accounting permissions of 0023, when present, are checked by its own suite)
-  perform l.ok((select count(*) from public.permissions where key not like 'accounting.%' and key not like 'payables.%' and key not like 'receivables.%' and key <> 'payments.void' and key not like 'bank.%' and key not like 'budgets.%' and key not like 'studio.%' and key not like 'assistant.%') = 19
-               and (select count(*) from public.role_permissions where permission_key not like 'accounting.%' and permission_key not like 'payables.%' and permission_key not like 'receivables.%' and permission_key <> 'payments.void' and permission_key not like 'bank.%' and permission_key not like 'budgets.%' and permission_key not like 'studio.%' and permission_key not like 'assistant.%') = 50,
+  -- (the permissions of later modules — 0018 members.invite / manage, 0019 clients.archive, 0020 workforce, 0023 accounting … 0035 CRM — when present,
+  --  are checked by their own suites and by verify_0014a's full matrix)
+  perform l.ok((select count(*) from public.permissions where key not like 'accounting.%' and key not like 'payables.%' and key not like 'receivables.%' and key <> 'payments.void' and key not like 'bank.%' and key not like 'budgets.%' and key not like 'studio.%' and key not like 'assistant.%' and key not like 'crm.%' and key not like 'branches.%' and key not like 'payroll.%' and key not like 'workforce.%' and key <> 'clients.archive' and key not in ('members.invite', 'members.manage')) = 19
+               and (select count(*) from public.role_permissions where permission_key not like 'accounting.%' and permission_key not like 'payables.%' and permission_key not like 'receivables.%' and permission_key <> 'payments.void' and permission_key not like 'bank.%' and permission_key not like 'budgets.%' and permission_key not like 'studio.%' and permission_key not like 'assistant.%' and permission_key not like 'crm.%' and permission_key not like 'branches.%' and permission_key not like 'payroll.%' and permission_key not like 'workforce.%' and permission_key <> 'clients.archive' and permission_key not in ('members.invite', 'members.manage')) = 50,
                'catalog 19 permissions; matrix owner 19, admin 18, member 13 (50 rows)');
 end $$;
 do $$ begin

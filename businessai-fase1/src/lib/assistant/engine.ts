@@ -193,7 +193,7 @@ async function runTool(call: Extract<Part, { type: 'tool_call' }>, input: Parame
     const ref = input.ctx.facts.add(name, output)
     const wrapped = wrapUntrusted(name, ref, output)
     const id = output.data.action_id
-    if (name === 'propose_studio_draft' && typeof id === 'string') actions.push(id)
+    if ((name === 'propose_studio_draft' || name === 'propose_crm_activity') && typeof id === 'string') actions.push(id)
     const m = output.meta
     const link = typeof output.data.link === 'string' ? output.data.link : undefined
     return done({ name, ok: true, ref, source: m.source, complete: m.complete, ...(m.as_of ? { as_of: m.as_of } : {}), ...(m.from ? { from: m.from, to: m.to } : {}), ...(link ? { link } : {}), ...(wrapped.flagged ? { flagged: true } : {}) }, wrapped.text, false)

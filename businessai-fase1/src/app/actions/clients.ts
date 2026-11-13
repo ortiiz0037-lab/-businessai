@@ -7,7 +7,8 @@
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
-import { parseClientInput } from '@/lib/clients'
+import { parseClientInput, parseClientCrm } from '@/lib/clients'
+import { crmErrorCode } from '@/lib/crm/core'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -26,16 +27,20 @@ export async function updateClient(formData: FormData) {
 
   const parsed = parseClientInput((key) => String(formData.get(key) ?? ''))
   if (!parsed.ok) redirect(`/clients/${id}/edit?error=${parsed.error}`)
+  // CRM fields (0035) only when the form carries them
+  const crm = formData.get('crm') === '1' ? parseClientCrm((key) => String(formData.get(key) ?? '')) : null
+  if (crm && !crm.ok) redirect(`/clients/${id}/edit?error=${crm.error}`)
 
   const { data, error } = await supabase
     .from('clients')
-    .update({ ...parsed.value, updated_at: new Date().toISOString() })
+    .update({ ...parsed.value, ...(crm?.ok ? crm.value : {}), updated_at: new Date().toISOString() })
     .eq('id', id)
     .eq('company_id', client.company_id)
     .select('id')
   if (error || !data?.length) {
     if (error) console.error('CLIENT_UPDATE_ERROR', { code: error.code, message: error.message })
-    redirect(`/clients/${id}/edit?error=${error?.code === '42501' || !data?.length ? 'forbidden' : 'save'}`)
+    const crmCode = error ? crmErrorCode(error) : 'forbidden'
+    redirect(`/clients/${id}/edit?error=${error?.code === '42501' || !data?.length ? 'forbidden' : ['crm_owner_invalid', 'crm_branch_invalid', 'invalid'].includes(crmCode) ? crmCode : 'save'}`)
   }
   revalidatePath('/clients')
   revalidatePath('/dashboard')

@@ -25,6 +25,7 @@ function navigation(locale: Locale): NavItem[] {
   return [
     { href: '/dashboard', label: t.dashboard, icon: 'home', primary: true },
     { href: '/clients', label: t.clients, icon: 'users', primary: true },
+    { href: '/crm', label: t.crm, icon: 'chart' },
     { href: '/documents', label: t.documents, icon: 'file', primary: true },
     { href: '/payments', label: t.payments, icon: 'wallet', primary: true },
     { href: '/workforce', label: t.workforce, icon: 'clock' },

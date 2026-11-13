@@ -13,6 +13,7 @@ import { formatters } from '@/lib/i18n/app'
 import { getLocale } from '@/lib/i18n/server'
 import { translator } from '@/lib/i18n/t'
 import { deleteClient, setClientArchived } from '@/app/actions/clients'
+import { ClientCrm, CLIENT_ERRORS } from '@/components/client-crm'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,6 +24,7 @@ type Client = {
   id: string; company_id: string; name: string; business_name: string | null; email: string | null; phone: string | null
   address: string | null; city: string | null; state: string | null; postal_code: string | null; notes: string | null
   status: string; created_at: string; archived_at?: string | null
+  kind?: string; legal_name?: string | null; tax_id?: string | null; lifecycle?: string; source?: string | null; owner_id?: string | null; branch_id?: string | null
 }
 type Doc = { id: string; document_type: string; document_number: string | null; title: string | null; status: string; total: number | null; due_date: string | null; issue_date: string | null; created_at: string }
 type Activity = { at: string; text: string }
@@ -89,7 +91,9 @@ export default async function ClientPage({
   const fieldName = (k: string) => ({
     name: tr('nombre', 'name'), business_name: tr('empresa', 'company'), email: tr('correo', 'email'), phone: tr('teléfono', 'phone'),
     address: tr('dirección', 'address'), city: tr('ciudad', 'city'), state: tr('estado', 'state'), postal_code: 'ZIP', notes: tr('notas', 'notes'),
-    status: tr('estado activo/inactivo', 'active/inactive status'),
+    status: tr('estado activo/inactivo', 'active/inactive status'), kind: tr('tipo', 'type'), legal_name: tr('nombre legal', 'legal name'),
+    tax_id: tr('identificación fiscal', 'tax ID'), lifecycle: tr('etapa del cliente', 'client stage'), source: tr('origen', 'source'),
+    owner_id: tr('responsable', 'owner'), branch_id: tr('sucursal', 'branch'),
   } as Record<string, string>)[k] ?? k
   const activity: Activity[] = [
     ...((clientEvents ?? []) as { event: string; fields: string[]; created_at: string }[]).map((e) => ({
@@ -157,7 +161,7 @@ export default async function ClientPage({
       </section>
 
       {query.done && doneText[query.done] && <div role="status" className="alert-success p-4">{doneText[query.done]}</div>}
-      {query.error && <div role="alert" className="alert-danger p-4">{errorText[query.error] ?? errorText.save}</div>}
+      {query.error && CLIENT_ERRORS.includes(query.error) && <div role="alert" className="alert-danger p-4">{errorText[query.error] ?? errorText.save}</div>}
       {archived && <div role="status" className="alert-warning p-4">{tr('Cliente archivado: se conserva con su historial, pero no recibe documentos nuevos.', 'Archived client: kept with its history, but it receives no new documents.')}</div>}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -173,6 +177,8 @@ export default async function ClientPage({
           </div>
         ))}
       </div>
+
+      {crm && <ClientCrm supabase={supabase} client={client} user={{ id: user.id, email: user.email }} locale={locale} tr={tr} f={f} done={query.done} error={query.error} />}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
         <section className="card min-w-0 overflow-hidden" aria-labelledby="docs-title">

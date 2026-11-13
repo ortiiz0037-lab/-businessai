@@ -220,6 +220,11 @@ const DraftPayload = z.object({
   refs: z.object({ client: z.uuid().nullable(), source_document: z.uuid().nullable(), employee: z.uuid().nullable(), vendor: z.uuid().nullable() }).strict(),
 }).strict()
 
+const CrmPayload = z.object({
+  kind: z.enum(['note', 'task']), subject: z.string().min(1).max(160), body: z.string().max(2000).nullable(), client_id: z.uuid(), opportunity_id: z.uuid().nullable(),
+  due_at: z.string().regex(/^\d{4}-\d{2}-\d{2}T09:00:00-04:00$/).nullable(),
+}).strict()
+
 type ActionOutcome = { ok: boolean; status: string; error?: string; link?: string; actions?: ChatAction[] }
 
 async function executeAction(s: Session, signer: ServerSigner, actionId: string): Promise<{ ok: boolean; status: string; error?: string; link?: string }> {
@@ -242,6 +247,18 @@ async function executeAction(s: Session, signer: ServerSigner, actionId: string)
         },
       })
       result = r.ok ? { ok: true, link: `/studio/${r.id}`, missing: r.missing.slice(0, 12) } : { ok: false, error: r.error }
+    }
+  } else if (claimed.kind === 'crm_note' || claimed.kind === 'crm_task') {
+    // CRM note / task (0035): saved by crm_save_activity with the action id as the idempotency key,
+    // so a retried confirmation never creates a second activity.
+    const payload = CrmPayload.safeParse(claimed.payload)
+    if (!payload.success || (claimed.kind === 'crm_task') !== (payload.data.kind === 'task')) result = { ok: false, error: 'invalid_payload' }
+    else {
+      const p = payload.data
+      const { error } = await s.supabase.rpc('crm_save_activity', { target: claimed.company_id, act: null, p_kind: p.kind, p_subject: p.subject, p_body: p.body, p_direction: null,
+        client: p.client_id, contact: null, opp: p.opportunity_id, p_due_at: p.due_at, assignee: null, expected_version: null, idem: actionId, p_origin: 'assistant' })
+      result = error ? { ok: false, error: /FORBIDDEN|NOT_FOUND/.test(error.message) ? 'forbidden' : 'save_failed' }
+        : { ok: true, link: p.opportunity_id ? `/crm/opportunities/${p.opportunity_id}` : `/clients/${p.client_id}`, missing: [] }
     }
   } else result = { ok: false, error: 'unknown_kind' }
   const res = result.ok ? JSON.stringify({ link: result.link, missing: result.missing }) : null
