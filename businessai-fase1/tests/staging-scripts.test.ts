@@ -1,7 +1,9 @@
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import { describe, expect, it } from 'vitest'
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { desiredVariables, pickLatestPreview, planChanges, redeployBody } from '../scripts/staging/vercel-env.mjs'
 import { WEBHOOK_EVENTS, webhookUrl } from '../scripts/staging/stripe-webhook.mjs'
 
@@ -214,7 +216,9 @@ describe('staging.yml: what each label runs', () => {
     expect(yml).toMatch(/PINNED_PRODUCTION_REF: rugqcumiuqrjbfwpuslm/)
     const v = readFileSync(new URL('../scripts/staging/verify-0036.sh', import.meta.url), 'utf8')
     expect(v).toContain("printf 'begin;\\n\\\\i %s\\nrollback;\\n'")
-    expect(v).toContain('ERROR: STAGING_DB_URL points at PRODUCTION')
+    // project check: same strict criterion as apply-migrations.sh, Production required and refused (verify-lib.sh)
+    expect(v).toContain('strict_staging_url "${STAGING_DB_URL:-}" "${EXPECT_STAGING_REF:-}" "${PRODUCTION_PROJECT_REF:-}" || exit 1')
+    expect(readFileSync(new URL('../scripts/staging/verify-lib.sh', import.meta.url), 'utf8')).toContain('ERROR: STAGING_DB_URL points at the PRODUCTION project')
     expect(v).not.toMatch(/^\s*commit\b/im)
   })
 
@@ -559,5 +563,126 @@ describe('real Preview screenshots (staging:test step 4)', () => {
     expect(src).toMatch(/\.eq\('name', DEMO_COMPANY_NAME\)\.eq\('created_by', owner\.id\)/)
     expect(src).toMatch(/role: 'admin'/)
     expect(src).not.toMatch(/console\.log\([^)]*password/)
+  })
+})
+
+// ------------------------------------------------------------ verify-0036.sh (review points 1 and 2)
+describe('verify-0036.sh: strict staging project and explicit fingerprint failures', () => {
+  const lib = fileURLToPath(new URL('../scripts/staging/verify-lib.sh', import.meta.url))
+  const script = fileURLToPath(new URL('../scripts/staging/verify-0036.sh', import.meta.url))
+  const REF = 'stagingref01', PROD = 'prodref0001'
+  const strict = (url: string, ref = REF, prod = PROD) =>
+    spawnSync('bash', ['-c', 'source "$0"; strict_staging_url "$1" "$2" "$3"', lib, url, ref, prod], { encoding: 'utf8' })
+
+  it('accepts only the user postgres.<staging ref> or the host db.<staging ref>.supabase.co (same as apply-migrations.sh)', () => {
+    expect(strict(`postgresql://postgres.${REF}:x@aws-0-us-east-1.pooler.supabase.com:6543/postgres`).status).toBe(0)
+    expect(strict(`postgresql://postgres.${REF}@aws-0-us-east-1.pooler.supabase.com:5432/postgres`).status).toBe(0)
+    expect(strict(`postgresql://postgres:x@db.${REF}.supabase.co:5432/postgres`).status).toBe(0)
+    // point 2: the ref anywhere in the text was enough before; not any more
+    const lax = strict(`postgresql://postgres:x@aws-0-us-east-1.pooler.supabase.com:5432/postgres?application_name=${REF}`)
+    expect(lax.status).toBe(1); expect(lax.stdout).toContain('user/host is not the staging project')
+    expect(strict(`postgresql://postgres.${REF}2:x@aws-0.pooler.supabase.com/postgres`).status).toBe(1)   // another project whose ref starts the same
+    expect(strict(`postgresql://someone:x@db.${REF}.example.com/postgres`).status).toBe(1)
+  })
+
+  it('refuses Production explicitly, and Production is required', () => {
+    const prodUrl = strict(`postgresql://postgres.${PROD}:x@aws-0.pooler.supabase.com/postgres?x=${REF}`)
+    expect(prodUrl.status).toBe(1); expect(prodUrl.stdout).toContain('points at the PRODUCTION project')
+    const prodHost = strict(`postgresql://postgres.${REF}:x@db.${PROD}.supabase.co/postgres`)
+    expect(prodHost.status).toBe(1); expect(prodHost.stdout).toContain('PRODUCTION')
+    const same = strict(`postgresql://postgres.${REF}:x@aws-0.pooler.supabase.com/postgres`, REF, REF)
+    expect(same.status).toBe(1); expect(same.stdout).toContain('equals PRODUCTION_PROJECT_REF')
+    const missing = strict(`postgresql://postgres.${REF}:x@aws-0.pooler.supabase.com/postgres`, REF, '')
+    expect(missing.status).toBe(1); expect(missing.stdout).toContain('PRODUCTION_PROJECT_REF is required')
+    expect(strict(`postgresql://postgres.${REF}:x@aws-0.pooler.supabase.com/postgres`, 'BAD REF').status).toBe(1)
+    expect(strict('', REF).status).toBe(1)
+  })
+
+  // A stub psql on PATH (no database): counts and suites answer normally; the catalog
+  // fingerprint answers per STUB_FP: ok | fail (psql error) | empty | fail_after (ok, then error).
+  const stubDir = (() => {
+    const d = mkdtempSync(join(tmpdir(), 'verify0036-'))
+    writeFileSync(join(d, 'psql'), [
+      '#!/usr/bin/env bash',
+      'args="$*"',
+      'if [[ "$args" == *catalog_fingerprint.sql* ]]; then',
+      '  n=$(cat "$STUB_STATE" 2>/dev/null || echo 0); echo $((n+1)) > "$STUB_STATE"',
+      '  case "$STUB_FP" in',
+      '    fail) echo "ERROR: permission denied for schema pg_catalog" >&2; exit 2;;',
+      '    empty) exit 0;;',
+      '    fail_after) if [[ $n -ge 1 ]]; then echo "ERROR: connection lost" >&2; exit 2; fi; echo "fp-row";;',
+      '    *) echo "fp-row";;',
+      '  esac; exit 0',
+      'fi',
+      'if [[ "$args" == *" -c "* ]]; then echo "1,2,3,4,5,6,7,8,9,10,11,12"; exit 0; fi',
+      'cat >/dev/null; echo "PASS: stub"; echo "ALL WORKFORCE ACCESS TESTS PASSED"; echo "ALL WORKFORCE HR TESTS PASSED"',
+    ].join('\n'), { mode: 0o755 })
+    return d
+  })()
+  const OK_URL = `postgresql://postgres.${REF}:x@aws-0-us-east-1.pooler.supabase.com:6543/postgres`
+  const run = (file: string, fp: string, url = OK_URL, prod = PROD) => {
+    const state = join(stubDir, `n-${Math.random().toString(36).slice(2)}`)
+    return spawnSync('bash', [file], { encoding: 'utf8', env: { NODE_ENV: 'test', PATH: `${stubDir}:${process.env.PATH}`, STUB_FP: fp, STUB_STATE: state,
+      STAGING_DB_URL: url, EXPECT_STAGING_REF: REF, PRODUCTION_PROJECT_REF: prod } })
+  }
+  // the version before the fix (commit b89f8d1), to reproduce the two defects; skipped if the history is not available
+  const old = (() => {
+    const r = spawnSync('git', ['show', 'b89f8d1:businessai-fase1/scripts/staging/verify-0036.sh'], { encoding: 'utf8', cwd: fileURLToPath(new URL('..', import.meta.url)) })
+    if (r.status !== 0) return null
+    const f = join(stubDir, 'verify-0036.old.sh'); writeFileSync(f, r.stdout); return f
+  })()
+
+  it('reproduces point 1 on the old version: a failing or empty fingerprint compared as «identical»', () => {
+    if (!old) return
+    for (const fp of ['fail', 'empty']) {
+      const r = run(old, fp)
+      expect(r.status).toBe(0)
+      expect(r.stdout).toContain('PASS: catalog identical before/after the tests')
+    }
+  })
+  it('reproduces point 2 on the old version: a URL with the ref only in the query string was accepted', () => {
+    if (!old) return
+    expect(run(old, 'ok', `postgresql://postgres:x@aws-0.pooler.supabase.com:5432/postgres?application_name=${REF}`).status).toBe(0)
+  })
+
+  it('point 1 fixed: a psql error or an empty fingerprint fails explicitly, before running anything', () => {
+    for (const fp of ['fail', 'empty']) {
+      const r = run(script, fp)
+      expect(r.status).toBe(1)
+      expect(r.stdout).toContain('ERROR: cannot read the catalog fingerprint before the tests; nothing was run')
+      expect(r.stderr).toMatch(fp === 'fail' ? /catalog fingerprint failed \(psql exit 2\)/ : /catalog fingerprint is empty/)
+      expect(r.stdout).not.toContain('catalog identical')
+      expect(r.stdout).not.toContain('on staging (rolled back)')
+    }
+  })
+  it('point 1 fixed: a fingerprint that fails AFTER the suites is a failure, never «identical»', () => {
+    const r = run(script, 'fail_after')
+    expect(r.status).toBe(1)
+    expect(r.stdout).toContain('FAIL: cannot read the catalog fingerprint after the tests')
+    expect(r.stdout).not.toContain('catalog identical')
+    expect(r.stdout).toContain('0036 is NOT rolled back automatically')
+  })
+  it('point 2 fixed: the script refuses a lax URL, a Production URL and a missing Production ref before connecting', () => {
+    for (const [url, prod, msg] of [
+      [`postgresql://postgres:x@aws-0.pooler.supabase.com:5432/postgres?application_name=${REF}`, PROD, 'user/host is not the staging project'],
+      [`postgresql://postgres.${PROD}:x@aws-0.pooler.supabase.com/postgres?x=${REF}`, PROD, 'PRODUCTION'],
+      [OK_URL, '', 'PRODUCTION_PROJECT_REF is required'],
+    ]) {
+      const r = run(script, 'ok', url, prod)
+      expect(r.status).toBe(1); expect(r.stdout).toContain(msg)
+      expect(r.stdout).not.toContain('before: rows')     // no query was made
+    }
+  })
+  it('all good: identical counts and fingerprint pass', () => {
+    const r = run(script, 'ok')
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('PASS: catalog identical before/after the tests')
+    expect(r.stdout).toContain('PASS: no row added, changed or removed (counts identical)')
+  })
+  it('documents that a failure stops the run but does not roll the migration back', () => {
+    const src = readFileSync(script, 'utf8')
+    expect(src).toContain('A failure stops the run (the job fails) but does NOT roll')
+    expect(src).toContain('Never delete or alter existing data to make these checks pass.')
+    expect(src).toContain('source "$here/verify-lib.sh"')
   })
 })
