@@ -110,8 +110,8 @@ Errores corregidos gracias a esta prueba:
 2. **Migraciones 0015–0035 en staging** (requiere su autorización explícita; elija una opción):
    - **a)** Autorice en el chat que se añada al workflow la etiqueta `staging:migrate-modules`, con la lista 0015–0035 fijada en el archivo y las mismas guardas que `staging:migrate`. Después aplique la etiqueta en el PR #1.
    - **b)** Desde su equipo, con `STAGING_DB_URL` de **staging**:
-     `APPROVED_DRAFTS=0015_documents_lifecycle,…,0035_crm EXPECT_STAGING_REF=wbfpvxptoujgvflljasc bash scripts/staging/apply-migrations.sh`
-     Antes, ejecútelo con `DRY_RUN=1`. El script se niega con cualquier proyecto que no sea staging.
+     `STAGING_PROJECT_REF=wbfpvxptoujgvflljasc PRODUCTION_PROJECT_REF=rugqcumiuqrjbfwpuslm EXPECT_STAGING_REF=wbfpvxptoujgvflljasc APPROVED_DRAFTS=<lista> bash scripts/staging/apply-migrations.sh`
+     Antes, ejecútelo con `DRY_RUN=1`. El script se niega con cualquier proyecto que no sea staging. `<lista>`, en este orden: `0015_documents_lifecycle,0016_billing_hardening,0017_plan_features,0018_team,0019_crm,0020_workforce,0021_workforce_kiosk,0022_workforce_rules,0023_ledger,0024_payables,0025_receivables,0026_bank_reconciliation,0027_statements_budgets,0028_document_studio,0029_assistant,0030_intelligence_core,0031_intelligence_insights,0032_assistant_bank_summary,0033_workforce_hr,0034_payroll,0035_crm` (el mismo camino del script que prueba el harness local).
 3. Después de migrar: etiqueta `staging:test` (humo, facturación test, RLS, capturas) y `staging:demo` (empresa demo ficticia).
 4. **Asistente** (opcional): `ANTHROPIC_API_KEY` y `ASSISTANT_SERVER_KEYS` **solo** en el destino `preview`, con la clave de servidor registrada en staging (`docs/INTELLIGENCE.md`).
 5. **Para ver la Preview en iPhone:** abra la URL fija, inicie sesión en Vercel con su cuenta y luego en BusinessAI con su **usuario de staging**, no el de producción.
