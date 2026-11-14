@@ -10,6 +10,13 @@ export const signUpSchema = z.object({
   password: z.string().min(8, 'Mínimo 8 caracteres').max(72, 'Máximo 72 caracteres'),
 })
 export const signInSchema = z.object({ email, password: z.string().min(1, 'Requerida').max(72) })
+export const resetRequestSchema = z.object({ email })
+export const newPasswordSchema = z
+  .object({
+    password: z.string().min(8, 'Mínimo 8 caracteres').max(72, 'Máximo 72 caracteres'),
+    confirm: z.string(),
+  })
+  .refine((v) => v.password === v.confirm, { message: 'Las contraseñas no coinciden', path: ['confirm'] })
 export const companySchema = z.object({
   name: z.string().trim().min(2, 'Mínimo 2 caracteres').max(120, 'Máximo 120 caracteres'),
 })

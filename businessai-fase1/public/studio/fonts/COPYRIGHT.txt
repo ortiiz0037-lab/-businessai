@@ -1,0 +1,5 @@
+Files: *
+Copyright:
+ Digitized data copyright (c) 2010 Google Corporation with Reserved Font Arimo, Tinos and Cousine.
+ Copyright (c) 2012 Red Hat, Inc. with Reserved Font Name Liberation.
+License: SIL-OFL-1.1

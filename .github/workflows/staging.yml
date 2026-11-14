@@ -1,0 +1,312 @@
+name: Staging
+
+# Prepares and tests the STAGING environment. Never touches production: every
+# script refuses live Stripe keys and the production Supabase project, and
+# Vercel is written for the Preview target only.
+# See businessai-fase1/docs/STAGING_SETUP.md.
+#
+# How to start it:
+#   * label `staging:check` on the pull request → READ-ONLY check: preflight,
+#     staging DB guards + pending migrations (dry run), the read-only 0014a
+#     verification (supabase/inspect/verify_0014a.sql), and the Stripe and
+#     Vercel plans. Writes nothing anywhere.
+#   * label `staging:preview` → ONLY the Supabase variables of the Preview
+#     environment: compares the names the code reads with Vercel Preview,
+#     validates the staging keys (read-only), writes the 3 Supabase variables
+#     for Preview, rebuilds the branch preview and checks /login. No
+#     migrations, no Stripe, nothing in Production.
+#   * label `staging:migrate` → ONLY the database migrations 0001–0011 + 0014a on
+#     the staging project (pinned ref below): plan (dry run) → apply →
+#     confirm (nothing pending + verification). No Stripe, no Vercel, no
+#     users, no tests. Owner's authorization.
+#   * label `staging:migrate-modules` → like staging:migrate (same mode, same pinned
+#     project, same guards, no Stripe / Vercel / users / tests) and ALSO the module
+#     drafts 0015–0035, the exact list pinned below in MODULE_DRAFTS (never taken
+#     from the label, a variable or an input). The apply runs only if the dry run
+#     lists exactly that list; afterwards every migration 0001–0035 is checked
+#     read-only against its objects (supabase/inspect/inspect_migration_state.sql).
+#     Owner's authorization (2026-11-14).
+#   * label `staging:run` → applies everything (owner's authorization).
+#     Prices come from repository variables STAGING_PRICE_*_CENTS.
+#   * or Actions → Staging → Run workflow (only once the file is on main).
+
+on:
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      migrations:
+        description: '1. Aplicar migraciones a Supabase STAGING'
+        type: boolean
+        default: true
+      approved_drafts:
+        description: 'Migraciones BORRADOR aprobadas por el dueño para ESTA ejecución (p. ej. 0015_documents_lifecycle,0016_billing_hardening). Vacío = no se aplica ningún borrador.'
+        type: string
+        default: ''
+      stripe:
+        description: '2. Stripe TEST: precios, portal y webhook'
+        type: boolean
+        default: true
+      basic_cents:
+        description: 'Precio Básico al mes, en centavos (p. ej. 1900 = $19.00)'
+        type: string
+        required: false
+      pro_cents:
+        description: 'Precio Pro al mes, en centavos'
+        type: string
+        required: false
+      premium_cents:
+        description: 'Precio Premium al mes, en centavos'
+        type: string
+        required: false
+      vercel:
+        description: '3. Variables de Vercel (solo Preview)'
+        type: boolean
+        default: true
+      split_shared:
+        description: 'Separar variables compartidas Production+Preview (Production no cambia)'
+        type: boolean
+        default: false
+      tests:
+        description: '4. Prueba de humo + prueba completa de facturación'
+        type: boolean
+        default: true
+
+concurrency: staging
+
+permissions:
+  contents: read
+
+jobs:
+  staging:
+    # Label runs: only the exact label, and never from forks (no secrets there).
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      ((github.event.label.name == 'staging:run' || github.event.label.name == 'staging:check' ||
+        github.event.label.name == 'staging:preview' || github.event.label.name == 'staging:migrate' ||
+        github.event.label.name == 'staging:migrate-modules') &&
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: businessai-fase1
+    env:
+      # check = read-only (label staging:check); run = apply (label staging:run / dispatch).
+      MODE: ${{ github.event.label.name == 'staging:check' && 'check' || github.event.label.name == 'staging:preview' && 'preview' || github.event.label.name == 'staging:migrate' && 'migrate' || github.event.label.name == 'staging:migrate-modules' && 'migrate' || 'run' }}
+      # check = read-only · preview = only Supabase vars in Preview · migrate = only DB migrations · run = apply everything.
+      DO_MIGRATIONS: ${{ github.event.label.name != 'staging:preview' && (github.event_name != 'workflow_dispatch' || inputs.migrations) }}
+      DO_STRIPE: ${{ github.event.label.name != 'staging:preview' && github.event.label.name != 'staging:migrate' && github.event.label.name != 'staging:migrate-modules' && (github.event_name != 'workflow_dispatch' || inputs.stripe) }}
+      DO_VERCEL: ${{ github.event.label.name != 'staging:preview' && github.event.label.name != 'staging:migrate' && github.event.label.name != 'staging:migrate-modules' && (github.event_name != 'workflow_dispatch' || inputs.vercel) }}
+      DO_TESTS: ${{ github.event.label.name != 'staging:check' && github.event.label.name != 'staging:preview' && github.event.label.name != 'staging:migrate' && github.event.label.name != 'staging:migrate-modules' && (github.event_name != 'workflow_dispatch' || inputs.tests) }}
+      DO_PREVIEW_SUPABASE: ${{ github.event.label.name == 'staging:check' || github.event.label.name == 'staging:preview' }}
+      SPLIT_SHARED: ${{ inputs.split_shared || vars.STAGING_SPLIT_SHARED == 'true' }}
+      PRICE_BASIC: ${{ inputs.basic_cents || vars.STAGING_PRICE_BASIC_CENTS }}
+      PRICE_PRO: ${{ inputs.pro_cents || vars.STAGING_PRICE_PRO_CENTS }}
+      PRICE_PREMIUM: ${{ inputs.premium_cents || vars.STAGING_PRICE_PREMIUM_CENTS }}
+      STAGING_PROJECT_REF: ${{ vars.STAGING_PROJECT_REF }}
+      PRODUCTION_PROJECT_REF: ${{ vars.PRODUCTION_PROJECT_REF }}
+      # Pinned in the code (not a repository variable): the only project the
+      # migration steps may touch, and the production project they must refuse.
+      PINNED_STAGING_REF: wbfpvxptoujgvflljasc
+      PINNED_PRODUCTION_REF: rugqcumiuqrjbfwpuslm
+      # staging:migrate-modules: the ONLY drafts it approves, pinned here in ORDER (checked against
+      # scripts/staging/apply-migrations.sh by the migrate guard). Empty for every other label.
+      MODULES_RUN: ${{ github.event.label.name == 'staging:migrate-modules' }}
+      MODULE_DRAFTS: 0015_documents_lifecycle,0016_billing_hardening,0017_plan_features,0018_team,0019_crm,0020_workforce,0021_workforce_kiosk,0022_workforce_rules,0023_ledger,0024_payables,0025_receivables,0026_bank_reconciliation,0027_statements_budgets,0028_document_studio,0029_assistant,0030_intelligence_core,0031_intelligence_insights,0032_assistant_bank_summary,0033_workforce_hr,0034_payroll,0035_crm
+      STAGING_URL: ${{ vars.STAGING_URL }}
+      STAGING_SUPABASE_URL: https://${{ vars.STAGING_PROJECT_REF }}.supabase.co
+      STAGING_SUPABASE_PUBLISHABLE_KEY: ${{ vars.STAGING_SUPABASE_PUBLISHABLE_KEY }}
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID || 'prj_hk9DvqsNN5M2OJA2jqm1IHw2lqAW' }}
+      VERCEL_TEAM_ID: ${{ vars.VERCEL_TEAM_ID || 'team_zY0NJlHyXWCFrO080or2mu5h' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: businessai-fase1/package-lock.json
+      - run: npm ci
+
+      - name: Preflight (names only, never values)
+        env:
+          HAS_DB: ${{ secrets.STAGING_DB_URL != '' }}
+          HAS_SERVICE: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY != '' }}
+          HAS_STRIPE: ${{ secrets.STRIPE_TEST_SECRET_KEY != '' }}
+          HAS_VERCEL: ${{ secrets.VERCEL_TOKEN != '' }}
+        run: |
+          missing=()
+          [ -n "$STAGING_PROJECT_REF" ] || missing+=("variable STAGING_PROJECT_REF")
+          [ -n "$PRODUCTION_PROJECT_REF" ] || missing+=("variable PRODUCTION_PROJECT_REF")
+          if $DO_MIGRATIONS; then [ "$HAS_DB" = true ] || missing+=("secret STAGING_DB_URL"); fi
+          if $DO_STRIPE || $DO_TESTS; then [ "$HAS_STRIPE" = true ] || missing+=("secret STRIPE_TEST_SECRET_KEY"); fi
+          if $DO_STRIPE && [ "$MODE" = run ]; then
+            [ -n "$PRICE_BASIC" ] && [ -n "$PRICE_PRO" ] && [ -n "$PRICE_PREMIUM" ] \
+              || missing+=("prices: variables STAGING_PRICE_BASIC_CENTS, STAGING_PRICE_PRO_CENTS, STAGING_PRICE_PREMIUM_CENTS")
+          fi
+          if $DO_STRIPE || $DO_VERCEL || $DO_TESTS; then [ -n "$STAGING_URL" ] || missing+=("variable STAGING_URL"); fi
+          if $DO_VERCEL || $DO_TESTS; then
+            [ "$HAS_SERVICE" = true ] || missing+=("secret STAGING_SUPABASE_SERVICE_ROLE_KEY")
+            [ -n "$STAGING_SUPABASE_PUBLISHABLE_KEY" ] || missing+=("variable STAGING_SUPABASE_PUBLISHABLE_KEY")
+          fi
+          if $DO_VERCEL; then [ "$HAS_VERCEL" = true ] || missing+=("secret VERCEL_TOKEN"); fi
+          if [ "$MODE" = run ] && $DO_VERCEL && ! $DO_STRIPE; then missing+=("run step 2 (Stripe) together with step 3 (Vercel): the webhook secret is created there"); fi
+          if $DO_PREVIEW_SUPABASE; then
+            [ "$HAS_SERVICE" = true ] || missing+=("secret STAGING_SUPABASE_SERVICE_ROLE_KEY")
+            [ -n "$STAGING_SUPABASE_PUBLISHABLE_KEY" ] || missing+=("variable STAGING_SUPABASE_PUBLISHABLE_KEY")
+            [ "$HAS_VERCEL" = true ] || missing+=("secret VERCEL_TOKEN")
+            [ -n "$STAGING_URL" ] || missing+=("variable STAGING_URL")
+          fi
+          if [ ${#missing[@]} -gt 0 ]; then printf 'Missing:\n'; printf '  - %s\n' "${missing[@]}"; exit 1; fi
+          echo "Preflight OK (mode: $MODE)"
+
+      - name: 0. Preview access (Vercel protection bypass, read-only GET)
+        if: env.DO_STRIPE == 'true' || env.DO_TESTS == 'true' || env.DO_PREVIEW_SUPABASE == 'true'
+        env:
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: bash scripts/staging/check-preview-access.sh
+
+      - name: P. Supabase variables in Vercel Preview (check = inspect only · preview = write, rebuild, verify /login)
+        if: env.DO_PREVIEW_SUPABASE == 'true'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          STAGING_BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          if [ "$MODE" = preview ]; then node scripts/staging/preview-supabase.mjs apply
+          else node scripts/staging/preview-supabase.mjs inspect; fi
+
+      - name: "A. Sign-in on the Preview (read-only): Supabase project, Auth settings, user count, tables"
+        if: env.MODE == 'check'
+        env:
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          STAGING_BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: node scripts/staging/auth-check.mjs
+
+      - name: "M. Migrate guard: pinned staging project, never production"
+        if: env.MODE == 'migrate'
+        run: |
+          echo "Mode: migrate — database migrations only (no Stripe, no Vercel, no users, no tests)"
+          [ "$STAGING_PROJECT_REF" = "$PINNED_STAGING_REF" ] || { echo "ERROR: STAGING_PROJECT_REF is not the pinned businessai-staging ref"; exit 1; }
+          [ "$PRODUCTION_PROJECT_REF" = "$PINNED_PRODUCTION_REF" ] || { echo "ERROR: PRODUCTION_PROJECT_REF is not the pinned production ref"; exit 1; }
+          [ "$STAGING_PROJECT_REF" != "$PINNED_PRODUCTION_REF" ] || { echo "ERROR: staging ref equals production"; exit 1; }
+          for flag in DO_STRIPE DO_VERCEL DO_TESTS DO_PREVIEW_SUPABASE; do
+            [ "${!flag}" = false ] || { echo "ERROR: $flag must be false in migrate mode"; exit 1; }
+          done
+          echo "OK: target project $STAGING_PROJECT_REF (businessai-staging); production $PINNED_PRODUCTION_REF is refused"
+          if [ "$MODULES_RUN" = true ]; then
+            order=$(sed -n '/^ORDER=(/,/^)/p' scripts/staging/apply-migrations.sh | grep -oE '[0-9]{4}[a-z]?_[a-z0-9_]+' | sed -n '/^0014a_permissions$/,$p' | tail -n +2 | paste -sd, -)
+            [ "$order" = "$MODULE_DRAFTS" ] || { echo "ERROR: MODULE_DRAFTS does not match ORDER after 0014a_permissions"; echo "  ORDER: $order"; exit 1; }
+            for m in ${MODULE_DRAFTS//,/ }; do grep -q '^-- STAGING-GATE: approval required' "supabase/migrations/$m.sql" || { echo "ERROR: $m is not a gated draft"; exit 1; }; done
+            echo "OK: module drafts approved for this run (exactly, in order): ${MODULE_DRAFTS//,/ }"
+          fi
+
+      - name: 1·pre. STAGING_DB_URL diagnostics (pass/fail only, no connection to Supabase)
+        if: env.DO_MIGRATIONS == 'true'
+        env:
+          STAGING_DB_URL: ${{ secrets.STAGING_DB_URL }}
+        run: node scripts/staging/db-url-diagnose.mjs
+
+      - name: 1. Migrations → Supabase staging
+        if: env.DO_MIGRATIONS == 'true'
+        env:
+          STAGING_DB_URL: ${{ secrets.STAGING_DB_URL }}
+          EXPECT_STAGING_REF: ${{ env.MODE == 'migrate' && env.PINNED_STAGING_REF || '' }}
+          # Drafts are applied only when named in a manual run, or the pinned MODULE_DRAFTS with the
+          # dedicated label staging:migrate-modules (never anything taken from the label text).
+          APPROVED_DRAFTS: ${{ github.event.label.name == 'staging:migrate-modules' && env.MODULE_DRAFTS || github.event_name == 'workflow_dispatch' && inputs.approved_drafts || '' }}
+        run: |
+          if [ "$MODE" = check ]; then DRY_RUN=1 VERIFY_0014A=1 bash scripts/staging/apply-migrations.sh; exit; fi
+          echo "== Plan (dry run: guards + pending migrations, nothing written)"
+          plan="$(DRY_RUN=1 bash scripts/staging/apply-migrations.sh)"; echo "$plan"
+          if [ "$MODULES_RUN" = true ]; then
+            # stop here unless the plan is EXACTLY the approved module list and nothing is held
+            [ "$(grep '^Pending: ' <<<"$plan")" = "Pending: ${MODULE_DRAFTS//,/ }" ] || { echo "STOP: the dry run does not list exactly 0015…0035; nothing applied"; exit 1; }
+            ! grep -q '^Held' <<<"$plan" || { echo "STOP: something is still held; nothing applied"; exit 1; }
+            echo "OK: dry run matches the approved list exactly"
+          fi
+          echo "== Apply"
+          bash scripts/staging/apply-migrations.sh
+
+      - name: 1·verify. Confirm migrations (nothing pending, recorded list, verification query)
+        if: env.DO_MIGRATIONS == 'true' && env.MODE != 'check'
+        env:
+          STAGING_DB_URL: ${{ secrets.STAGING_DB_URL }}
+          EXPECT_STAGING_REF: ${{ env.MODE == 'migrate' && env.PINNED_STAGING_REF || '' }}
+          APPROVED_DRAFTS: ${{ github.event.label.name == 'staging:migrate-modules' && env.MODULE_DRAFTS || github.event_name == 'workflow_dispatch' && inputs.approved_drafts || '' }}
+        run: |
+          DRY_RUN=1 EXPECT_NONE=1 STATUS=1 VERIFY_0014A=1 bash scripts/staging/apply-migrations.sh
+          if [ "$MODULES_RUN" = true ]; then
+            echo "== Each migration against its objects (read-only: supabase/inspect/inspect_migration_state.sql)"
+            state="$(PGOPTIONS='-c default_transaction_read_only=on' PGCONNECT_TIMEOUT=15 psql "$STAGING_DB_URL" -X -q -tA -F '|' -v ON_ERROR_STOP=1 -f supabase/inspect/inspect_migration_state.sql)"
+            # 0008 only changes production-shaped databases: "n/a" is its expected state on staging
+            grep -E '^00' <<<"$state" | awk -F'|' '{ ok = ($2 == "applied" || ($1 == "0008_definer_function_grants" && $2 == "n/a")); printf "  %s %-34s %s %s\n", (ok ? "✓" : "✗"), $1, $2, $3 }'
+            bad="$(grep -E '^00' <<<"$state" | awk -F'|' '!($2 == "applied" || ($1 == "0008_definer_function_grants" && $2 == "n/a"))')"
+            [ -z "$bad" ] || { echo "ERROR: not every migration is applied:"; echo "$bad"; exit 1; }
+            echo "OK: 0001–0035 each applied and verified against its objects"
+          fi
+
+      - name: 2a. Stripe TEST → products, prices, Customer Portal
+        if: env.DO_STRIPE == 'true'
+        env:
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+        run: |
+          args=()
+          [ -n "$PRICE_BASIC" ] && args+=(--basic "$PRICE_BASIC")
+          [ -n "$PRICE_PRO" ] && args+=(--pro "$PRICE_PRO")
+          [ -n "$PRICE_PREMIUM" ] && args+=(--premium "$PRICE_PREMIUM")
+          if [ "$MODE" = check ]; then args+=(--plan-only); fi
+          node scripts/stripe-setup-test.mjs "${args[@]}"
+
+      - name: 2b. Stripe TEST → staging webhook endpoint
+        if: env.DO_STRIPE == 'true'
+        env:
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: |
+          if [ "$MODE" = check ]; then node scripts/staging/stripe-webhook.mjs --plan-only
+          else node scripts/staging/stripe-webhook.mjs; fi
+
+      - name: 3. Vercel → Preview variables (+ rebuild of the staging preview)
+        if: env.DO_VERCEL == 'true'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+          # Rebuild this branch's preview after writing NEXT_PUBLIC_* (build-time values).
+          STAGING_BRANCH: ${{ github.head_ref || github.ref_name }}
+          STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+        run: |
+          args=()
+          [ "$SPLIT_SHARED" = true ] && args+=(--split-shared)
+          [ "$MODE" = check ] && args+=(--plan-only)
+          node scripts/staging/vercel-env.mjs "${args[@]}"
+
+      - name: 4a. Smoke test of the staging deployment (waits for the redeploy)
+        if: env.DO_TESTS == 'true'
+        env:
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: |
+          for i in $(seq 1 30); do
+            if bash scripts/staging/smoke.sh; then exit 0; fi
+            echo "…preview not rebuilt with the staging configuration yet; retrying in 30 s ($i/30)"; sleep 30
+          done
+          exit 1
+
+      - name: 4b. Billing end-to-end (Stripe TEST clocks + staging webhook + staging DB)
+        if: env.DO_TESTS == 'true'
+        env:
+          STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+        run: node scripts/staging/e2e-billing.mjs
+
+      - name: 4c. RLS tests against staging
+        if: env.DO_TESTS == 'true'
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ env.STAGING_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ env.STAGING_SUPABASE_PUBLISHABLE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          RLS_TEST_PROJECT_REF: ${{ env.STAGING_PROJECT_REF }}
+        run: npx vitest run tests/rls.test.ts tests/rls-business.test.ts

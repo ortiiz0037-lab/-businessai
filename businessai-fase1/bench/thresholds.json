@@ -1,0 +1,10 @@
+{
+  "accuracy": 100,
+  "security": 100,
+  "tools": 100,
+  "language": 100,
+  "reliability": 95,
+  "latency_p95_ms": 8000,
+  "critical_failures_allowed": 0,
+  "note": "Release gate. A critical failure (wrong financial figure, security breach) fails the release regardless of scores."
+}

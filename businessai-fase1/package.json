@@ -10,17 +10,30 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:db": "bash supabase/tests/local/run.sh",
+    "test:e2e": "node e2e/public.e2e.mjs",
+    "test:e2e:finance": "node e2e/finance.auth.e2e.mjs",
+    "test:e2e:assistant": "node e2e/assistant.auth.e2e.mjs",
+    "bench": "node bench/run.mjs",
+    "test:e2e:benchmark": "node bench/run.mjs --mode both",
+    "test:e2e:workforce": "node e2e/workforce.auth.e2e.mjs",
+    "test:e2e:employee-link": "node e2e/employee-link.auth.e2e.mjs",
+    "test:e2e:payroll": "node e2e/payroll.auth.e2e.mjs",
+    "test:e2e:crm": "node e2e/crm.auth.e2e.mjs",
+    "test:e2e:staging-shape": "node e2e/staging-shape.e2e.mjs",
+    "staging:rehearse": "bash scripts/staging/rehearse-modules.sh"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.8.0",
     "@stripe/stripe-js": "^10.2.0",
     "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "^2.58.0",
-    "next": "^16.0.0",
+    "next": "^16.4.3",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "stripe": "23.1.0",
-    "zod": "^4.0.0"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -28,7 +41,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "^16.0.0",
+    "eslint-config-next": "^16.4.3",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^3.2.0"

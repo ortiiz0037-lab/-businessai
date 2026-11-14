@@ -1,6 +1,135 @@
 @import "tailwindcss";
 
+/* =====================================================================
+   BusinessAI design system — Black & Electric Blue
+   A real dark UI (not inverted): layered navy-black surfaces, discreet
+   borders, electric-blue primary and a cyan accent. No gold, no cream.
+   Fonts come from next/font (src/app/layout.tsx): Manrope (UI) and
+   Sora (display headings).
+   ===================================================================== */
+@theme inline {
+  --font-sans: var(--font-manrope), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: var(--font-sora), var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
+}
 
+@theme {
+  /* Surfaces */
+  --color-app: #070b14;        /* main background */
+  --color-app-2: #0b1220;      /* secondary background (sidebar, top bar) */
+  --color-card: #111827;       /* cards */
+  --color-elevated: #172235;   /* raised surfaces, inputs hover, menus */
+  --color-line: #263449;       /* borders */
+  /* Text */
+  --color-fg: #f8fafc;
+  --color-muted: #94a3b8;
+  /* Brand */
+  --color-brand: #2563eb;      /* primary blue */
+  --color-electric: #3b82f6;   /* electric blue */
+  --color-accent: #22d3ee;     /* cyan accent */
+  --color-series-2: #0ea5c9;   /* chart cyan (validated on #111827) */
+  /* Status */
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+
+  --shadow-card: inset 0 1px 0 rgb(255 255 255 / 0.03), 0 1px 2px rgb(0 0 0 / 0.4), 0 18px 40px -24px rgb(0 0 0 / 0.75);
+  --shadow-lift: inset 0 1px 0 rgb(255 255 255 / 0.04), 0 2px 6px rgb(0 0 0 / 0.45), 0 28px 56px -24px rgb(0 0 0 / 0.85);
+  --shadow-glow: 0 10px 30px -10px rgb(37 99 235 / 0.65), 0 0 0 1px rgb(59 130 246 / 0.35);
+
+  --animate-fade-up: fade-up 0.35s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  @keyframes fade-up {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: none; }
+  }
+}
+
+@layer base {
+  html { -webkit-text-size-adjust: 100%; color-scheme: dark; background-color: var(--color-app); }
+  body {
+    background-color: var(--color-app);
+    background-image: radial-gradient(1200px 520px at 85% -10%, rgb(37 99 235 / 0.10), transparent 60%),
+      radial-gradient(900px 420px at -10% 0%, rgb(34 211 238 / 0.05), transparent 60%);
+    background-attachment: fixed;
+    color: var(--color-fg);
+    font-feature-settings: "ss01", "cv11";
+  }
+  ::selection { background: rgb(37 99 235 / 0.45); color: var(--color-fg); }
+  :focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+  input[type="checkbox"], input[type="radio"] { accent-color: var(--color-brand); }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  }
+}
+
+/* ---- Typography ---- */
+@utility eyebrow { @apply text-[11px] font-semibold uppercase tracking-[0.22em] text-accent; }
+@utility page-title { @apply font-display text-2xl font-semibold tracking-tight text-fg sm:text-3xl; }
+@utility section-title { @apply text-lg font-semibold tracking-tight text-fg; }
+@utility muted { @apply text-sm text-muted; }
+
+/* ---- Surfaces ---- */
+@utility card { @apply rounded-2xl border border-line/80 bg-card shadow-card; }
+@utility card-interactive { @apply card transition duration-200 hover:-translate-y-0.5 hover:border-electric/50 hover:shadow-lift; }
+@utility card-hero {
+  @apply relative isolate overflow-hidden rounded-3xl border border-line bg-app-2 text-white shadow-lift;
+  background-image: radial-gradient(120% 120% at 100% 0%, rgb(37 99 235 / 0.30), transparent 55%),
+    radial-gradient(90% 90% at 0% 100%, rgb(34 211 238 / 0.10), transparent 60%);
+}
+@utility divider-glow { @apply h-px w-full bg-gradient-to-r from-transparent via-electric/60 to-transparent; }
+
+/* ---- Buttons: hover / active / focus-visible / disabled ---- */
+@utility btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-semibold whitespace-nowrap
+    transition duration-150 select-none active:translate-y-px
+    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/80 focus-visible:ring-offset-2 focus-visible:ring-offset-app
+    disabled:pointer-events-none disabled:opacity-45 aria-disabled:pointer-events-none aria-disabled:opacity-45;
+}
+@utility btn-sm { @apply px-3.5 py-2 text-[13px]; }
+@utility btn-lg { @apply px-7 py-4 text-[15px]; }
+@utility btn-primary { @apply btn bg-brand text-white shadow-glow hover:bg-electric active:bg-blue-700; }
+@utility btn-accent {
+  @apply btn text-white shadow-glow hover:brightness-110 active:brightness-95;
+  background-image: linear-gradient(135deg, var(--color-brand), var(--color-electric) 55%, var(--color-accent));
+}
+@utility btn-secondary { @apply btn border border-line bg-elevated text-fg hover:border-slate-500/70 hover:bg-[#1c2a40] active:bg-[#14203a]; }
+@utility btn-ghost { @apply btn text-slate-300 hover:bg-white/5 hover:text-fg active:bg-white/10; }
+@utility btn-outline-light { @apply btn border border-white/15 bg-white/5 text-white hover:border-white/30 hover:bg-white/10; }
+@utility btn-danger { @apply btn border border-danger/40 bg-danger/10 text-red-300 hover:border-danger/60 hover:bg-danger/15; }
+
+/* ---- Forms ---- */
+@utility field-label { @apply mb-1.5 block text-sm font-semibold text-slate-200; }
+@utility field {
+  @apply w-full rounded-xl border border-line bg-[#0d1626] px-4 py-3 text-sm text-fg shadow-[inset_0_1px_2px_rgb(0_0_0_/_0.35)]
+    outline-none transition placeholder:text-slate-500
+    hover:border-slate-500/60
+    focus:border-electric focus:ring-4 focus:ring-electric/20
+    disabled:cursor-not-allowed disabled:bg-elevated/50 disabled:text-slate-500
+    aria-[invalid=true]:border-danger/70 aria-[invalid=true]:ring-danger/20;
+}
+@utility field-hint { @apply mt-1.5 text-xs text-muted; }
+@utility field-error { @apply mt-1.5 text-sm font-medium text-red-400; }
+
+/* ---- Feedback ---- */
+@utility badge { @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset; }
+@utility badge-neutral { @apply badge bg-white/5 text-slate-300 ring-line; }
+@utility badge-accent { @apply badge bg-electric/10 text-blue-300 ring-electric/30; }
+@utility badge-success { @apply badge bg-success/10 text-green-300 ring-success/30; }
+@utility badge-danger { @apply badge bg-danger/10 text-red-300 ring-danger/30; }
+@utility badge-warning { @apply badge bg-warning/10 text-amber-300 ring-warning/30; }
+@utility alert { @apply rounded-xl border px-4 py-3 text-sm; }
+@utility alert-info { @apply alert border-electric/30 bg-electric/10 text-blue-100; }
+@utility alert-success { @apply alert border-success/30 bg-success/10 text-green-100; }
+@utility alert-warning { @apply alert border-warning/30 bg-warning/10 text-amber-100; }
+@utility alert-danger { @apply alert border-danger/35 bg-danger/10 text-red-100; }
+
+/* ---- Tables ---- */
+@utility table-premium {
+  @apply w-full text-left text-sm;
+  & thead th { @apply border-b border-line bg-white/[0.02] px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted; }
+  & tbody td { @apply border-b border-line/60 px-5 py-4 text-slate-200; }
+  & tbody tr { @apply transition hover:bg-white/[0.03]; }
+  & tbody tr:last-child td { @apply border-b-0; }
+}
 
 /* BusinessAI: imprimir únicamente el documento comercial */
 @media print {
