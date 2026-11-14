@@ -1,6 +1,8 @@
 // Role permissions (owner / admin / member) against the STAGING project,
 // through the public API with real sessions. TEST-ONLY, temporary data
-// (prefix `e3-roles`, see tests/staging-helpers.ts), removed afterwards.
+// (prefix `e3-roles`, see tests/staging-helpers.ts). Company A records
+// payments, which are immutable evidence: cleanup retains it (its users are
+// banned); everything else is removed afterwards.
 //
 // Expected matrix = today's behaviour, unchanged by 0014a:
 //   owner, admin : everything below;

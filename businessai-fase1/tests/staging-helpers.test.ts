@@ -49,3 +49,36 @@ describe('resolveStagingEnv', () => {
     }
   })
 })
+
+describe('cleanup plan: immutable payments are retained evidence, never deleted', () => {
+  it('a company with payments is retained whole and its users are banned, not deleted', async () => {
+    const { planCleanup } = await import('./staging-helpers')
+    const plan = planCleanup({
+      runUsers: ['owner-a', 'admin-a', 'member-a', 'owner-b', 'loose'],
+      companies: [
+        { id: 'A', createdBy: 'owner-a', payments: 4, members: ['owner-a', 'admin-a', 'member-a'], paymentAuthors: ['owner-a', 'admin-a', 'member-a'] },
+        { id: 'B', createdBy: 'owner-b', payments: 0, members: ['owner-b'], paymentAuthors: [] },
+      ],
+    })
+    expect(plan.retainCompanies).toEqual(['A'])
+    expect(plan.removeCompanies).toEqual(['B'])
+    expect(plan.banUsers.sort()).toEqual(['admin-a', 'member-a', 'owner-a'])
+    expect(plan.deleteUsers.sort()).toEqual(['loose', 'owner-b'])
+  })
+  it('a company not created by this run is never touched (e.g. one retained by an earlier run)', async () => {
+    const { planCleanup } = await import('./staging-helpers')
+    const plan = planCleanup({ runUsers: ['u1'], companies: [{ id: 'old', createdBy: 'someone-else', payments: 1, members: ['u1'], paymentAuthors: [] }] })
+    expect(plan.foreignCompanies).toEqual(['old'])
+    expect(plan.removeCompanies).toEqual([])
+    expect(plan.retainCompanies).toEqual([])
+    expect(plan.deleteUsers).toEqual(['u1'])
+  })
+  it('the cleanup never asks to delete payments (they are immutable: the database refuses, and must)', async () => {
+    const { readFileSync } = await import('node:fs')
+    const src = readFileSync(new URL('./staging-helpers.ts', import.meta.url), 'utf8')
+    const body = src.slice(src.indexOf('async function cleanup'), src.indexOf('return { admin, stamp'))
+    expect(body).not.toMatch(/from\('payments'\)\.delete|'payments', 'document_deletion_audit'/)
+    expect(body).toContain("from('payments').select('created_by')")
+    expect(body).toContain("ban_duration: '876000h'")
+  })
+})

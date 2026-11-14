@@ -12,6 +12,13 @@
 //   * Cleanup only touches companies this run created (and checks that their
 //     creator is one of this run's users), in foreign-key order, and reports
 //     anything it could not remove. Existing data is never read for deletion.
+//   * Payments are immutable evidence (0015 / 0025: PAYMENT_IMMUTABLE), so a
+//     company of this run that recorded payments is RETAINED whole: no
+//     attempt is made to delete its payments, documents, clients or the
+//     company (the database would refuse, and must). Its users cannot be
+//     deleted either (companies.created_by is ON DELETE RESTRICT, payments
+//     keep created_by), so they are BANNED: they can never sign in again.
+//     Retained companies are listed in the output, not reported as failures.
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 
 /** The production project: refused here whatever the environment says. */
@@ -99,14 +106,29 @@ export function createFixture(prefix: string) {
     return actor
   }
 
-  /** Removes everything this fixture created; throws listing what remained. */
+  /**
+   * Removes what this fixture created and may be removed; retains companies
+   * holding immutable payments (and bans their users). Throws listing anything
+   * else that remained.
+   */
   async function cleanup(): Promise<void> {
     const problems: string[] = []
+    const seen: { id: string; createdBy: string; payments: number; members: string[]; paymentAuthors: string[] }[] = []
     for (const companyId of companyIds) {
       const company = await admin.from('companies').select('id, created_by').eq('id', companyId).maybeSingle()
       if (company.error) { problems.push(`read company ${companyId}: ${company.error.message}`); continue }
       if (!company.data) continue
-      if (!userIds.includes(company.data.created_by)) { problems.push(`company ${companyId} not created by this run: left untouched`); continue }
+      const [pays, mems] = await Promise.all([
+        admin.from('payments').select('created_by').eq('company_id', companyId),
+        admin.from('memberships').select('user_id').eq('company_id', companyId),
+      ])
+      if (pays.error || mems.error) { problems.push(`read ${companyId}: ${(pays.error ?? mems.error)!.message}`); continue }
+      seen.push({ id: companyId, createdBy: company.data.created_by, payments: (pays.data ?? []).length,
+        members: (mems.data ?? []).map((m) => m.user_id), paymentAuthors: (pays.data ?? []).map((p) => p.created_by).filter(Boolean) })
+    }
+    const plan = planCleanup({ runUsers: userIds, companies: seen })
+    for (const id of plan.foreignCompanies) problems.push(`company ${id} not created by this run: left untouched`)
+    for (const companyId of [...plan.removeCompanies, ...plan.retainCompanies]) {
       for (const bucket of ['Company-assets', 'Company-signatures']) {
         const files = await admin.storage.from(bucket).list(companyId)
         if (files.data?.length) {
@@ -114,21 +136,56 @@ export function createFixture(prefix: string) {
           if (removed.error) problems.push(`${bucket}/${companyId}: ${removed.error.message}`)
         }
       }
-      for (const table of ['payments', 'document_deletion_audit', 'documents', 'clients', 'company_profiles', 'company_subscriptions', 'memberships']) {
+    }
+    for (const companyId of plan.removeCompanies) {
+      for (const table of ['document_deletion_audit', 'documents', 'clients', 'company_profiles', 'company_subscriptions', 'memberships']) {
         const r = await admin.from(table).delete().eq('company_id', companyId)
         if (r.error) problems.push(`${table} of ${companyId}: ${r.error.message}`)
       }
       const r = await admin.from('companies').delete().eq('id', companyId)
       if (r.error) problems.push(`company ${companyId}: ${r.error.message}`)
     }
-    for (const id of userIds) {
+    for (const id of plan.deleteUsers) {
       const r = await admin.auth.admin.deleteUser(id)
       if (r.error) problems.push(`user ${id}: ${r.error.message}`)
+    }
+    for (const id of plan.banUsers) {
+      const r = await admin.auth.admin.updateUserById(id, { ban_duration: '876000h' })
+      if (r.error) problems.push(`ban user ${id}: ${r.error.message}`)
+    }
+    if (plan.retainCompanies.length) {
+      console.log(`cleanup: retained ${plan.retainCompanies.length} test compan${plan.retainCompanies.length === 1 ? 'y' : 'ies'} holding immutable payments `
+        + `(${plan.retainCompanies.join(', ')}); ${plan.banUsers.length} test users banned (cannot sign in)`)
     }
     if (problems.length) throw new Error(`cleanup left data behind:\n  ${problems.join('\n  ')}`)
   }
 
   return { admin, stamp, makeActor, makeCompany, addMember, cleanup }
+}
+
+/**
+ * Pure: what cleanup does with this run's data. A company with payments is
+ * retained (immutable evidence); the users who own, belong to or recorded
+ * payments in a retained company are banned instead of deleted; everything
+ * else is deleted as before. A company not created by this run is never touched.
+ */
+export function planCleanup(input: {
+  runUsers: string[]
+  companies: { id: string; createdBy: string; payments: number; members: string[]; paymentAuthors: string[] }[]
+}) {
+  const ours = input.companies.filter((c) => input.runUsers.includes(c.createdBy))
+  const foreign = input.companies.filter((c) => !input.runUsers.includes(c.createdBy)).map((c) => c.id)
+  const retain = ours.filter((c) => c.payments > 0)
+  const remove = ours.filter((c) => c.payments === 0).map((c) => c.id)
+  const pinned = new Set(retain.flatMap((c) => [c.createdBy, ...c.members, ...c.paymentAuthors]))
+  const runPinned = input.runUsers.filter((u) => pinned.has(u))
+  return {
+    removeCompanies: remove,
+    retainCompanies: retain.map((c) => c.id),
+    foreignCompanies: foreign,
+    deleteUsers: input.runUsers.filter((u) => !pinned.has(u)),
+    banUsers: runPinned,
+  }
 }
 
 /** True when a write was refused: an error, or no row affected/returned. */

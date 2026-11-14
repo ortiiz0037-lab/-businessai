@@ -14,8 +14,33 @@ const fx = enabled ? createFixture('e3-compat') : (null as unknown as ReturnType
 // owner and admin, and takes billing.manage away from admin (owner decision).
 const MEMBER_LACKS = ['billing.manage', 'clients.delete', 'company.branding.manage', 'company.settings.manage', 'documents.delete', 'documents.void']
 const has0015 = (keys: string[]) => keys.includes('documents.void')
-const adminLacks = (keys: string[]) => (has0015(keys) ? ['billing.manage'] : [])
-const matrixRows = (keys: string[]) => (has0015(keys) ? 50 : 49)
+
+// With every migration through 0035 (staging since 2026-11-14), the catalog and the matrix are
+// declared here explicitly — the same exceptions supabase/inspect/verify_0014a.sql encodes —
+// never read back from the database under test. Owner: all 59. Admin: all but 8. Member: all but 39.
+const FULL_CATALOG = [
+  'accounting.close', 'accounting.manage', 'accounting.post', 'accounting.reopen', 'accounting.view', 'assistant.audit', 'assistant.use',
+  'bank.adjust', 'bank.manage', 'bank.reconcile', 'bank.reopen', 'bank.view', 'billing.manage', 'billing.view', 'branches.manage',
+  'budgets.approve', 'budgets.manage', 'clients.archive', 'clients.create', 'clients.delete', 'clients.edit', 'clients.view',
+  'company.branding.manage', 'company.settings.manage', 'company.signature.view', 'company.view', 'crm.configure', 'crm.manage',
+  'crm.view', 'crm.view_all', 'documents.create', 'documents.delete', 'documents.deletion_log.write', 'documents.edit', 'documents.view',
+  'documents.void', 'members.invite', 'members.manage', 'members.view', 'payables.approve', 'payables.create', 'payables.manage',
+  'payables.pay', 'payables.settings', 'payables.view', 'payments.record', 'payments.view', 'payments.void', 'payroll.approve',
+  'payroll.manage', 'payroll.view', 'receivables.manage', 'receivables.view', 'studio.brand', 'studio.edit', 'studio.issue',
+  'studio.templates', 'studio.view', 'workforce.manage',
+]
+const FULL_ADMIN_LACKS = ['accounting.reopen', 'bank.adjust', 'bank.reopen', 'billing.manage', 'budgets.approve', 'members.manage', 'payables.settings', 'payroll.approve']
+const FULL_MEMBER_LACKS = [...MEMBER_LACKS, 'members.invite', 'members.manage', 'clients.archive', 'workforce.manage',
+  'accounting.view', 'accounting.manage', 'accounting.post', 'accounting.close', 'accounting.reopen',
+  'payables.view', 'payables.pay', 'payables.manage', 'payables.settings', 'receivables.view', 'receivables.manage', 'payments.void',
+  'bank.view', 'bank.manage', 'bank.reconcile', 'bank.adjust', 'bank.reopen', 'budgets.manage', 'budgets.approve',
+  'studio.issue', 'studio.templates', 'studio.brand', 'assistant.audit', 'payroll.view', 'payroll.manage', 'payroll.approve',
+  'crm.view_all', 'crm.configure', 'branches.manage']
+/** The modules (0015–0035) are present: detected by the last module's permission. */
+const hasModules = (keys: string[]) => keys.includes('crm.view')
+const memberLacks = (keys: string[]) => (hasModules(keys) ? FULL_MEMBER_LACKS : MEMBER_LACKS)
+const adminLacks = (keys: string[]) => (hasModules(keys) ? FULL_ADMIN_LACKS : has0015(keys) ? ['billing.manage'] : [])
+const matrixRows = (keys: string[]) => (hasModules(keys) ? FULL_CATALOG.length * 3 - FULL_ADMIN_LACKS.length - FULL_MEMBER_LACKS.length : has0015(keys) ? 50 : 49)
 
 let A: Company, B: Company, O: Actor, AD: Actor, M: Actor, OB: Actor
 let clientId = ''
@@ -42,17 +67,25 @@ afterAll(async () => {
 }, 120000)
 
 describe.skipIf(!enabled)('permission catalog', () => {
-  it('authenticated users read the catalog and the matrix (0014a: 18 / 49; with 0015: 19 / 50)', async () => {
+  it('the declared full matrix is consistent (59 permissions, 130 rows, exceptions inside the catalog)', () => {
+    expect(new Set(FULL_CATALOG).size).toBe(59)
+    expect(new Set(FULL_MEMBER_LACKS).size).toBe(FULL_MEMBER_LACKS.length)
+    for (const k of [...FULL_ADMIN_LACKS, ...FULL_MEMBER_LACKS]) expect(FULL_CATALOG).toContain(k)
+    expect(matrixRows(FULL_CATALOG)).toBe(130)
+  })
+
+  it('authenticated users read the catalog and the matrix (0014a: 18 / 49; with 0015: 19 / 50; with 0015–0035: 59 / 130)', async () => {
     const p = await M.client.from('permissions').select('key')
     expect(p.error).toBeNull()
     keys = (p.data ?? []).map((r) => r.key).sort()
-    expect(keys).toHaveLength(has0015(keys) ? 19 : 18)
+    if (hasModules(keys)) expect(keys).toEqual([...FULL_CATALOG].sort())
+    else expect(keys).toHaveLength(has0015(keys) ? 19 : 18)
     const rp = await M.client.from('role_permissions').select('role, permission_key')
     expect(rp.error).toBeNull()
     const by = (role: string) => (rp.data ?? []).filter((r) => r.role === role).map((r) => r.permission_key).sort()
     expect(by('owner')).toEqual(keys)
     expect(by('admin')).toEqual(keys.filter((k) => !adminLacks(keys).includes(k)))
-    expect(by('member')).toEqual(keys.filter((k) => !MEMBER_LACKS.includes(k)))
+    expect(by('member')).toEqual(keys.filter((k) => !memberLacks(keys).includes(k)))
     expect(rp.data).toHaveLength(matrixRows(keys))
   })
 
@@ -75,7 +108,7 @@ describe.skipIf(!enabled)('has_permission()', () => {
     for (const [role, u] of [['owner', O], ['admin', AD], ['member', M]] as const) {
       for (const key of keys) {
         const { data, error } = await u.client.rpc('has_permission', { target: A.id, permission: key })
-        const expected = role === 'owner' || (role === 'admin' ? !adminLacks(keys).includes(key) : !MEMBER_LACKS.includes(key))
+        const expected = role === 'owner' || (role === 'admin' ? !adminLacks(keys).includes(key) : !memberLacks(keys).includes(key))
         if (error || data !== expected) mismatches.push(`${role}:${key}=${error ? error.message : data}`)
       }
     }
