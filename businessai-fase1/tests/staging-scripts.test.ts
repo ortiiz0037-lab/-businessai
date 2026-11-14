@@ -160,14 +160,38 @@ describe('staging.yml: what each label runs', () => {
     })
   })
 
+  it('staging:migrate-modules: same migrate mode and guards, ONLY the migrations, pinned module list', () => {
+    expect(flags('staging:migrate-modules')).toEqual({
+      MODE: 'migrate', DO_MIGRATIONS: true, DO_STRIPE: false, DO_VERCEL: false, DO_TESTS: false, DO_PREVIEW_SUPABASE: false,
+    })
+    // the approved list is pinned in the file and equals ORDER after 0014a (0015 … 0035)
+    const pinned = /\n      MODULE_DRAFTS: ([0-9a-z_,]+)\n/.exec(yml)?.[1] ?? ''
+    const order = /ORDER=\(([\s\S]*?)\)/.exec(readFileSync(new URL('../scripts/staging/apply-migrations.sh', import.meta.url), 'utf8'))![1].match(/\d{4}[a-z]?_[a-z0-9_]+/g)!
+    expect(pinned.split(',')).toEqual(order.slice(order.indexOf('0014a_permissions') + 1))
+    expect(pinned.split(',')[0]).toBe('0015_documents_lifecycle')
+    expect(pinned.split(',').at(-1)).toBe('0035_crm')
+    // APPROVED_DRAFTS comes from the pinned list only for that exact label; never from label text
+    const ad = yml.match(/APPROVED_DRAFTS: \$\{\{ (.+) \}\}/g)!
+    expect(ad).toHaveLength(2)
+    for (const e of ad) expect(e).toContain("github.event.label.name == 'staging:migrate-modules' && env.MODULE_DRAFTS")
+    expect(yml).not.toMatch(/APPROVED_DRAFTS:.*github\.event\.label\.name[^=]*\}\}/)
+    // the apply only runs when the dry run lists exactly the approved list; then each migration is checked read-only
+    expect(yml).toContain('STOP: the dry run does not list exactly 0015…0035; nothing applied')
+    expect(yml).toContain("PGOPTIONS='-c default_transaction_read_only=on'")
+    expect(yml).toContain('supabase/inspect/inspect_migration_state.sql')
+    // the migrate guard (pinned staging ref, production refused) applies to it too: it runs for MODE == migrate
+    expect(yml).toMatch(/name: "M\. Migrate guard[^\n]*\n\s+if: env\.MODE == 'migrate'/)
+    expect(yml).toContain('MODULE_DRAFTS does not match ORDER after 0014a_permissions')
+  })
+
   it('the other labels keep their behaviour', () => {
     expect(flags('staging:check')).toEqual({ MODE: 'check', DO_MIGRATIONS: true, DO_STRIPE: true, DO_VERCEL: true, DO_TESTS: false, DO_PREVIEW_SUPABASE: true })
     expect(flags('staging:preview')).toEqual({ MODE: 'preview', DO_MIGRATIONS: false, DO_STRIPE: false, DO_VERCEL: false, DO_TESTS: false, DO_PREVIEW_SUPABASE: true })
     expect(flags('staging:run')).toEqual({ MODE: 'run', DO_MIGRATIONS: true, DO_STRIPE: true, DO_VERCEL: true, DO_TESTS: true, DO_PREVIEW_SUPABASE: false })
   })
 
-  it('the job only starts for the four exact labels', () => {
-    for (const l of ['staging:check', 'staging:preview', 'staging:migrate', 'staging:run']) expect(yml).toContain(`github.event.label.name == '${l}'`)
+  it('the job only starts for the five exact labels', () => {
+    for (const l of ['staging:check', 'staging:preview', 'staging:migrate', 'staging:migrate-modules', 'staging:run']) expect(yml).toContain(`github.event.label.name == '${l}'`)
     expect(yml).toMatch(/github\.event\.pull_request\.head\.repo\.full_name == github\.repository/)
   })
 
@@ -341,11 +365,13 @@ describe('draft gate (review finding I12): a draft in ORDER is never applied wit
     expect(run('0015', '0015_documents_lifecycle')).toEqual(['HOLD 0015_documents_lifecycle'])
     expect(run('9999_missing', '9999_missing')).toEqual(['HOLD 9999_missing'])
   })
-  it('apply-migrations.sh applies only what the gate lets run; drafts come only from a manual run', () => {
+  it('apply-migrations.sh applies only what the gate lets run; drafts come only from a manual run or the pinned list of staging:migrate-modules', () => {
     expect(script).toMatch(/source "\$HERE\/draft-gate.sh"/)
     expect(script).toMatch(/\[\[ -n "\$recorded" && "\$recorded" == "\$sum" \]\] && known\+="\$name,"/)
     expect(script.indexOf('draft_gate "$MIG"')).toBeLessThan(script.indexOf('for name in "${pending[@]}"; do\n  file='))
-    expect(yml).toMatch(/APPROVED_DRAFTS: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.approved_drafts \|\| '' \}\}/)
+    expect(yml).toMatch(/APPROVED_DRAFTS: \$\{\{ github\.event\.label\.name == 'staging:migrate-modules' && env\.MODULE_DRAFTS \|\| github\.event_name == 'workflow_dispatch' && inputs\.approved_drafts \|\| '' \}\}/)
+    // every other label passes nothing: the list exists only behind that exact label
+    expect(yml).toMatch(/MODULES_RUN: \$\{\{ github\.event\.label\.name == 'staging:migrate-modules' \}\}/)
     expect(yml.match(/APPROVED_DRAFTS:/g)).toHaveLength(2)
   })
 })
@@ -385,7 +411,7 @@ describe('verify_0014a.sql: strictly read-only 0014a verification', () => {
   })
   it('staging:check and the migrate confirmation run it; nothing else does', () => {
     expect(staging).toContain('if [ "$MODE" = check ]; then DRY_RUN=1 VERIFY_0014A=1 bash scripts/staging/apply-migrations.sh; exit; fi')
-    expect(staging).toContain('run: DRY_RUN=1 EXPECT_NONE=1 STATUS=1 VERIFY_0014A=1 bash scripts/staging/apply-migrations.sh')
+    expect(staging).toContain('\n          DRY_RUN=1 EXPECT_NONE=1 STATUS=1 VERIFY_0014A=1 bash scripts/staging/apply-migrations.sh\n')
     expect(staging.match(/VERIFY_0014A=1/g)).toHaveLength(2)
   })
 })

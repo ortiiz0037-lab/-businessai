@@ -19,6 +19,13 @@ name: Staging
 #     the staging project (pinned ref below): plan (dry run) → apply →
 #     confirm (nothing pending + verification). No Stripe, no Vercel, no
 #     users, no tests. Owner's authorization.
+#   * label `staging:migrate-modules` → like staging:migrate (same mode, same pinned
+#     project, same guards, no Stripe / Vercel / users / tests) and ALSO the module
+#     drafts 0015–0035, the exact list pinned below in MODULE_DRAFTS (never taken
+#     from the label, a variable or an input). The apply runs only if the dry run
+#     lists exactly that list; afterwards every migration 0001–0035 is checked
+#     read-only against its objects (supabase/inspect/inspect_migration_state.sql).
+#     Owner's authorization (2026-11-14).
 #   * label `staging:run` → applies everything (owner's authorization).
 #     Prices come from repository variables STAGING_PRICE_*_CENTS.
 #   * or Actions → Staging → Run workflow (only once the file is on main).
@@ -76,7 +83,8 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       ((github.event.label.name == 'staging:run' || github.event.label.name == 'staging:check' ||
-        github.event.label.name == 'staging:preview' || github.event.label.name == 'staging:migrate') &&
+        github.event.label.name == 'staging:preview' || github.event.label.name == 'staging:migrate' ||
+        github.event.label.name == 'staging:migrate-modules') &&
        github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     defaults:
@@ -84,12 +92,12 @@ jobs:
         working-directory: businessai-fase1
     env:
       # check = read-only (label staging:check); run = apply (label staging:run / dispatch).
-      MODE: ${{ github.event.label.name == 'staging:check' && 'check' || github.event.label.name == 'staging:preview' && 'preview' || github.event.label.name == 'staging:migrate' && 'migrate' || 'run' }}
+      MODE: ${{ github.event.label.name == 'staging:check' && 'check' || github.event.label.name == 'staging:preview' && 'preview' || github.event.label.name == 'staging:migrate' && 'migrate' || github.event.label.name == 'staging:migrate-modules' && 'migrate' || 'run' }}
       # check = read-only · preview = only Supabase vars in Preview · migrate = only DB migrations · run = apply everything.
       DO_MIGRATIONS: ${{ github.event.label.name != 'staging:preview' && (github.event_name != 'workflow_dispatch' || inputs.migrations) }}
-      DO_STRIPE: ${{ github.event.label.name != 'staging:preview' && github.event.label.name != 'staging:migrate' && (github.event_name != 'workflow_dispatch' || inputs.stripe) }}
-      DO_VERCEL: ${{ github.event.label.name != 'staging:preview' && github.event.label.name != 'staging:migrate' && (github.event_name != 'workflow_dispatch' || inputs.vercel) }}
-      DO_TESTS: ${{ github.event.label.name != 'staging:check' && github.event.label.name != 'staging:preview' && github.event.label.name != 'staging:migrate' && (github.event_name != 'workflow_dispatch' || inputs.tests) }}
+      DO_STRIPE: ${{ github.event.label.name != 'staging:preview' && github.event.label.name != 'staging:migrate' && github.event.label.name != 'staging:migrate-modules' && (github.event_name != 'workflow_dispatch' || inputs.stripe) }}
+      DO_VERCEL: ${{ github.event.label.name != 'staging:preview' && github.event.label.name != 'staging:migrate' && github.event.label.name != 'staging:migrate-modules' && (github.event_name != 'workflow_dispatch' || inputs.vercel) }}
+      DO_TESTS: ${{ github.event.label.name != 'staging:check' && github.event.label.name != 'staging:preview' && github.event.label.name != 'staging:migrate' && github.event.label.name != 'staging:migrate-modules' && (github.event_name != 'workflow_dispatch' || inputs.tests) }}
       DO_PREVIEW_SUPABASE: ${{ github.event.label.name == 'staging:check' || github.event.label.name == 'staging:preview' }}
       SPLIT_SHARED: ${{ inputs.split_shared || vars.STAGING_SPLIT_SHARED == 'true' }}
       PRICE_BASIC: ${{ inputs.basic_cents || vars.STAGING_PRICE_BASIC_CENTS }}
@@ -101,6 +109,10 @@ jobs:
       # migration steps may touch, and the production project they must refuse.
       PINNED_STAGING_REF: wbfpvxptoujgvflljasc
       PINNED_PRODUCTION_REF: rugqcumiuqrjbfwpuslm
+      # staging:migrate-modules: the ONLY drafts it approves, pinned here in ORDER (checked against
+      # scripts/staging/apply-migrations.sh by the migrate guard). Empty for every other label.
+      MODULES_RUN: ${{ github.event.label.name == 'staging:migrate-modules' }}
+      MODULE_DRAFTS: 0015_documents_lifecycle,0016_billing_hardening,0017_plan_features,0018_team,0019_crm,0020_workforce,0021_workforce_kiosk,0022_workforce_rules,0023_ledger,0024_payables,0025_receivables,0026_bank_reconciliation,0027_statements_budgets,0028_document_studio,0029_assistant,0030_intelligence_core,0031_intelligence_insights,0032_assistant_bank_summary,0033_workforce_hr,0034_payroll,0035_crm
       STAGING_URL: ${{ vars.STAGING_URL }}
       STAGING_SUPABASE_URL: https://${{ vars.STAGING_PROJECT_REF }}.supabase.co
       STAGING_SUPABASE_PUBLISHABLE_KEY: ${{ vars.STAGING_SUPABASE_PUBLISHABLE_KEY }}
@@ -184,6 +196,12 @@ jobs:
             [ "${!flag}" = false ] || { echo "ERROR: $flag must be false in migrate mode"; exit 1; }
           done
           echo "OK: target project $STAGING_PROJECT_REF (businessai-staging); production $PINNED_PRODUCTION_REF is refused"
+          if [ "$MODULES_RUN" = true ]; then
+            order=$(sed -n '/^ORDER=(/,/^)/p' scripts/staging/apply-migrations.sh | grep -oE '[0-9]{4}[a-z]?_[a-z0-9_]+' | sed -n '/^0014a_permissions$/,$p' | tail -n +2 | paste -sd, -)
+            [ "$order" = "$MODULE_DRAFTS" ] || { echo "ERROR: MODULE_DRAFTS does not match ORDER after 0014a_permissions"; echo "  ORDER: $order"; exit 1; }
+            for m in ${MODULE_DRAFTS//,/ }; do grep -q '^-- STAGING-GATE: approval required' "supabase/migrations/$m.sql" || { echo "ERROR: $m is not a gated draft"; exit 1; }; done
+            echo "OK: module drafts approved for this run (exactly, in order): ${MODULE_DRAFTS//,/ }"
+          fi
 
       - name: 1·pre. STAGING_DB_URL diagnostics (pass/fail only, no connection to Supabase)
         if: env.DO_MIGRATIONS == 'true'
@@ -196,12 +214,19 @@ jobs:
         env:
           STAGING_DB_URL: ${{ secrets.STAGING_DB_URL }}
           EXPECT_STAGING_REF: ${{ env.MODE == 'migrate' && env.PINNED_STAGING_REF || '' }}
-          # Drafts are applied only when named in a manual run (never by a label).
-          APPROVED_DRAFTS: ${{ github.event_name == 'workflow_dispatch' && inputs.approved_drafts || '' }}
+          # Drafts are applied only when named in a manual run, or the pinned MODULE_DRAFTS with the
+          # dedicated label staging:migrate-modules (never anything taken from the label text).
+          APPROVED_DRAFTS: ${{ github.event.label.name == 'staging:migrate-modules' && env.MODULE_DRAFTS || github.event_name == 'workflow_dispatch' && inputs.approved_drafts || '' }}
         run: |
           if [ "$MODE" = check ]; then DRY_RUN=1 VERIFY_0014A=1 bash scripts/staging/apply-migrations.sh; exit; fi
           echo "== Plan (dry run: guards + pending migrations, nothing written)"
-          DRY_RUN=1 bash scripts/staging/apply-migrations.sh
+          plan="$(DRY_RUN=1 bash scripts/staging/apply-migrations.sh)"; echo "$plan"
+          if [ "$MODULES_RUN" = true ]; then
+            # stop here unless the plan is EXACTLY the approved module list and nothing is held
+            [ "$(grep '^Pending: ' <<<"$plan")" = "Pending: ${MODULE_DRAFTS//,/ }" ] || { echo "STOP: the dry run does not list exactly 0015…0035; nothing applied"; exit 1; }
+            ! grep -q '^Held' <<<"$plan" || { echo "STOP: something is still held; nothing applied"; exit 1; }
+            echo "OK: dry run matches the approved list exactly"
+          fi
           echo "== Apply"
           bash scripts/staging/apply-migrations.sh
 
@@ -210,8 +235,18 @@ jobs:
         env:
           STAGING_DB_URL: ${{ secrets.STAGING_DB_URL }}
           EXPECT_STAGING_REF: ${{ env.MODE == 'migrate' && env.PINNED_STAGING_REF || '' }}
-          APPROVED_DRAFTS: ${{ github.event_name == 'workflow_dispatch' && inputs.approved_drafts || '' }}
-        run: DRY_RUN=1 EXPECT_NONE=1 STATUS=1 VERIFY_0014A=1 bash scripts/staging/apply-migrations.sh
+          APPROVED_DRAFTS: ${{ github.event.label.name == 'staging:migrate-modules' && env.MODULE_DRAFTS || github.event_name == 'workflow_dispatch' && inputs.approved_drafts || '' }}
+        run: |
+          DRY_RUN=1 EXPECT_NONE=1 STATUS=1 VERIFY_0014A=1 bash scripts/staging/apply-migrations.sh
+          if [ "$MODULES_RUN" = true ]; then
+            echo "== Each migration against its objects (read-only: supabase/inspect/inspect_migration_state.sql)"
+            state="$(PGOPTIONS='-c default_transaction_read_only=on' PGCONNECT_TIMEOUT=15 psql "$STAGING_DB_URL" -X -q -tA -F '|' -v ON_ERROR_STOP=1 -f supabase/inspect/inspect_migration_state.sql)"
+            # 0008 only changes production-shaped databases: "n/a" is its expected state on staging
+            grep -E '^00' <<<"$state" | awk -F'|' '{ ok = ($2 == "applied" || ($1 == "0008_definer_function_grants" && $2 == "n/a")); printf "  %s %-34s %s %s\n", (ok ? "✓" : "✗"), $1, $2, $3 }'
+            bad="$(grep -E '^00' <<<"$state" | awk -F'|' '!($2 == "applied" || ($1 == "0008_definer_function_grants" && $2 == "n/a"))')"
+            [ -z "$bad" ] || { echo "ERROR: not every migration is applied:"; echo "$bad"; exit 1; }
+            echo "OK: 0001–0035 each applied and verified against its objects"
+          fi
 
       - name: 2a. Stripe TEST → products, prices, Customer Portal
         if: env.DO_STRIPE == 'true'
