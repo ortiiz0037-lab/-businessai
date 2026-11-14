@@ -1,5 +1,7 @@
 # Staging en 6 pasos (desde el iPad)
 
+> Estado real verificado y riesgos de aislamiento (Entrega 15): ver `STAGING_STATUS.md`.
+
 Todo lo demás lo hace el workflow **Staging** de GitHub Actions:
 migraciones → Stripe test → variables de Vercel (solo Preview) → prueba de humo →
 prueba completa de facturación → pruebas RLS.

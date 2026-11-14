@@ -30,14 +30,15 @@ export async function crmPage(next = '/crm') {
   const [perms, settings, access] = await Promise.all([
     supabase.rpc('assistant_access', { target: companyId, keys: [...PERMS] }),
     supabase.from('ledger_settings').select('base_currency').eq('company_id', companyId).maybeSingle(),
-    supabase.from('crm_pipeline_stages').select('id', { head: true, count: 'exact' }).eq('company_id', companyId),
+    // a real read (a HEAD request reports no error for a missing table): exists only with 0035
+    supabase.from('crm_pipeline_stages').select('id').eq('company_id', companyId).limit(1),
   ])
   const p = ((perms.error ? null : perms.data) as { perms?: Record<string, boolean> } | null)?.perms ?? {}
   const has = (k: (typeof PERMS)[number]) => p[k] === true
   const currency = (settings.data as { base_currency?: string } | null)?.base_currency ?? 'USD'
   const money = (c: string | number | bigint | null | undefined) => formatCents(c ?? 0, locale, currency)
   // the pipeline is created on first use (crm.view): an ordinary, idempotent function
-  if (has('crm.view') && !access.error && (access.count ?? 0) === 0) await supabase.rpc('crm_ensure_setup', { target: companyId })
+  if (has('crm.view') && !access.error && (access.data ?? []).length === 0) await supabase.rpc('crm_ensure_setup', { target: companyId })
   return {
     locale, tr, f, supabase, user, companyId, currency, money,
     available: !access.error,
