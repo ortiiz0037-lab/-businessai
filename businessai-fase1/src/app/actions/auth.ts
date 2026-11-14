@@ -41,10 +41,12 @@ export async function signIn(_: FormState, formData: FormData): Promise<FormStat
   redirect(safeNext(formData.get('next')))
 }
 
-export async function signOut() {
+export async function signOut(formData?: FormData) {
   const supabase = await createClient()
   await supabase.auth.signOut()
-  redirect('/login')
+  // e.g. an employee link opened with the wrong account: back to sign-in, then to the link
+  const next = formData instanceof FormData ? safeNext(formData.get('next'), '') : ''
+  redirect(next ? `/login?next=${encodeURIComponent(next)}` : '/login')
 }
 
 /** Public URL of this deployment (NEXT_PUBLIC_APP_URL, else the request host). */

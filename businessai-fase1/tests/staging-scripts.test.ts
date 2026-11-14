@@ -164,10 +164,17 @@ describe('staging.yml: what each label runs', () => {
     expect(flags('staging:migrate-modules')).toEqual({
       MODE: 'migrate', DO_MIGRATIONS: true, DO_STRIPE: false, DO_VERCEL: false, DO_TESTS: false, DO_PREVIEW_SUPABASE: false,
     })
-    // the approved list is pinned in the file and equals ORDER after 0014a (0015 … 0035)
+    // the approved list is pinned in the file: ORDER from 0015 to 0035 (applied to staging with the owner's approval).
+    // Later drafts (0036 …) are NOT in it: each needs its own approval, and until then the label stops at
+    // "MODULE_DRAFTS does not match ORDER" before touching anything (fail-closed).
     const pinned = /\n      MODULE_DRAFTS: ([0-9a-z_,]+)\n/.exec(yml)?.[1] ?? ''
     const order = /ORDER=\(([\s\S]*?)\)/.exec(readFileSync(new URL('../scripts/staging/apply-migrations.sh', import.meta.url), 'utf8'))![1].match(/\d{4}[a-z]?_[a-z0-9_]+/g)!
-    expect(pinned.split(',')).toEqual(order.slice(order.indexOf('0014a_permissions') + 1))
+    const after14a = order.slice(order.indexOf('0014a_permissions') + 1)
+    expect(pinned.split(',')).toEqual(after14a.slice(0, after14a.indexOf('0035_crm') + 1))
+    for (const m of after14a.slice(after14a.indexOf('0035_crm') + 1)) {
+      expect(pinned.split(',')).not.toContain(m)
+      expect(readFileSync(new URL(`../supabase/migrations/${m}.sql`, import.meta.url), 'utf8')).toMatch(/^-- STAGING-GATE: approval required/m)
+    }
     expect(pinned.split(',')[0]).toBe('0015_documents_lifecycle')
     expect(pinned.split(',').at(-1)).toBe('0035_crm')
     // APPROVED_DRAFTS comes from the pinned list only for that exact label; never from label text

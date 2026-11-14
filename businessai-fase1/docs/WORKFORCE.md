@@ -42,6 +42,44 @@ excepciones y versiones de reglas). Todas son **borradores con
   no cambia (una ausencia aprobada solo puede pasar a cancelada, guardando
   quién la canceló). Solo borrar la empresa completa elimina su evidencia.
 
+## Enlace de acceso del empleado y «Vincular y ponchar» (0020 + 0036)
+
+Flujo: el gerente crea un enlace de un solo uso (7 días; solo se guarda su
+SHA-256) → el empleado lo abre, inicia sesión **con el correo registrado** →
+«Vincular y ponchar» asigna su cuenta (`employees.user_id`) a su ficha, en su
+empresa, y lo lleva a `/clock`. No crea membresía en la empresa.
+
+**Error reportado (2026-11-14):** «Vincular y ponchar» → «El enlace de acceso no
+es válido» con un empleado existente. Reproducido en local con el flujo real:
+
+| Causa | Qué pasaba |
+|---|---|
+| El gerente pulsó **«Crear enlace de acceso» otra vez** | El enlace nuevo sustituye el hash del anterior; el empleado tenía el primero. La página solo comprobaba el *formato* del token, así que ofrecía el botón y fallaba al pulsarlo. |
+| El enlace **ya se había usado** (atrás, segundo toque, abrirlo otra vez) | El hash se borra al vincular; la misma cuenta, ya vinculada, recibía «no es válido». |
+
+No era un problema de token mal transmitido (llega completo, 64 hex, y vuelve
+intacto tras iniciar sesión), ni de mayúsculas o espacios del correo, ni de RLS
+o de la empresa asignada: todo eso se comprobó y queda en las pruebas.
+
+**Corrección:**
+- `employee_access_check(token)` (0036, solo lectura, requiere sesión): la página
+  comprueba el enlace **antes** de ofrecer el botón y explica cada caso: válido
+  (con nombre y empresa), ya vinculado a ti («Ir a mi reloj ponchador»), usado
+  por otra cuenta, sustituido o retirado, vencido, otro correo (correo esperado
+  enmascarado, «Salir y entrar con otra cuenta» conserva el enlace) o cuenta ya
+  vinculada a otro empleado. No consume nada.
+- `claim_employee_access`: misma cuenta otra vez → éxito sin cambios (sin evento
+  duplicado; dos toques simultáneos también); otra cuenta → `ACCESS_USED`.
+- Ficha del empleado (gerente): «Hay un enlace pendiente… si creas uno nuevo, el
+  anterior deja de funcionar»; el botón pasa a «Crear un enlace nuevo (anula el
+  anterior)».
+- Sin 0036 (Staging hoy) la página funciona como antes y el mensaje de error ya
+  explica las causas; la comprobación previa necesita 0036.
+
+Pruebas: `supabase/tests/local/108_workforce_access.test.sql` (escenario 42 de
+`npm run test:db`, con carrera de dos toques y rollback) y
+`e2e/employee-link.auth.e2e.mjs` (navegador, iPhone, inglés).
+
 ## Modo PIN para tabletas compartidas (0021)
 
 1. Un administrador registra la tableta (Personal → Reglas → Tabletas) y abre

@@ -82,6 +82,8 @@ export default async function EmployeePage({ params, searchParams }: { params: P
   const depts = (deptData ?? []) as { id: string; name: string }[]
   const rate = Array.isArray(pay) ? (pay[0] as { hourly_rate: number | null } | undefined)?.hourly_rate ?? null : null
   const link = (await cookies()).get('ba_employee_link')?.value ?? null
+  // a link was created and not used yet: a new one would replace it (the employee's copy stops working)
+  const pendingLink = !emp.user_id && !!emp.access_expires_at && new Date(emp.access_expires_at) > new Date()
   const back = `/workforce/employees/${id}`
   const done: Record<string, string> = {
     created: tr('Empleado creado.', 'Employee created.'), updated: tr('Cambios guardados.', 'Changes saved.'),
@@ -283,8 +285,14 @@ export default async function EmployeePage({ params, searchParams }: { params: P
               <>
                 <p className="text-sm text-muted">{tr('Crea un enlace de un solo uso (7 días). Solo funciona con una cuenta del correo del empleado.', 'Create a one-time link (7 days). It only works with an account of the employee\'s email.')}</p>
                 {link && query.done === 'link' && <input readOnly value={link} aria-label={tr('Enlace de acceso', 'Access link')} className="field w-full font-mono text-xs" />}
+                {pendingLink && (
+                  <p className="text-sm text-warning" data-testid="pending-link">{tr(
+                    `Hay un enlace pendiente para ${emp.email} (vence el ${f.dateTime(emp.access_expires_at!)}). Envía ese mismo enlace: si creas uno nuevo, el anterior deja de funcionar.`,
+                    `There is a pending link for ${emp.email} (expires ${f.dateTime(emp.access_expires_at!)}). Send that same link: creating a new one stops the previous one from working.`)}</p>
+                )}
                 <form action={createEmployeeAccess}><input type="hidden" name="id" value={id} />
-                  <button type="submit" className="btn-primary btn-sm" disabled={!emp.email}>{tr('Crear enlace de acceso', 'Create access link')}</button></form>
+                  <button type="submit" className={pendingLink ? 'btn-secondary btn-sm' : 'btn-primary btn-sm'} disabled={!emp.email}>
+                    {pendingLink ? tr('Crear un enlace nuevo (anula el anterior)', 'Create a new link (cancels the previous one)') : tr('Crear enlace de acceso', 'Create access link')}</button></form>
                 {!emp.email && <p className="text-xs text-warning">{tr('Añade el correo del empleado primero.', 'Add the employee email first.')}</p>}
               </>
             )}

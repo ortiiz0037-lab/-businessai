@@ -94,6 +94,7 @@ ORDER=(
   0033_workforce_hr
   0034_payroll
   0035_crm
+  0036_workforce_access_check
 )
 EXPECTED_VERIFY="10,0,2,0,f,0,2,3,t,t,t,"
 

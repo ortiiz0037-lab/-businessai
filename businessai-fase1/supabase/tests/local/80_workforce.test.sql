@@ -111,7 +111,11 @@ do $$ declare tok text; begin
   perform wt.ok(wt.err('u2', format('select public.claim_employee_access(%L)', tok)) like '%ACCESS_EMAIL_MISMATCH%', 'attack: another account cannot claim the link');
   perform wt.ok(wt.err('u1', format('select public.claim_employee_access(%L)', tok)) = '', 'the employee claims its link with its own account');
   perform wt.ok((select user_id from public.employees where id = wt.id('e1')) = wt.id('u1'), 'the login is linked');
-  perform wt.ok(wt.err('u1', format('select public.claim_employee_access(%L)', tok)) like '%ACCESS_INVALID%', 'the link works once');
+  -- 0036: the same account pressing again is answered «already linked» (no change); with 0020 alone it is ACCESS_INVALID
+  perform wt.ok(case when to_regprocedure('public.employee_access_check(text)') is null
+                     then wt.err('u1', format('select public.claim_employee_access(%L)', tok)) like '%ACCESS_INVALID%'
+                     else wt.err('u1', format('select public.claim_employee_access(%L)', tok)) = ''
+                          and wt.err('u2', format('select public.claim_employee_access(%L)', tok)) like '%ACCESS_USED%' end, 'the link works once');
   perform wt.ok(wt.err('owner', format('update public.employees set user_id = %L where id = %L', wt.id('owner'), wt.id('e2'))) like '%permission denied%',
                 'attack: a manager cannot attach any login by hand');
   -- link employee 3 to the supervisor's login (maintenance) for the self-approval tests

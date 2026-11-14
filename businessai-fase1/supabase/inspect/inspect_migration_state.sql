@@ -10,7 +10,7 @@
 -- writes. It works whatever is applied: tables that may not exist are only
 -- looked up by name (to_regclass / to_regprocedure), never queried.
 --
--- One row per migration (0001–0004 together, then 0005 … 0035):
+-- One row per migration (0001–0004 together, then 0005 … 0036):
 --   status   applied | not applied | PARTIAL — review | n/a
 --   evidence what was measured (counts, flags) — compare it with the
 --            "applied when" column.
@@ -144,6 +144,9 @@ e as (
     -- 0035
     to_regclass('public.crm_opportunities') is not null as t_crm_opportunities,
     to_regprocedure('public.crm_convert_quote(uuid,uuid,date,uuid)') is not null as f_crm_convert_quote,
+    -- 0036
+    to_regclass('public.employee_access_uses') is not null as t_employee_access_uses,
+    to_regprocedure('public.employee_access_check(text)') is not null as f_employee_access_check,
     -- staging bookkeeping (absent in Production)
     to_regclass('ba_meta.applied_migrations') is not null as t_record,
     to_regclass('ba_meta.environment') is not null        as t_marker
@@ -336,7 +339,13 @@ r(ord, migration, applied_when, status, evidence) as (
     format('crm_opportunities=%s crm_convert_quote=%s', t_crm_opportunities, f_crm_convert_quote)
   from e
   union all
-  select 31, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
+  select 31, '0036_workforce_access_check', 'employee_access_uses + employee_access_check',
+    case when t_employee_access_uses and f_employee_access_check then 'applied'
+         when not (t_employee_access_uses or f_employee_access_check) then 'not applied' else 'PARTIAL — review' end,
+    format('employee_access_uses=%s employee_access_check=%s', t_employee_access_uses, f_employee_access_check)
+  from e
+  union all
+  select 32, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
     case when t_record or t_marker then 'present (staging?)' else 'absent' end,
     format('ba_meta.applied_migrations=%s ba_meta.environment=%s', t_record, t_marker)
   from e
