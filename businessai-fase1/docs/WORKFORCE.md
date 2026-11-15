@@ -80,6 +80,34 @@ Pruebas: `supabase/tests/local/108_workforce_access.test.sql` (escenario 42 de
 `npm run test:db`, con carrera de dos toques y rollback) y
 `e2e/employee-link.auth.e2e.mjs` (navegador, iPhone, inglés).
 
+## Probar el borrado de archivos de RR. HH. en Supabase alojado
+
+En Supabase alojado, un trigger de la plataforma (`storage.protect_delete`,
+migración `0055-prevent-direct-deletes` de supabase/storage) rechaza **cualquier**
+`DELETE` directo en `storage.objects` con 42501 «Direct deletion from storage
+tables is not allowed». La API de Storage, en cada petición, fija en la misma
+transacción el rol y los *claims* del usuario y `storage.allow_delete_query =
+'true'`: para ella el trigger no decide, **decide RLS** (`ba_hr_documents_delete`).
+
+Por eso la suite `102_workforce_hr` no toma ese error como prueba de permisos:
+- borra **como la API de Storage** (`at.storage_api_delete`): un archivo de un
+  documento registrado → 0 filas sin error (RLS); otra empresa, el empleado y un
+  supervisor → 0 filas;
+- **control positivo**: por el mismo camino, una subida sin registrar del gerente
+  se borra (1 fila). Así el «0 filas» solo puede venir de RLS;
+- el borrado directo se registra aparte: en alojado da el error de la plataforma;
+  sin el trigger (local) llega a RLS y da 0 filas;
+- el indicador no queda activo para el resto de la transacción.
+
+`00_supabase_storage_protect.sql` reproduce el trigger en local (copia literal);
+`npm run test:db` ejecuta la suite con y sin él, y una mutación (política de
+borrado permisiva, solo en una base de prueba) demuestra que la suite la detecta.
+
+**Pendiente detectado (no corregido):** los rollbacks `0024`, `0028` y `0033`
+hacen `delete from storage.buckets`; en Supabase alojado el mismo trigger
+(`protect_buckets_delete`) los rechazaría. No se han ejecutado en ningún entorno
+remoto; revisarlos antes de necesitarlos.
+
 ## Modo PIN para tabletas compartidas (0021)
 
 1. Un administrador registra la tableta (Personal → Reglas → Tabletas) y abre

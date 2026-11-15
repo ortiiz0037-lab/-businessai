@@ -68,6 +68,46 @@ insert into public.employees (id, company_id, first_name, last_name) values (at.
 
 create function at.n(who text, q text) returns integer language sql as $$ select at.val(who, q)::integer $$;
 grant execute on function at.n(text, text) to authenticated;
+-- Deleting a Storage file AS THE STORAGE API DOES IT for a signed-in user
+-- (supabase/storage, src/internal/database/postgres/scope.ts): in one
+-- transaction it sets role + request.jwt.claims AND storage.allow_delete_query
+-- = 'true', so the protect_delete trigger of hosted Supabase (reproduced
+-- locally by 00_supabase_storage_protect.sql) lets the statement through and
+-- RLS alone decides. All three settings are transaction-local and are put back
+-- here, so nothing after this call can delete directly.
+-- Returns 'deleted=<n>' or 'error:<sqlstate>:<message>' (never confuses the two).
+create function at.storage_api_delete(who text, obj text) returns text language plpgsql as $$
+declare n integer; r text;
+begin
+  perform set_config('request.jwt.claims', json_build_object('sub', at.id(who), 'role', 'authenticated')::text, true);
+  perform set_config('storage.allow_delete_query', 'true', true);
+  set local role authenticated;
+  begin
+    with x as (delete from storage.objects where bucket_id = 'HR-documents' and name = obj returning 1) select count(*) into n from x;
+    r := 'deleted=' || n;
+  exception when others then r := 'error:' || sqlstate || ':' || sqlerrm; end;
+  reset role;
+  perform set_config('storage.allow_delete_query', 'false', true);
+  perform set_config('request.jwt.claims', '', true);
+  return r;
+end $$;
+-- The same statement WITHOUT the Storage API flag: what a direct SQL delete gets.
+create function at.direct_delete(who text, obj text) returns text language plpgsql as $$
+declare n integer; r text;
+begin
+  perform set_config('request.jwt.claims', json_build_object('sub', at.id(who), 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  begin
+    with x as (delete from storage.objects where bucket_id = 'HR-documents' and name = obj returning 1) select count(*) into n from x;
+    r := 'deleted=' || n;
+  exception when others then r := 'error:' || sqlstate || ':' || sqlerrm; end;
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  return r;
+end $$;
+-- true where the hosted-Supabase protection is installed (Staging; local with 00_supabase_storage_protect.sql)
+create function at.storage_protected() returns boolean language sql stable as $$
+  select exists (select 1 from pg_trigger where tgrelid = 'storage.objects'::regclass and tgname = 'protect_objects_delete' and not tgisinternal) $$;
 -- a future business day at hh:mm in Puerto Rico
 create function at.ts(days integer, hhmm text) returns timestamptz language sql stable as $$
   select ((public.ba_today() + days) + hhmm::time) at time zone 'America/Puerto_Rico' $$;
@@ -167,8 +207,37 @@ do $$ declare p text := at.id('A') || '/' || at.id('emp1') || '/contrato.pdf'; d
     'shared: the employee sees it and can download it');
   perform at.ok(at.n('emp2u', 'select count(*) from public.employee_documents') = 0, 'another employee does not');
   perform at.ok(at.n('other', 'select count(*) from storage.objects where bucket_id = ''HR-documents''') = 0, 'isolation: files');
-  perform at.ok(at.n('owner', format('with x as (delete from storage.objects where name = %L returning 1) select count(*) from x', p)) = 0,
-    'a registered document''s file cannot be deleted');
+  -- Deleting the FILE of a registered document. Two different refusals must not be confused:
+  --  * the platform's: hosted Supabase refuses ANY direct SQL delete (protect_delete trigger,
+  --    42501 "Direct deletion…"). That says nothing about our permissions, so it is only
+  --    recorded, never counted as proof;
+  --  * ours: through the Storage API (flag set, caller's role and claims) the trigger lets the
+  --    statement through and RLS (ba_hr_documents_delete, 0033) must refuse: 0 rows, no error.
+  -- A positive control proves that this same path really deletes when RLS allows it, so the
+  -- 0 rows can only come from RLS.
+  declare orphan text := at.id('A') || '/' || at.id('emp1') || '/borrador.pdf'; r text; begin
+    if at.storage_protected() then
+      r := at.direct_delete('owner', p);
+      perform at.ok(r like 'error:42501:Direct deletion from storage tables is not allowed%',
+        'hosted Storage protection: a direct SQL delete is refused by the platform (recorded, not counted as RLS)');
+    else
+      perform at.ok(at.direct_delete('owner', p) = 'deleted=0', 'without the platform trigger: a direct delete reaches RLS, which refuses (0 rows)');
+    end if;
+    perform at.ok(at.err('owner', format('insert into storage.objects (bucket_id, name) values (%L, %L)', 'HR-documents', orphan)) = '',
+      'control file: an upload whose registration never happened');
+    r := at.storage_api_delete('owner', p);
+    perform at.ok(r = 'deleted=0', 'through the Storage API: RLS refuses to delete a registered document''s file (0 rows, not a platform error) [' || r || ']');
+    perform at.ok(at.storage_api_delete('other', orphan) = 'deleted=0', 'through the Storage API: another company''s owner cannot delete the file');
+    perform at.ok(at.storage_api_delete('emp1u', orphan) = 'deleted=0' and at.storage_api_delete('sup', orphan) = 'deleted=0',
+      'through the Storage API: the employee and a supervisor cannot delete it either');
+    r := at.storage_api_delete('owner', orphan);
+    perform at.ok(r = 'deleted=1', 'control: the same Storage API path DOES delete what RLS allows (a manager''s unregistered upload) [' || r || ']');
+    perform at.ok((select count(*) from storage.objects where bucket_id = 'HR-documents' and name = p) = 1
+                  and (select count(*) from storage.objects where bucket_id = 'HR-documents' and name = orphan) = 0,
+      'the registered file is still there; only the control file is gone');
+    perform at.ok(coalesce(current_setting('storage.allow_delete_query', true), 'false') <> 'true',
+      'the Storage API flag is not left on for the rest of the transaction');
+  end;
   perform at.ok(at.err('owner', format('delete from public.employee_documents where id = %L', d)) like '%permission denied%', 'documents cannot be deleted');
   perform at.ok(at.err('owner', format('update public.employee_documents set title = %L where id = %L', 'x', d)) like '%permission denied%', 'nor edited directly');
   perform at.ok(at.err('owner', format('select public.set_employee_document(%L, null, true)', d)) = '', 'archive');

@@ -1140,6 +1140,17 @@ for t in "80_workforce:ALL WORKFORCE TESTS PASSED" "102_workforce_hr:ALL WORKFOR
   db="l42_${t%%_*}"; stg_db "$db"; for m in "$P14" "$P15" "$P16" "$P17" "$P18" "$P19" "$P20" "$P21" "$P22" "$P23" "$P24" "$P25" "$P26" "$P27" "$P28" "$P29" "$P30" "$P31" "$P32" "$P33" "$P34" "$P35" "$P36"; do psqlq -d "$db" -f "$MIG/$m.sql" >/dev/null; done
   run_suite "$db" "$HERE/${t%%:*}.test.sql" "${t#*:}" "with 0036: ${t%%:*} suite"
 done
+# Hosted-Supabase Storage protection (protect_delete trigger, reproduced by 00_supabase_storage_protect.sql):
+# the 102 suite must pass on it too, deleting files the way the Storage API does (flag + role + claims),
+# and must FAIL if the HR delete policy were permissive (a platform error is never taken as RLS proof).
+stg_db l42h; psqlq -d l42h -f "$HERE/00_supabase_storage_protect.sql" >/dev/null; for m in "$P14" "$P15" "$P16" "$P17" "$P18" "$P19" "$P20" "$P21" "$P22" "$P23" "$P24" "$P25" "$P26" "$P27" "$P28" "$P29" "$P30" "$P31" "$P32" "$P33" "$P34" "$P35" "$P36"; do psqlq -d l42h -f "$MIG/$m.sql" >/dev/null; done
+check "$(count l42h "select count(*) from pg_trigger where tgname in ('protect_objects_delete', 'protect_buckets_delete') and not tgisinternal")" 2 "hosted-like database: Supabase's protect_delete triggers installed"
+run_suite l42h "$HERE/102_workforce_hr.test.sql" 'ALL WORKFORCE HR TESTS PASSED' "with the hosted Storage protection: 102_workforce_hr suite"
+stg_db l42m; psqlq -d l42m -f "$HERE/00_supabase_storage_protect.sql" >/dev/null; for m in "$P14" "$P15" "$P16" "$P17" "$P18" "$P19" "$P20" "$P21" "$P22" "$P23" "$P24" "$P25" "$P26" "$P27" "$P28" "$P29" "$P30" "$P31" "$P32" "$P33" "$P34" "$P35" "$P36"; do psqlq -d l42m -f "$MIG/$m.sql" >/dev/null; done
+psqlq -d l42m -c "drop policy ba_hr_documents_delete on storage.objects; create policy ba_hr_documents_delete on storage.objects for delete to authenticated using (bucket_id = 'HR-documents' and public.wf_manages(public.storage_company_id(name)))" >/dev/null
+out42m="$(suite l42m "$HERE/102_workforce_hr.test.sql" || true)"
+check "$(grep -c "FAIL: through the Storage API: RLS refuses to delete a registered document's file" <<<"$out42m")/$(grep -c 'ALL WORKFORCE HR TESTS PASSED' <<<"$out42m")" "1/0" \
+  "mutation (test database only): a permissive HR delete policy is caught by the 102 suite"
 # two taps at once on «Vincular y ponchar» (two sessions of the same account): one link, both answered, one event
 stg_db l42r; for m in "$P14" "$P15" "$P16" "$P17" "$P18" "$P19" "$P20" "$P21" "$P22" "$P23" "$P24" "$P25" "$P26" "$P27" "$P28" "$P29" "$P30" "$P31" "$P32" "$P33" "$P34" "$P35" "$P36"; do psqlq -d l42r -f "$MIG/$m.sql" >/dev/null; done
 psqlq -d l42r -c "insert into auth.users (id, email) values ('e1000000-0000-4000-8000-0000000000b1', 'own@race.test'), ('e1000000-0000-4000-8000-0000000000b2', 'juan@race.test');
