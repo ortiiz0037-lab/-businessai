@@ -87,6 +87,14 @@ export function startLlmDouble({ port, apiKey }) {
       }
       const q = question
       if (/rechaza|refuse/.test(q)) return respond(res, body, [], 'refusal')
+      // S4 scenarios (before the generic rules below)
+      const id = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/.exec(q)?.[0]
+      if (/carta de cobro|collection letter/.test(q) && id) return respond(res, body, [tool('propose_collection_letter', { invoice_id: id })], 'tool_use')
+      if (/comprobante|voucher/.test(q) && id) return respond(res, body, [tool('propose_payment_voucher', { bill_id: id })], 'tool_use')
+      if (/prioriz|recomiend|recommend|prioriti/.test(q)) return respond(res, body, [tool('get_recommendations', {})], 'tool_use')
+      if (/antigüedad|ageing|aging/.test(q)) return respond(res, body, [tool('get_receivables_aging', {})], 'tool_use')
+      if (/cat[aá]logo|catalog/.test(q)) return respond(res, body, [tool('search_catalog', { query: q.split(/cat[aá]logo|catalog/)[1]?.replace(/[^a-záéíóúñ ]/g, '').trim() || '' })], 'tool_use')
+      if (/sucursales|branches/.test(q)) return respond(res, body, [tool('list_branches', {})], 'tool_use')
       if (/otra empresa|other company/.test(q)) return respond(res, body, [tool('list_invoices', { status: 'all', company_id: 'e2000000-0000-4000-8000-000000000001' })], 'tool_use')
       if (/vencid|overdue|inventa|corrige|sobrecarga|lento/.test(q)) return respond(res, body, [tool('list_invoices', { status: 'overdue' })], 'tool_use')
       if (/negocio|business/.test(q)) return respond(res, body, [tool('get_business_overview', {})], 'tool_use')
@@ -130,7 +138,13 @@ export function startLlmDouble({ port, apiKey }) {
         if (d.receivables) bits.push(`${es ? 'Por cobrar' : 'Receivables'}: [[${ref}.receivables.open_balance]]`)
         parts.push(`${es ? 'Resumen' : 'Overview'}: ${bits.join(' · ')}${d.not_authorized?.length ? ` (${es ? 'sin acceso' : 'no access'}: ${d.not_authorized.join(', ')})` : ''}`)
       } else if (name === 'search_clients') parts.push(`${es ? 'Clientes' : 'Clients'}: ${d.clients.map((_c, i) => `[[${ref}.clients.${i}.name]]`).join(', ') || '—'}`)
-      else if (name === 'propose_studio_draft') parts.push(es ? 'Propuesta pendiente de su confirmación.' : 'Proposal pending your confirmation.')
+      else if (/^propose_/.test(name)) parts.push(es ? 'Propuesta pendiente de su confirmación.' : 'Proposal pending your confirmation.')
+      else if (name === 'get_recommendations') parts.push(d.recommendations.length
+        ? d.recommendations.map((x, i) => `${i + 1 > 0 ? '•' : ''} [[${ref}.recommendations.${i}.reason]] → [[${ref}.recommendations.${i}.next_step]] (${x.link})`).join('\n')
+        : (es ? 'No hay recomendaciones con los datos actuales.' : 'No recommendations with the current data.'))
+      else if (name === 'get_receivables_aging') parts.push(es ? `Por cobrar [[${ref}.total_open]], vencido [[${ref}.total_overdue]]; tramo más antiguo [[${ref}.buckets.d90_plus]].` : `Receivables [[${ref}.total_open]], overdue [[${ref}.total_overdue]]; oldest bucket [[${ref}.buckets.d90_plus]].`)
+      else if (name === 'search_catalog') parts.push(`${es ? 'Catálogo' : 'Catalog'}: ${d.items.map((_x, i) => `[[${ref}.items.${i}.code]] [[${ref}.items.${i}.name]] [[${ref}.items.${i}.price]]`).join(', ') || '—'}`)
+      else if (name === 'list_branches') parts.push(`${es ? 'Sucursales' : 'Branches'}: ${d.branches.map((_x, i) => `[[${ref}.branches.${i}.name]]`).join(', ') || '—'}`)
       else if (name === 'prepare_operation') parts.push(es ? `Complete la operación en ${d.link}; no se ha ejecutado nada.` : `Complete the operation at ${d.link}; nothing was executed.`)
       else parts.push(es ? 'Datos consultados.' : 'Data consulted.')
     }

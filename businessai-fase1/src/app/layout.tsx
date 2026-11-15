@@ -8,6 +8,8 @@ const sora = Sora({ subsets: ['latin'], variable: '--font-sora', weight: ['500',
 export const metadata: Metadata = {
   title: 'BusinessAI',
   description: 'Clientes, documentos y pagos de tu negocio con imagen profesional.',
+  icons: { icon: '/icon.svg', apple: '/icon.svg' },
+  appleWebApp: { capable: true, title: 'BusinessAI', statusBarStyle: 'black-translucent' },
 }
 
 export const viewport: Viewport = {

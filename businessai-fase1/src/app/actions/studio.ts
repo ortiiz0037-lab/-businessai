@@ -164,22 +164,13 @@ export async function createFromFinance(formData: FormData) {
   if (kind === 'collection_letter' && !docId) bad('invalid')
   if (kind === 'payment_voucher' && (!bill || !payment)) bad('invalid')
   const { supabase, companyId } = await company()
-  const tpl = await templateContent(supabase, companyId, `sys:${kind}`)
-  if (!tpl) bad('invalid')
-  let client: string | null = null
-  if (docId) client = ((await supabase.from('documents').select('client_id').eq('id', docId).eq('company_id', companyId).maybeSingle()).data as { client_id: string | null } | null)?.client_id ?? null
+  const { createFinanceDraft } = await import('@/lib/studio/finance-draft')
   const locale = await getLocale()
-  const title = kind === 'collection_letter' ? (locale === 'en' ? 'Payment reminder' : 'Aviso de cobro') : (locale === 'en' ? 'Payment voucher' : 'Comprobante de pago')
-  const { data, error } = await supabase.rpc('studio_save_document', {
-    target: companyId, doc: null, doc_kind: tpl!.kind, doc_title: title, doc_folder: null, doc_content: tpl!.content, doc_page: tpl!.page,
-    client, source_document: docId, employee: null, vendor: null, template: null, base: tpl!.base, expected_version: null, doc_origin: 'user',
-  })
-  const row = ((data ?? []) as { id: string }[])[0]
-  if (error || !row) bad(studioErrorCode(error))
-  if (kind === 'payment_voucher') {
-    const { error: e2 } = await supabase.rpc('studio_set_finance_link', { doc: row.id, bill, payment })
-    if (e2) go(`/studio/${row.id}`, { error: studioErrorCode(e2) })
-  }
+  const r = kind === 'collection_letter'
+    ? await createFinanceDraft(supabase, companyId, { kind, documentId: docId!, locale, origin: 'user' })
+    : await createFinanceDraft(supabase, companyId, { kind: 'payment_voucher', billId: bill!, paymentId: payment!, locale, origin: 'user' })
+  if (!r.ok) { if (r.id) go(`/studio/${r.id}`, { error: r.error }); bad(r.error) }
+  const row = { id: (r as { id: string }).id }
   refresh()
   go(`/studio/${row.id}`, { done: 'created' })
 }

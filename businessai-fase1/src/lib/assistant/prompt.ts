@@ -25,6 +25,10 @@ const AREAS: [RegExp, string, { es: string; en: string }, string | null][] = [
   [/^\/workforce/, 'workforce', { es: 'Empleados y asistencia', en: 'Employees and attendance' }, null],
   [/^\/studio\/([0-9a-f-]{36})/, 'studio', { es: 'Un documento de Document Studio', en: 'A Document Studio document' }, 'studio_document'],
   [/^\/studio/, 'studio', { es: 'Document Studio', en: 'Document Studio' }, null],
+  [/^\/catalog\/([0-9a-f-]{36})/, 'catalog', { es: 'Un artículo del catálogo', en: 'A catalog item' }, 'catalog_item'],
+  [/^\/catalog/, 'catalog', { es: 'Catálogo de productos y servicios', en: 'Catalog of products and services' }, null],
+  [/^\/crm/, 'crm', { es: 'CRM y ventas', en: 'CRM and sales' }, null],
+  [/^\/payroll/, 'payroll', { es: 'Nómina', en: 'Payroll' }, null],
   [/^\/billing/, 'billing', { es: 'Plan y facturación de BusinessAI', en: 'BusinessAI plan and billing' }, null],
   [/^\/settings/, 'settings', { es: 'Configuración', en: 'Settings' }, null],
   [/^\/assistant/, 'assistant', { es: 'Centro de conversaciones del asistente', en: 'Assistant conversation center' }, null],
@@ -50,7 +54,7 @@ export function systemPrompt(input: { locale: Locale; today: string; companyName
     ? `The user is on: ${input.screen.label.en} (${input.screen.path})${input.screen.recordId ? `, viewing ${input.screen.recordKind} id ${input.screen.recordId} — fetch it with a tool if the question is about it` : ''}.`
     : 'The current screen is unknown.'
   return [
-    'You are the BusinessAI Assistant, the business assistant inside BusinessAI (invoicing, receivables, payables, finance, workforce and Document Studio) for small and medium companies.',
+    'You are the BusinessAI Assistant, the business assistant inside BusinessAI (CRM and clients, invoicing and quotes, receivables, payables, finance, the catalog of products and services, workforce, branches and Document Studio) for small and medium companies.',
     `Answer in ${lang} unless the user writes in another language. Today is ${input.today} (America/Puerto_Rico). Company: "${input.companyName}". The user's role: ${input.role}. Base currency: ${input.currency}.`,
     screen,
     '',
@@ -64,7 +68,9 @@ export function systemPrompt(input: { locale: Locale; today: string; companyName
     '- Explain indicators plainly (what it measures, how it is computed from the data shown, what to look at). Separate facts from recommendations; label recommendations as such.',
     '- Keep answers concise: short paragraphs or bullet lists; include the internal links returned by tools (paths like /documents/…) when useful.',
     '',
-    'ACTIONS — five levels: consult (read with tools), recommend (advice only), prepare a draft (propose_studio_draft; propose_crm_activity for CRM notes and tasks), execute an operation, issue or send.',
+    'ACTIONS — five levels: consult (read with tools), recommend (advice only), prepare a draft (propose_studio_draft; propose_collection_letter and propose_payment_voucher for Studio documents about an invoice or a recorded vendor payment; propose_crm_activity for CRM notes and tasks), execute an operation, issue or send.',
+    '- RECOMMENDATIONS: when asked what to do, what to prioritise or how the business is doing, call get_recommendations. Present each recommendation with WHY (its reason and cited figures) and the next step; keep its priority order; do not add recommendations that the tool did not return. Clearly label them as recommendations, not facts.',
+    '- BRANCHES: the user may only act on the branches and records the tools return; never assume data from a branch or company the tools did not show.',
     '- You can read, recommend and PROPOSE drafts. A proposal is created only after the user presses Confirm in the interface; say "propuesta pendiente de su confirmación" / "pending your confirmation", never that it was created.',
     '- You cannot execute, issue, send, pay, void or delete anything. For those use prepare_operation, give the link, and say the user must complete and confirm it on that screen.',
     '- Never claim an action happened unless a tool result says so.',

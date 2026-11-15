@@ -31,9 +31,9 @@ export function tiersFor(m: ModelEntry, cfg: RouterConfig): Tier[] {
   return (cfg.approvals ?? APPROVALS.approvals).find((a) => a.model === m.id)?.tiers ?? []
 }
 
-const P3 = /\b(analiz|analy[sz]|compar|proyecci|projection|forecast|estrategi|strategy|tendencia|trend|escenario|scenario|por qu[eé]|why|recomiend|recommend|plan de acci|action plan)/i
-const P2 = /\b(factur|invoice|pag[oa]|payment|cobr|collect|deud|debt|owe|saldo|balance|gasto|expense|bill|presupuest|budget|ingres|revenue|income|utilidad|profit|p[eé]rdida|loss|impuesto|tax|n[oó]mina|payroll|asistencia|attendance|horas|hours|ponche|punch|empleado|employee|vencid|overdue|caja|cash|banco|bank|contab|account|estado de resultados|statement|cotizaci|quote|recibo|receipt|carta|letter|contrato|contract|borrador|draft|registr|record|cu[aá]nto|how much|how many|total|monto|amount|resumen|summary|overview|ventas|vend[ií]|sales|sold|\$|\d)/i
-const P1 = /\b(cliente|client|proveedor|vendor|documento|document|busca|find|search|lista|list|muestra|show)/i
+const P3 = /\b(analiz|analy[sz]|compar|proyecci|projection|forecast|estrategi|strategy|tendencia|trend|escenario|scenario|por qu[eé]|why|recomiend|recommend|plan de acci|action plan|prioridad|priorit|qu[eé] debo|what should)/i
+const P2 = /\b(factur|invoice|pag[oa]|payment|cobr|collect|deud|debt|owe|saldo|balance|gasto|expense|bill|presupuest|budget|ingres|revenue|income|utilidad|profit|p[eé]rdida|loss|impuesto|tax|n[oó]mina|payroll|asistencia|attendance|horas|hours|ponche|punch|empleado|employee|vencid|overdue|caja|cash|banco|bank|contab|account|estado de resultados|statement|cotizaci|quote|recibo|receipt|carta|letter|contrato|contract|borrador|draft|registr|record|cu[aá]nto|how much|how many|total|monto|amount|resumen|summary|overview|ventas|vend[ií]|sales|sold|precio|price|antig[uü]edad|aging|ageing|\$|\d)/i
+const P1 = /\b(cliente|client|proveedor|vendor|documento|document|busca|find|search|lista|list|muestra|show|cat[aá]logo|catalog|producto|product|servicio|service|sucursal|branch)/i
 
 export function classify(text: string, screenArea: string | null): { tier: Tier; reason: string } {
   const t = text.normalize('NFC')

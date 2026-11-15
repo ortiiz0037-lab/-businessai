@@ -6,6 +6,62 @@ reales y autorizados, propuestas de borradores con confirmación explícita, voz
 push-to-talk y auditoría. **No hay respuestas simuladas**: sin una clave de
 proveedor configurada el asistente lo dice y no responde.
 
+## S4. Asistente como capacidad central (prevalece sobre el texto de abajo)
+
+**Proveedor real.** El asistente usa la API de Anthropic con el SDK oficial
+(`src/lib/intelligence/adapters/anthropic.ts`): streaming, **pensamiento adaptativo**
+(`thinking: {type: 'adaptive'}`), herramientas estrictas (`strict: true`), caché
+del prompt, reintento único, tiempo límite por llamada y errores tipados
+(clave inválida, límite de uso, sobrecarga, red, cancelación). Sin
+`ANTHROPIC_API_KEY` y una clave de servidor registrada **no responde** y lo dice:
+no hay respuestas simuladas en el producto. El doble de pruebas solo se usa en las
+pruebas locales (URL `http://127.0.0.1`, rechazada en producción, costo marcado
+«test»). **No se ha llamado al proveedor real en esta entrega** (sin clave; sin
+gasto): activarlo es poner la clave en el servidor (ver §1).
+
+*Decisión documentada:* no se activa `eager_input_streaming`. Las entradas de las
+herramientas son pequeñas (ids, filtros) y `strict: true` garantiza su forma; el
+motor además las valida con zod. Se reevaluará si una herramienta recibe textos largos.
+
+**Costos y límites** (sin cambios, de la Entrega 10): presupuesto mensual por plan
+con alertas 50/80/100 %, límite por minuto, router por nivel P0–P3 con respaldo que
+nunca baja de nivel, uso y costo por turno registrados también cuando falla.
+
+**Herramientas nuevas** (cada una solo si el usuario tiene el permiso, con su sesión y RLS):
+
+| Herramienta | Permiso | Qué hace |
+|---|---|---|
+| `search_catalog` | `catalog.view` | Busca en el catálogo (0039): código, nombre, unidad, precio, impuesto propio. |
+| `list_branches` | miembro | Sucursales visibles, a cuáles pertenece el usuario y si el CRM está limitado por sucursal. |
+| `get_receivables_aging` | `receivables.view` | Antigüedad por cliente desde `ar_aging` (totales sobre todas las facturas abiertas). |
+| `get_recommendations` | cualquier área visible | **Reglas explícitas** sobre registros reales: facturas vencidas (alta si hay más de dos meses), promesas incumplidas o vencidas, gastos vencidos o de la próxima semana, banco sin conciliar, seguimientos del CRM vencidos, solicitudes de ausencia. Cada una trae el **porqué** (regla), sus cifras verificables, el siguiente paso y el enlace. Las áreas sin permiso no se evalúan y se listan en `not_authorized`. El modelo explica; no inventa recomendaciones. |
+| `propose_collection_letter` | `studio.edit` + `documents.view` | **Propone** una carta de cobro (Studio) sobre una factura emitida. |
+| `propose_payment_voucher` | `studio.edit` + `payables.view` | **Propone** un comprobante sobre un pago ya registrado de un gasto; si hay varios pagos, pregunta cuál. |
+| `prepare_operation` (ampliada) | la de cada pantalla | Además: registrar pago a proveedor (`payables.pay`), crear o editar un artículo del catálogo (`catalog.manage`). Solo da el enlace: el usuario completa y confirma. |
+
+**Confirmación obligatoria.** Las propuestas nuevas (migración **0040**) se crean solo
+al pulsar *Confirmar*, con la misma función que usan las pantallas
+(`src/lib/studio/finance-draft.ts`, compartida con «Comprobante de pago (Studio)» y
+«Preparar carta de cobro»): borrador en Studio, nunca emitido ni enviado, sin pagos
+ni asientos. Reintentos idempotentes (el borrador creado se reanuda, no se duplica).
+Enviar documentos, registrar pagos, anular o modificar registros **no** los ejecuta el
+asistente: prepara el enlace y la persona confirma en su pantalla.
+
+**Contexto de pantalla, idioma y sucursales.** Reconoce `/catalog`, `/crm` y
+`/payroll`; responde en el idioma de la interfaz; el prompt le prohíbe suponer datos
+de sucursales o empresas que las herramientas no devolvieron.
+
+**Voz.** Motor neutral (`src/lib/voice/engines.ts`): voz nativa del contenedor móvil
+cuando existe (`window.BusinessAINative`, ver `docs/MOBILE.md`), si no la del
+navegador. Pulsar para hablar, consentimiento previo, solo texto llega al servidor.
+
+**Pruebas S4:** `116_assistant_finance.test.sql` (escenario 47), `tests/assistant-s4.test.ts`,
+`tests/voice.test.ts`, `tests/mobile.test.ts` y `e2e/assistant-s4.auth.e2e.mjs`
+(`npm run test:e2e:assistant-s4`: recomendaciones con porqué y cifras verificadas,
+antigüedad igual a la base de datos, catálogo, sucursales, carta y comprobante solo
+tras confirmar, sin pagos nuevos, miembro sin herramientas de gastos, pensamiento
+adaptativo solicitado, inglés, iPhone). Benchmark local: todas las categorías al 100 %.
+
 ## 0. Cambios de la Entrega 10 (prevalecen sobre el texto de abajo)
 
 - **Núcleo independiente del proveedor** (docs/INTELLIGENCE.md): contrato neutral, adaptador Anthropic con

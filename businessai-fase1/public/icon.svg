@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="BusinessAI">
+  <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#1d4ed8"/></linearGradient></defs>
+  <rect width="512" height="512" rx="112" fill="#070b14"/>
+  <rect x="56" y="56" width="400" height="400" rx="96" fill="url(#g)"/>
+  <path d="M176 136h112c52 0 88 30 88 74 0 28-15 49-38 60 31 10 50 35 50 68 0 50-40 82-100 82H176V136zm56 48v70h52c22 0 36-13 36-35s-14-35-36-35h-52zm0 116v76h60c25 0 40-14 40-38s-15-38-40-38h-60z" fill="#fff"/>
+</svg>

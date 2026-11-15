@@ -28,7 +28,7 @@ import type { Tier, ToolSpec } from '@/lib/intelligence/types'
 
 export const PERMISSION_KEYS = ['clients.view', 'clients.create', 'documents.view', 'documents.create', 'documents.edit', 'payments.view', 'payments.record',
   'receivables.view', 'payables.view', 'payables.create', 'accounting.view', 'bank.view', 'studio.view', 'studio.edit', 'studio.issue',
-  'crm.view', 'crm.manage'] as const
+  'crm.view', 'crm.manage', 'catalog.view', 'catalog.manage', 'payables.pay'] as const
 export type PermissionKey = (typeof PERMISSION_KEYS)[number]
 export type Access = { perms: Record<PermissionKey, boolean>; workforce: { manages: boolean; supervisedDepartments: string[]; directReports?: number }; features: { employees: boolean; timeClock: boolean } }
 /** Manages the workforce or supervises someone (a department or direct reports, 0033). */
@@ -605,6 +605,222 @@ const proposeActivity = def({
   },
 })
 
+// ------------------------------------------------------------- S4: catalog, branches, ageing, recommendations, Finance drafts
+const catalogSearch = def({
+  name: 'search_catalog',
+  description: 'Search the company catalog of products and services (0039) by code or name, optionally by kind. Returns code, name, kind, unit, price, own tax rate (null = the document rate applies) and status. Prices are reference values: a document line copies them when the user chooses the item.',
+  schema: z.object({ query: z.string().max(80).optional(), kind: z.enum(['product', 'service']).optional(), include_archived: z.boolean().optional(), limit }).strict(),
+  minTier: 'P1',
+  allowed: (a) => a.perms['catalog.view'],
+  async run(ctx, input) {
+    let q = ctx.supabase.from('catalog_items').select('id, code, name, kind, unit, price_cents, tax_rate, track_inventory, status', { count: 'exact' }).eq('company_id', ctx.companyId)
+    if (!input.include_archived) q = q.eq('status', 'active')
+    if (input.kind) q = q.eq('kind', input.kind)
+    const t = term(input.query)
+    if (t) q = q.or(`name.ilike.%${t}%,code.ilike.%${t}%`)
+    const { data, error, count } = await q.order('name').limit(cap(input.limit))
+    if (error) fail(/does not exist|schema cache/i.test(error.message) ? 'module_not_enabled' : /permission denied|FORBIDDEN/i.test(error.message) ? 'forbidden' : 'data_unavailable')
+    const rows = (data ?? []) as { id: string; code: string; name: string; kind: string; unit: string; price_cents: number; tax_rate: number | null; track_inventory: boolean; status: string }[]
+    return out({ total_matching: count ?? rows.length, shown: rows.length, items: rows.map((r) => ({ code: r.code, name: r.name, kind: r.kind, unit: r.unit, price: money(r.price_cents),
+      own_tax_rate: r.tax_rate === null ? null : Number(r.tax_rate).toFixed(2), tracks_stock: r.track_inventory, status: r.status, id: r.id, link: `/catalog/${r.id}` })) },
+    { total_matching: 'count', shown: 'count', code: 'text', name: 'text', kind: 'text', unit: 'text', price: 'money', own_tax_rate: 'percent', status: 'text', id: 'text' },
+    { source: 'catalog_items', complete: (count ?? rows.length) <= rows.length, currency: ctx.currency })
+  },
+})
+
+const branchesTool = def({
+  name: 'list_branches',
+  description: 'Branches of the active company the user can see, whether the user belongs to each one, and whether CRM visibility is limited by branch. Use it to answer per-branch questions; never assume a branch the user does not belong to.',
+  schema: z.object({ include_archived: z.boolean().optional() }).strict(),
+  minTier: 'P1',
+  allowed: () => true,
+  async run(ctx, input) {
+    let q = ctx.supabase.from('branches').select('id, name, code, address, archived_at').eq('company_id', ctx.companyId)
+    if (!input.include_archived) q = q.is('archived_at', null)
+    const [{ data, error }, { data: mine }, { data: st }] = await Promise.all([q.order('name').limit(50),
+      ctx.supabase.from('branch_members').select('branch_id').eq('company_id', ctx.companyId).eq('user_id', ctx.userId),
+      ctx.supabase.from('crm_settings').select('branch_scoping').eq('company_id', ctx.companyId).maybeSingle()])
+    if (error) fail(/does not exist|schema cache/i.test(error.message) ? 'module_not_enabled' : 'data_unavailable')
+    const own = new Set(((mine ?? []) as { branch_id: string }[]).map((m) => m.branch_id))
+    const rows = (data ?? []) as { id: string; name: string; code: string; address: string | null; archived_at: string | null }[]
+    return out({ branches_count: rows.length, crm_limited_by_branch: (st as { branch_scoping?: boolean } | null)?.branch_scoping === true,
+      branches: rows.map((b) => ({ name: b.name, code: b.code, address: b.address, archived: !!b.archived_at, i_belong: own.has(b.id), id: b.id })) },
+    { branches_count: 'count', name: 'text', code: 'text', address: 'text', id: 'text' }, { source: 'branches, branch_members, crm_settings', complete: rows.length < 50 })
+  },
+})
+
+const aging = def({
+  name: 'get_receivables_aging',
+  description: 'Accounts receivable ageing per client, computed in the database over every open invoice (0025 ar_aging): balance by age (0–30, 31–60, 61–90, over 90 days past due), overdue amount, open invoices and the oldest days past due, plus company totals. Use it for collection priorities.',
+  schema: z.object({ only_overdue: z.boolean().optional(), limit }).strict(),
+  minTier: 'P2',
+  allowed: (a) => a.perms['receivables.view'],
+  async run(ctx, input) {
+    const { data, error } = await ctx.supabase.rpc('ar_aging', { target: ctx.companyId, as_of: ctx.today }); dbFail(error)
+    const all = (data ?? []) as { client_id: string; client_name: string; b0_30: number | string; b31_60: number | string; b61_90: number | string; b90_plus: number | string; total_cents: number | string; overdue_cents: number | string; invoices: number; oldest_days: number }[]
+    const rows = input.only_overdue ? all.filter((r) => toCents(r.overdue_cents) > 0n) : all
+    const sum = (k: keyof (typeof all)[number]) => money(all.reduce((n, r) => n + toCents(r[k] as string), 0n))
+    const shown = rows.slice(0, cap(input.limit))
+    return out({ as_of: ctx.today, clients_with_balance: all.length, total_open: sum('total_cents'), total_overdue: sum('overdue_cents'),
+      buckets: { d0_30: sum('b0_30'), d31_60: sum('b31_60'), d61_90: sum('b61_90'), d90_plus: sum('b90_plus') },
+      shown: shown.length, clients: shown.map((r) => ({ client: r.client_name, client_id: r.client_id, open_invoices: Number(r.invoices), balance: money(r.total_cents), overdue: money(r.overdue_cents),
+        d0_30: money(r.b0_30), d31_60: money(r.b31_60), d61_90: money(r.b61_90), d90_plus: money(r.b90_plus), oldest_days_past_due: Math.max(0, Number(r.oldest_days ?? 0)), link: `/receivables/clients/${r.client_id}` })),
+      link: '/receivables' },
+    { as_of: 'date', clients_with_balance: 'count', total_open: 'money', total_overdue: 'money', d0_30: 'money', d31_60: 'money', d61_90: 'money', d90_plus: 'money', shown: 'count',
+      client: 'text', client_id: 'text', open_invoices: 'count', balance: 'money', overdue: 'money', oldest_days_past_due: 'count' },
+    { source: 'ar_aging', complete: shown.length === rows.length, as_of: ctx.today, currency: ctx.currency })
+  },
+})
+
+/**
+ * Recommendations: deterministic RULES over the company's real records, each
+ * with its reason, its figures (typed, verifiable) and the next step. The model
+ * explains and prioritises them; it never invents a signal or a figure. Only
+ * the areas the user may see are evaluated (the rest are listed as not_authorized).
+ */
+export type Signal = { key: string; area: string; priority: 'high' | 'medium' | 'low'; reason: string; figures: Record<string, unknown>; next_step: string; link: string }
+export function rankSignals(signals: Signal[]): Signal[] {
+  const p = { high: 0, medium: 1, low: 2 }
+  return [...signals].sort((a, b) => p[a.priority] - p[b.priority] || a.key.localeCompare(b.key))
+}
+const recommendations = def({
+  name: 'get_recommendations',
+  description: 'Prioritised recommendations for the active company computed by explicit rules over its real records (overdue receivables, broken or expired payment promises, bills due or overdue, unreconciled bank lines, overdue CRM follow-ups, pending leave requests). Each item has the rule that fired (reason), its verified figures, the suggested next step and a link. Explain WHY using the reason and figures; never add recommendations that are not here.',
+  schema: z.object({}).strict(),
+  minTier: 'P2',
+  allowed: (a) => a.perms['receivables.view'] || a.perms['payables.view'] || a.perms['bank.view'] || a.perms['crm.view'] || supervises(a),
+  async run(ctx) {
+    const { supabase, companyId, access: { perms }, today } = ctx
+    const es = ctx.locale !== 'en'
+    const signals: Signal[] = []
+    const denied: string[] = []
+    const soon = new Date(Date.parse(`${today}T00:00:00Z`) + 7 * 86_400_000).toISOString().slice(0, 10)
+    await Promise.all([
+      (async () => {
+        if (!perms['receivables.view']) return denied.push('receivables')
+        const { data, error } = await supabase.rpc('ar_aging', { target: companyId, as_of: today }); if (error) return
+        const rows = ((data ?? []) as { client_id: string; client_name: string; overdue_cents: number | string; b61_90: number | string; b90_plus: number | string; oldest_days: number }[]).filter((r) => toCents(r.overdue_cents) > 0n)
+        if (!rows.length) return
+        const old = rows.filter((r) => toCents(r.b61_90) + toCents(r.b90_plus) > 0n)
+        signals.push({ key: 'receivables_overdue', area: 'receivables', priority: old.length ? 'high' : 'medium',
+          reason: es ? 'Hay facturas vencidas sin cobrar; las de más de dos meses son las más difíciles de recuperar.' : 'There are unpaid overdue invoices; those over two months are the hardest to recover.',
+          figures: { clients_overdue: rows.length, overdue_total: money(rows.reduce((n, r) => n + toCents(r.overdue_cents), 0n)), clients_over_60_days: old.length,
+            top_clients: rows.slice(0, 3).map((r) => ({ client: r.client_name, client_id: r.client_id, overdue: money(r.overdue_cents), oldest_days_past_due: Math.max(0, Number(r.oldest_days ?? 0)) })) },
+          next_step: es ? 'Preparar cartas de cobro (borrador en Studio, con confirmación) para los clientes principales y registrar promesas de pago.' : 'Prepare collection letters (Studio drafts, confirmed by you) for the top clients and record payment promises.',
+          link: '/receivables' })
+      })(),
+      (async () => {
+        if (!perms['receivables.view']) return
+        const { data, error } = await supabase.from('payment_promises').select('id, status, promised_date', { count: 'exact' }).eq('company_id', companyId)
+          .or(`status.eq.broken,and(status.eq.pending,promised_date.lt.${today})`).limit(200); if (error) return
+        const rows = (data ?? []) as { status: string; promised_date: string }[]
+        if (!rows.length) return
+        signals.push({ key: 'promises_not_kept', area: 'receivables', priority: 'high',
+          reason: es ? 'Hay promesas de pago incumplidas o vencidas sin resolver.' : 'There are broken or expired payment promises that are not resolved.',
+          figures: { broken: rows.filter((r) => r.status === 'broken').length, expired_pending: rows.filter((r) => r.status === 'pending').length },
+          next_step: es ? 'Contactar a esos clientes y actualizar la promesa (cumplida, nueva fecha o cancelada).' : 'Contact those clients and update the promise (kept, new date or cancelled).', link: '/receivables' })
+      })(),
+      (async () => {
+        if (!perms['payables.view']) return denied.push('payables')
+        const { data, error } = await supabase.from('bills').select('id, due_date, total_cents, paid_cents, currency').eq('company_id', companyId)
+          .in('status', ['approved', 'scheduled', 'partially_paid']).not('due_date', 'is', null).lte('due_date', soon).limit(500); if (error) return
+        const rows = (data ?? []) as { due_date: string; total_cents: number; paid_cents: number; currency: string }[]
+        if (!rows.length) return
+        const overdue = rows.filter((r) => r.due_date < today)
+        const due = (xs: typeof rows) => money(xs.filter((r) => r.currency === ctx.currency).reduce((n, r) => n + BigInt(r.total_cents) - BigInt(r.paid_cents), 0n))
+        signals.push({ key: 'payables_due', area: 'payables', priority: overdue.length ? 'high' : 'medium',
+          reason: es ? 'Hay gastos aprobados vencidos o que vencen en la próxima semana.' : 'There are approved bills overdue or due within the next week.',
+          figures: { overdue_bills: overdue.length, overdue_balance: due(overdue), due_next_7_days: rows.length - overdue.length, due_next_7_days_balance: due(rows.filter((r) => r.due_date >= today)), currency: ctx.currency },
+          next_step: es ? 'Revisar el flujo de caja y programar o registrar esos pagos en Gastos (cada pago se confirma en su pantalla).' : 'Check cash and schedule or record those payments in Expenses (each payment is confirmed on its screen).',
+          link: '/payables' })
+      })(),
+      (async () => {
+        if (!perms['bank.view']) return denied.push('bank')
+        const { data, error } = await supabase.rpc('assistant_bank_summary', { target: companyId, at_date: today }); if (error) return
+        const rows = ((data ?? []) as { unmatched_count: number | string; unmatched_cents: string }[]).filter((r) => Number(r.unmatched_count) > 0)
+        if (!rows.length) return
+        signals.push({ key: 'bank_unreconciled', area: 'bank', priority: 'medium',
+          reason: es ? 'Hay movimientos bancarios sin conciliar: los saldos del libro pueden no reflejar el banco.' : 'There are unreconciled bank lines: ledger balances may not match the bank.',
+          figures: { accounts: rows.length, unmatched_lines: rows.reduce((n, r) => n + Number(r.unmatched_count), 0), unmatched_amount: money(rows.reduce((n, r) => n + toCents(r.unmatched_cents), 0n)) },
+          next_step: es ? 'Conciliar los movimientos pendientes en Bancos.' : 'Reconcile the pending lines in Banking.', link: '/bank' })
+      })(),
+      (async () => {
+        if (!perms['crm.view']) return denied.push('crm')
+        const { count, error } = await supabase.from('crm_activities').select('id', { count: 'exact', head: true }).eq('company_id', companyId).eq('status', 'pending')
+          .not('due_at', 'is', null).lt('due_at', new Date().toISOString()); if (error || !count) return
+        signals.push({ key: 'crm_followups_overdue', area: 'crm', priority: 'medium',
+          reason: es ? 'Hay seguimientos de clientes vencidos en el CRM.' : 'There are overdue client follow-ups in the CRM.',
+          figures: { overdue_followups: count }, next_step: es ? 'Completar o reprogramar esos seguimientos.' : 'Complete or reschedule those follow-ups.', link: '/crm/activities?view=overdue' })
+      })(),
+      (async () => {
+        if (!supervises(ctx.access)) return denied.push('workforce')
+        const { count, error } = await supabase.from('leave_requests').select('id', { count: 'exact', head: true }).eq('company_id', companyId).eq('status', 'pending'); if (error || !count) return
+        signals.push({ key: 'leave_requests_pending', area: 'workforce', priority: 'low',
+          reason: es ? 'Hay solicitudes de ausencia esperando una decisión.' : 'There are leave requests waiting for a decision.',
+          figures: { pending_requests: count }, next_step: es ? 'Aprobar o rechazar las solicitudes en Personal.' : 'Approve or reject the requests in Workforce.', link: '/workforce/requests' })
+      })(),
+    ])
+    const ranked = rankSignals(signals)
+    return out({ as_of: today, recommendations_count: ranked.length, recommendations: ranked, not_authorized: denied },
+      { as_of: 'date', recommendations_count: 'count', clients_overdue: 'count', overdue_total: 'money', clients_over_60_days: 'count', client: 'text', client_id: 'text', overdue: 'money',
+        oldest_days_past_due: 'count', broken: 'count', expired_pending: 'count', overdue_bills: 'count', overdue_balance: 'money', due_next_7_days: 'count', due_next_7_days_balance: 'money',
+        accounts: 'count', unmatched_lines: 'count', unmatched_amount: 'money', overdue_followups: 'count', pending_requests: 'count', key: 'text', area: 'text', priority: 'text',
+        reason: 'text', next_step: 'text', currency: 'text' },
+      { source: 'ar_aging, payment_promises, bills, assistant_bank_summary, crm_activities, leave_requests', complete: true, as_of: today, currency: ctx.currency })
+  },
+})
+
+async function proposeFinance(ctx: ToolContext, kind: 'studio_collection_letter' | 'studio_payment_voucher', summary: string, payload: Record<string, unknown>) {
+  const { data, error } = await ctx.supabase.rpc('assistant_propose', { turn: ctx.turnId, act_kind: kind, act_summary: summary.slice(0, 400), act_payload: payload })
+  if (error) fail(/FORBIDDEN/.test(error.message) ? 'forbidden' : /too_many_pending/.test(`${error.hint ?? ''}${error.message}`) ? 'too_many_pending_actions'
+    : /kind/.test(`${error.hint ?? ''}`) ? 'module_not_enabled' : 'proposal_failed')
+  return data as string
+}
+
+const proposeLetter = def({
+  name: 'propose_collection_letter',
+  description: 'PROPOSE a Document Studio COLLECTION LETTER draft about one invoice of the company (balance, days past due, ageing and promise are read from Receivables by Studio). Nothing is created until the user presses Confirm; the draft is never issued or sent. Use list_invoices / get_receivables_aging to find the invoice id.',
+  schema: z.object({ invoice_id: uuid }).strict(),
+  minTier: 'P2',
+  allowed: (a) => a.perms['studio.edit'] && a.perms['documents.view'],
+  async run(ctx, input) {
+    const { data, error } = await ctx.supabase.from('documents').select('id, document_number, document_type, status, client_id').eq('company_id', ctx.companyId).eq('id', input.invoice_id).maybeSingle(); dbFail(error)
+    const d = data as { id: string; document_number: string | null; document_type: string; status: string; client_id: string | null } | null
+    if (!d || d.document_type !== 'invoice') fail('not_found')
+    if (d!.status === 'draft' || d!.status === 'cancelled') fail('invoice_not_issued')
+    const names = await clientNames(ctx.supabase, ctx.companyId, [d!.client_id])
+    const client = d!.client_id ? names.get(d!.client_id) ?? '' : ''
+    const id = await proposeFinance(ctx, 'studio_collection_letter', `${ctx.locale === 'en' ? 'Collection letter' : 'Carta de cobro'} · ${d!.document_number ?? ''} ${client}`.trim(), { invoice_id: d!.id })
+    return out({ action_id: id, status: 'awaiting_user_confirmation', level: 'draft', invoice: d!.document_number, client }, { action_id: 'text', invoice: 'text', client: 'text' },
+      { source: 'assistant_propose', complete: true, note: 'Shown to the user with Confirm / Cancel buttons. Not created yet; never issued or sent.' })
+  },
+})
+
+const proposeVoucher = def({
+  name: 'propose_payment_voucher',
+  description: 'PROPOSE a Document Studio PAYMENT VOUCHER draft about a payment ALREADY recorded on an expense (vendor, amount, date, method and the expense lines are read from Payables). Nothing is created until the user presses Confirm; it records no payment. Use list_bills to find the bill; the payment must not be voided.',
+  schema: z.object({ bill_id: uuid, payment_id: uuid.optional() }).strict(),
+  minTier: 'P2',
+  allowed: (a) => a.perms['studio.edit'] && a.perms['payables.view'],
+  async run(ctx, input) {
+    const [{ data: b, error: be }, { data: ps, error: pe }] = await Promise.all([
+      ctx.supabase.from('bills').select('id, vendor_invoice_number, description, vendor_id').eq('company_id', ctx.companyId).eq('id', input.bill_id).maybeSingle(),
+      ctx.supabase.from('bill_payments').select('id, paid_on, amount_cents').eq('company_id', ctx.companyId).eq('bill_id', input.bill_id).is('voided_at', null).order('paid_on', { ascending: false }).limit(20)])
+    dbFail(be); dbFail(pe)
+    if (!b) fail('not_found')
+    const pays = (ps ?? []) as { id: string; paid_on: string; amount_cents: number }[]
+    const p = input.payment_id ? pays.find((x) => x.id === input.payment_id) : pays.length === 1 ? pays[0] : undefined
+    if (!pays.length) fail('no_recorded_payment')
+    if (!p) return out({ needs_payment_choice: true, payments: pays.map((x) => ({ payment_id: x.id, date: x.paid_on, amount: money(x.amount_cents) })) },
+      { payment_id: 'text', date: 'date', amount: 'money' }, { source: 'bill_payments', complete: true, currency: ctx.currency, note: 'Ask the user which payment, then call again with payment_id.' })
+    const bill = b as { id: string; vendor_invoice_number: string | null; description: string }
+    const id = await proposeFinance(ctx, 'studio_payment_voucher', `${ctx.locale === 'en' ? 'Payment voucher' : 'Comprobante de pago'} · ${bill.vendor_invoice_number ?? bill.description}`, { bill_id: bill.id, payment_id: p.id })
+    return out({ action_id: id, status: 'awaiting_user_confirmation', level: 'draft', bill: bill.vendor_invoice_number ?? bill.description, payment_date: p.paid_on, payment_amount: money(p.amount_cents) },
+      { action_id: 'text', bill: 'text', payment_date: 'date', payment_amount: 'money' },
+      { source: 'assistant_propose', complete: true, currency: ctx.currency, note: 'Shown to the user with Confirm / Cancel buttons. Not created yet; records no payment.' })
+  },
+})
+
 const OPERATIONS = {
   new_invoice: { perm: 'documents.create', level: 'execute', link: (i: { client_id?: string }) => `/documents/new?type=invoice${i.client_id ? `&client=${i.client_id}` : ''}` },
   new_quote: { perm: 'documents.create', level: 'execute', link: (i: { client_id?: string }) => `/documents/new?type=quote${i.client_id ? `&client=${i.client_id}` : ''}` },
@@ -613,12 +829,16 @@ const OPERATIONS = {
   new_client: { perm: 'clients.create', level: 'execute', link: () => '/clients' },
   new_bill: { perm: 'payables.create', level: 'execute', link: () => '/payables/new' },
   issue_studio_document: { perm: 'studio.issue', level: 'issue', link: (i: { studio_document_id?: string }) => (i.studio_document_id ? `/studio/${i.studio_document_id}` : '/studio') },
+  record_vendor_payment: { perm: 'payables.pay', level: 'execute', link: (i: { bill_id?: string }) => (i.bill_id ? `/payables/${i.bill_id}` : '/payables') },
+  new_catalog_item: { perm: 'catalog.manage', level: 'execute', link: () => '/catalog' },
+  edit_catalog_item: { perm: 'catalog.manage', level: 'execute', link: (i: { catalog_item_id?: string }) => (i.catalog_item_id ? `/catalog/${i.catalog_item_id}` : '/catalog') },
 } as const satisfies Record<string, { perm: PermissionKey; level: 'execute' | 'issue'; link: (i: Record<string, string | undefined>) => string }>
 
 const prepare = def({
   name: 'prepare_operation',
-  description: 'Prepare an operation that the USER must complete and confirm on its own screen (create an invoice or quote, record a payment, send/issue an invoice, add a client or a bill, issue a Studio document). Returns the link to that screen, prefilled where possible. It does not execute anything: never say it was done.',
-  schema: z.object({ operation: z.enum(Object.keys(OPERATIONS) as [keyof typeof OPERATIONS, ...(keyof typeof OPERATIONS)[]]), client_id: uuid.optional(), document_id: uuid.optional(), studio_document_id: uuid.optional() }).strict(),
+  description: 'Prepare an operation that the USER must complete and confirm on its own screen (create an invoice or quote, record a client payment, send/issue an invoice, add a client or a bill, issue a Studio document, record a vendor payment, add or edit a catalog item). Returns the link to that screen, prefilled where possible. It does not execute anything: never say it was done.',
+  schema: z.object({ operation: z.enum(Object.keys(OPERATIONS) as [keyof typeof OPERATIONS, ...(keyof typeof OPERATIONS)[]]), client_id: uuid.optional(), document_id: uuid.optional(), studio_document_id: uuid.optional(),
+    bill_id: uuid.optional(), catalog_item_id: uuid.optional() }).strict(),
   minTier: 'P1',
   allowed: () => true,
   async run(ctx, input) {
@@ -628,7 +848,8 @@ const prepare = def({
   },
 })
 
-export const TOOLS: ToolDef[] = [overview, invoices, payments, bills, budget, clients, client, documents, employees, attendance, workforceStatus, income, bank, studioDocs, pipeline, opportunities, followups, calc, proposeDraft, proposeActivity, prepare]
+export const TOOLS: ToolDef[] = [overview, invoices, payments, bills, budget, clients, client, documents, employees, attendance, workforceStatus, income, bank, studioDocs, pipeline, opportunities, followups,
+  catalogSearch, branchesTool, aging, recommendations, calc, proposeDraft, proposeActivity, proposeLetter, proposeVoucher, prepare]
 export const TOOL_NAMES = TOOLS.map((t) => t.name)
 export const findTool = (name: string) => TOOLS.find((t) => t.name === name)
 

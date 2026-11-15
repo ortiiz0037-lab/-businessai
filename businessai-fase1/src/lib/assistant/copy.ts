@@ -196,4 +196,10 @@ export const TOOL_LABELS: Record<string, { es: string; en: string }> = {
   calculate: { es: 'Cálculo exacto', en: 'Exact calculation' },
   get_bank_overview: { es: 'Bancos y conciliación', en: 'Bank and reconciliation' },
   get_workforce_status: { es: 'Estado del personal', en: 'Workforce status' },
+  search_catalog: { es: 'Catálogo', en: 'Catalog' },
+  list_branches: { es: 'Sucursales', en: 'Branches' },
+  get_receivables_aging: { es: 'Antigüedad de cuentas por cobrar', en: 'Receivables ageing' },
+  get_recommendations: { es: 'Recomendaciones', en: 'Recommendations' },
+  propose_collection_letter: { es: 'Propuesta de carta de cobro', en: 'Collection letter proposal' },
+  propose_payment_voucher: { es: 'Propuesta de comprobante de pago', en: 'Payment voucher proposal' },
 }

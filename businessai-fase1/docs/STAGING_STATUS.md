@@ -132,5 +132,6 @@ Errores corregidos gracias a esta prueba:
    fecha UTC (como la de CRM corregida en `801d633`).
 4. **Borradores retenidos para Staging:** 0036 (aplicada en Staging el
    2026-11-15, run #38), 0037 (Studio por sucursal, no aplicada), 0038
-   (Studio · cobros y pagos, no aplicada; necesita 0037) y 0039 (catálogo de
-   productos y servicios, no aplicada): cada uno necesita autorización.
+   (Studio · cobros y pagos, no aplicada; necesita 0037), 0039 (catálogo de
+   productos y servicios, no aplicada) y 0040 (asistente S4, no aplicada; necesita
+   0038): cada uno necesita autorización.

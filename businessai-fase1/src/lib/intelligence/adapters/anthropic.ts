@@ -73,6 +73,9 @@ export function anthropicProvider(cfg: { apiKey: string; baseURL?: string; testD
           messages: toAnthropicMessages(req.messages, req.model),
           tools: req.tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.inputSchema as Anthropic.Tool['input_schema'], strict: true })),
           tool_choice: { type: 'auto' },
+          // adaptive thinking on every registered model (Opus 5.5 / Fable 5.2: always on; this is equivalent there);
+          // the thinking blocks come back in res.content and are replayed exactly within the turn (opaque part)
+          thinking: { type: 'adaptive' },
           ...(req.effort ? { output_config: { effort: req.effort } } : {}),
         }, { signal: opts.signal, timeout: opts.timeoutMs, maxRetries: 1 })
         if (opts.onText) stream.on('text', (delta) => opts.onText!(delta))

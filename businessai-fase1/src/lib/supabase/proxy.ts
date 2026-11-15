@@ -4,7 +4,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 // Páginas públicas: autenticación y páginas informativas (precios y textos legales).
 const PUBLIC = ['/login', '/signup', '/register', '/forgot-password', '/invite', '/clock/link', '/kiosk', '/auth', '/precios', '/terminos', '/privacidad']
 // Página principal pública (solo la ruta exacta "/").
-const PUBLIC_EXACT = ['/']
+const PUBLIC_EXACT = ['/', '/manifest.webmanifest']
 
 // Rutas llamadas por servicios externos sin sesión de usuario. Cada una se
 // autentica por su cuenta (Stripe: verificación de la firma `stripe-signature`).

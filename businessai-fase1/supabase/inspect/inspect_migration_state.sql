@@ -10,7 +10,7 @@
 -- writes. It works whatever is applied: tables that may not exist are only
 -- looked up by name (to_regclass / to_regprocedure), never queried.
 --
--- One row per migration (0001–0004 together, then 0005 … 0039):
+-- One row per migration (0001–0004 together, then 0005 … 0040):
 --   status   applied | not applied | PARTIAL — review | n/a
 --   evidence what was measured (counts, flags) — compare it with the
 --            "applied when" column.
@@ -156,6 +156,8 @@ e as (
     -- 0039
     to_regclass('public.catalog_items') is not null as t_catalog_items,
     to_regprocedure('public.catalog_save(uuid,uuid,text,text,text,text,text,bigint,numeric,boolean,integer)') is not null as f_catalog_save,
+    -- 0040
+    exists (select 1 from pg_constraint where conname = 'assistant_actions_kind_check' and pg_get_constraintdef(oid) like '%studio_payment_voucher%') as k_assistant_finance,
     -- staging bookkeeping (absent in Production)
     to_regclass('ba_meta.applied_migrations') is not null as t_record,
     to_regclass('ba_meta.environment') is not null        as t_marker
@@ -372,7 +374,12 @@ r(ord, migration, applied_when, status, evidence) as (
     format('catalog_items=%s catalog_save=%s', t_catalog_items, f_catalog_save)
   from e
   union all
-  select 35, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
+  select 35, '0040_assistant_finance', 'assistant_actions kinds studio_collection_letter / studio_payment_voucher',
+    case when k_assistant_finance then 'applied' else 'not applied' end,
+    format('assistant_actions_kind_check includes studio_payment_voucher=%s', k_assistant_finance)
+  from e
+  union all
+  select 36, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
     case when t_record or t_marker then 'present (staging?)' else 'absent' end,
     format('ba_meta.applied_migrations=%s ba_meta.environment=%s', t_record, t_marker)
   from e

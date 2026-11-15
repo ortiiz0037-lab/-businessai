@@ -9,6 +9,7 @@
  * forged from the REST API. The company is the active membership; the user
  * is the one verified by the Auth server. Neither comes from the request.
  */
+import { createFinanceDraft } from '@/lib/studio/finance-draft'
 import { z } from 'zod'
 import type { SupabaseClient, User } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
@@ -225,6 +226,8 @@ const CrmPayload = z.object({
   due_at: z.string().regex(/^\d{4}-\d{2}-\d{2}T09:00:00-04:00$/).nullable(),
 }).strict()
 
+const FinancePayload = z.object({ invoice_id: z.uuid().optional(), bill_id: z.uuid().optional(), payment_id: z.uuid().optional() }).strict()
+
 type ActionOutcome = { ok: boolean; status: string; error?: string; link?: string; actions?: ChatAction[] }
 
 async function executeAction(s: Session, signer: ServerSigner, actionId: string): Promise<{ ok: boolean; status: string; error?: string; link?: string }> {
@@ -259,6 +262,25 @@ async function executeAction(s: Session, signer: ServerSigner, actionId: string)
         client: p.client_id, contact: null, opp: p.opportunity_id, p_due_at: p.due_at, assignee: null, expected_version: null, idem: actionId, p_origin: 'assistant' })
       result = error ? { ok: false, error: /FORBIDDEN|NOT_FOUND/.test(error.message) ? 'forbidden' : 'save_failed' }
         : { ok: true, link: p.opportunity_id ? `/crm/opportunities/${p.opportunity_id}` : `/clients/${p.client_id}`, missing: [] }
+    }
+  } else if (claimed.kind === 'studio_collection_letter' || claimed.kind === 'studio_payment_voucher') {
+    // S4 (0040): the same function as the invoice / expense screens; Studio reads the figures from Finance.
+    const payload = FinancePayload.safeParse(claimed.payload)
+    const input = !payload.success ? null
+      : claimed.kind === 'studio_collection_letter' && payload.data.invoice_id ? { kind: 'collection_letter' as const, documentId: payload.data.invoice_id, locale: s.locale, origin: 'assistant' as const }
+      : claimed.kind === 'studio_payment_voucher' && payload.data.bill_id && payload.data.payment_id ? { kind: 'payment_voucher' as const, billId: payload.data.bill_id, paymentId: payload.data.payment_id, locale: s.locale, origin: 'assistant' as const }
+      : null
+    if (!input) result = { ok: false, error: 'invalid_payload' }
+    else {
+      const r = await createFinanceDraft(s.supabase, claimed.company_id, input, {
+        docId: claimed.progress?.doc_id ?? null,
+        onCreated: async (id, version) => {
+          const progress = JSON.stringify({ doc_id: id, version })
+          const p = signer.progress(actionId, progress)
+          await s.supabase.rpc('assistant_action_progress', { act: actionId, progress_text: progress, key: p.key, ts: p.ts, mac: p.mac })
+        },
+      })
+      result = r.ok ? { ok: true, link: `/studio/${r.id}`, missing: [] } : { ok: false, error: r.error }
     }
   } else result = { ok: false, error: 'unknown_kind' }
   const res = result.ok ? JSON.stringify({ link: result.link, missing: result.missing }) : null
