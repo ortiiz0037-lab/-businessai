@@ -8,7 +8,7 @@ import { KINDS, kindLabel, statusLabel, statusTone, studioMessage } from '@/lib/
 export const dynamic = 'force-dynamic'
 const PAGE = 30
 
-type SP = { q?: string; kind?: string; status?: string; folder?: string; page?: string; error?: string }
+type SP = { q?: string; kind?: string; status?: string; folder?: string; branch?: string; page?: string; error?: string }
 
 /** Document Studio: every document of the company, searchable and filtered (paginated). */
 export default async function StudioPage({ searchParams }: { searchParams: Promise<SP> }) {
@@ -20,7 +20,13 @@ export default async function StudioPage({ searchParams }: { searchParams: Promi
   const status = ['draft', 'final', 'archived'].includes(sp.status ?? '') ? sp.status! : null
   const term = (sp.q ?? '').replace(/[%_,()*\\]/g, ' ').trim().slice(0, 60)
   const folder = (sp.folder ?? '').trim().slice(0, 60) || null
-  let q = supabase.from('studio_documents').select('id, kind, title, folder, status, number, updated_at, origin', { count: 'exact' }).eq('company_id', companyId)
+  // branches (0037): a real read tells whether the column exists (a database without 0037 keeps the old list)
+  const probe = await supabase.from('studio_documents').select('branch_id').eq('company_id', companyId).limit(1)
+  const hasBranches = !probe.error
+  const branchRows = hasBranches ? (((await supabase.from('branches').select('id, name, code').eq('company_id', companyId).order('name')).data ?? []) as { id: string; name: string; code: string }[]) : []
+  const branch = hasBranches && branchRows.some((b) => b.id === sp.branch) ? sp.branch! : null
+  let q = supabase.from('studio_documents').select(hasBranches ? 'id, kind, title, folder, status, number, updated_at, origin, branch_id' : 'id, kind, title, folder, status, number, updated_at, origin', { count: 'exact' }).eq('company_id', companyId)
+  if (branch) q = q.eq('branch_id', branch)
   if (kind) q = q.eq('kind', kind)
   if (status) q = q.eq('status', status); else q = q.neq('status', 'archived')
   if (folder) q = q.eq('folder', folder)
@@ -29,10 +35,11 @@ export default async function StudioPage({ searchParams }: { searchParams: Promi
     q.order('updated_at', { ascending: false }).range((page - 1) * PAGE, page * PAGE - 1),
     supabase.from('studio_documents').select('folder').eq('company_id', companyId).not('folder', 'is', null).limit(500),
   ])
-  const docs = (data ?? []) as { id: string; kind: string; title: string; folder: string | null; status: string; number: string | null; updated_at: string; origin: string }[]
+  const docs = (data ?? []) as unknown as { id: string; kind: string; title: string; folder: string | null; status: string; number: string | null; updated_at: string; origin: string; branch_id?: string | null }[]
+  const branchName = new Map(branchRows.map((b) => [b.id, `${b.name} (${b.code})`]))
   const folderList = [...new Set(((folders ?? []) as { folder: string }[]).map((x) => x.folder))].sort()
   const pages = Math.max(1, Math.ceil((count ?? 0) / PAGE))
-  const link = (o: Partial<SP>) => { const p = new URLSearchParams(); for (const [k, v] of Object.entries({ q: term || null, kind, status, folder, ...o })) if (v) p.set(k, String(v)); return `/studio?${p}` }
+  const link = (o: Partial<SP>) => { const p = new URLSearchParams(); for (const [k, v] of Object.entries({ q: term || null, kind, status, folder, branch, ...o })) if (v) p.set(k, String(v)); return `/studio?${p}` }
   return (
     <div className="space-y-6">
       <PageHeader eyebrow="Document Studio" title={tr('Documentos', 'Documents')}
@@ -46,6 +53,10 @@ export default async function StudioPage({ searchParams }: { searchParams: Promi
         <label className="text-sm"><span className="field-label">{tr('Tipo', 'Kind')}</span><select name="kind" defaultValue={kind ?? ''} className="field"><option value="">{tr('Todos', 'All')}</option>{KINDS.map((k) => <option key={k} value={k}>{kindLabel(k, locale)}</option>)}</select></label>
         <label className="text-sm"><span className="field-label">{tr('Estado', 'Status')}</span><select name="status" defaultValue={status ?? ''} className="field"><option value="">{tr('Activos', 'Active')}</option>{['draft', 'final', 'archived'].map((s) => <option key={s} value={s}>{statusLabel(s, locale)}</option>)}</select></label>
         <label className="text-sm"><span className="field-label">{tr('Carpeta', 'Folder')}</span><select name="folder" defaultValue={folder ?? ''} className="field"><option value="">{tr('Todas', 'All')}</option>{folderList.map((x) => <option key={x} value={x}>{x}</option>)}</select></label>
+        {branchRows.length > 0 && (
+          <label className="text-sm"><span className="field-label">{tr('Sucursal', 'Branch')}</span><select name="branch" defaultValue={branch ?? ''} className="field"><option value="">{tr('Todas', 'All')}</option>
+            {branchRows.map((b) => <option key={b.id} value={b.id}>{b.name} ({b.code})</option>)}</select></label>
+        )}
         <button type="submit" className="btn-secondary lg:col-start-5">{tr('Filtrar', 'Filter')}</button>
       </form>
       {docs.length === 0 ? (
@@ -58,7 +69,7 @@ export default async function StudioPage({ searchParams }: { searchParams: Promi
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <Link href={`/studio/${d.id}`} className="block truncate font-display text-base font-semibold text-fg hover:text-accent">{d.title}</Link>
-                  <p className="text-xs text-muted">{[kindLabel(d.kind, locale), d.number, d.folder].filter(Boolean).join(' · ')}</p>
+                  <p className="text-xs text-muted">{[kindLabel(d.kind, locale), d.number, d.folder, d.branch_id ? branchName.get(d.branch_id) : null].filter(Boolean).join(' · ')}</p>
                 </div>
                 <span className={statusTone(d.status)}>{statusLabel(d.status, locale)}</span>
               </div>

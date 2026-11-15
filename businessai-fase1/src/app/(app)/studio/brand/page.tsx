@@ -58,8 +58,8 @@ export default async function StudioBrand({ searchParams }: { searchParams: Prom
         </fieldset>
         <fieldset disabled={ro} className="card grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
           <legend className="px-1 font-display text-lg font-semibold text-fg">{tr('Numeración', 'Numbering')}</legend>
-          <p className="text-xs text-muted sm:col-span-2 lg:col-span-3">{tr('Facturas, cotizaciones y recibos usan el número de su documento comercial. Para el resto: {YYYY} año, {YY} año corto, {####} consecutivo (obligatorio).',
-            'Invoices, quotes and receipts use their business document number. For the rest: {YYYY} year, {YY} short year, {####} sequence (required).')}</p>
+          <p className="text-xs text-muted sm:col-span-2 lg:col-span-3">{tr('Facturas, cotizaciones y recibos usan el número de su documento comercial. Para el resto: {YYYY} año, {YY} año corto, {####} consecutivo (obligatorio), {SUC} código de la sucursal (si el documento tiene una).',
+            'Invoices, quotes and receipts use their business document number. For the rest: {YYYY} year, {YY} short year, {####} sequence (required), {SUC} branch code (when the document has one).')}</p>
           {KINDS.filter((k) => !['invoice', 'quote', 'receipt'].includes(k)).map((k) => (
             <label key={k} className="text-sm"><span className="field-label">{kindLabel(k, locale)}</span><input name={`format_${k}`} maxLength={30} defaultValue={b.number_formats[k] ?? ''} placeholder={defaults[k]} className="field" /></label>))}
         </fieldset>

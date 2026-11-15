@@ -13,7 +13,7 @@ import { imageKeys, loadBrand, loadData, loadDoc, loadImage } from '@/lib/studio
 import { imageInfo } from '@/lib/studio/images'
 import { KIND_SOURCES, effectiveBrand, kindLabel, statusLabel, statusTone, studioMessage } from '@/lib/studio/model'
 import { missingFields } from '@/lib/studio/merge'
-import { archiveDocument, duplicateDocument, finalizeDocument, prepareEmail, restoreVersion, saveBindings, saveDocumentState } from '@/app/actions/studio'
+import { archiveDocument, duplicateDocument, finalizeDocument, prepareEmail, restoreVersion, saveBindings, setDocumentBranch, saveDocumentState } from '@/app/actions/studio'
 
 export const dynamic = 'force-dynamic'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -49,12 +49,19 @@ export default async function StudioDocumentPage({ params, searchParams }: { par
     if (info) images[k] = { width: info.width, height: info.height, url: `/studio/image?key=${k}` }
   }
   const draft = doc.status === 'draft'
+  // 0037 (branches): only where the database has it; the list is the company's active branches (RLS)
+  const hasBranches = 'branch_id' in doc
+  const branches = hasBranches
+    ? (((await supabase.from('branches').select('id, name, code').eq('company_id', companyId).is('archived_at', null).order('name')).data ?? []) as { id: string; name: string; code: string }[])
+    : []
+  const branchId = (doc as { branch_id?: string | null }).branch_id ?? null
+  const branchLabel = data?.branch?.name ? `${data.branch.name}${data.branch.code ? ` (${data.branch.code})` : ''}` : null
   const canEdit = draft && access.edit
   const missing = draft ? missingFields(doc.content.blocks, data, locale) : []
   const src = KIND_SOURCES[doc.kind]
   const back = `/studio/${id}`
   const done: Record<string, string> = {
-    created: tr('Borrador creado.', 'Draft created.'), duplicated: tr('Copia creada como borrador.', 'Copy created as a draft.'), bindings: tr('Datos vinculados actualizados.', 'Linked data updated.'),
+    created: tr('Borrador creado.', 'Draft created.'), duplicated: tr('Copia creada como borrador.', 'Copy created as a draft.'), bindings: tr('Datos vinculados actualizados.', 'Linked data updated.'), branch: tr('Sucursal actualizada.', 'Branch updated.'),
     finalized: tr('Documento emitido: número asignado y datos congelados.', 'Document issued: number assigned and data frozen.'), archived: tr('Documento archivado.', 'Document archived.'),
     restored: tr('Versión restaurada.', 'Version restored.'), assistant: tr('Borrador creado por el asistente. Revíselo antes de emitirlo.', 'Draft created by the assistant. Review it before issuing.'),
     email: tr('Correo preparado (no se envió).', 'E-mail prepared (not sent).'),
@@ -97,6 +104,27 @@ export default async function StudioDocumentPage({ params, searchParams }: { par
             <BindingFields tr={tr} options={options} docTypes={src.document} value={doc} />
             <SubmitButton className="w-full sm:w-auto">{tr('Actualizar datos vinculados', 'Update linked data')}</SubmitButton>
           </form>
+        )}
+        {hasBranches && (branches.length > 0 || branchLabel) && (
+          canEdit ? (
+            <form action={setDocumentBranch} className="card space-y-3 p-4" data-testid="studio-branch">
+              <input type="hidden" name="id" value={doc.id} /><input type="hidden" name="back" value={back} />
+              <h2 className="font-display text-lg font-semibold text-fg">{tr('Sucursal', 'Branch')}</h2>
+              <p className="text-xs text-muted">{tr('Desde qué sucursal se emite. Sus datos están en los campos «Sucursal» y en la numeración ({SUC}). Guarda el contenido antes (la página se recarga).',
+                'The branch it is issued from. Its data are in the «Branch» fields and in the numbering ({SUC}). Save the content first (the page reloads).')}</p>
+              <select name="branch_id" defaultValue={branchId ?? ''} className="field" aria-label={tr('Sucursal', 'Branch')}>
+                <option value="">{tr('Sin sucursal (empresa)', 'No branch (company)')}</option>
+                {branches.map((b) => <option key={b.id} value={b.id}>{b.name} ({b.code})</option>)}
+              </select>
+              <SubmitButton className="w-full sm:w-auto">{tr('Guardar sucursal', 'Save branch')}</SubmitButton>
+            </form>
+          ) : branchLabel && (
+            <div className="card space-y-1 p-4" data-testid="studio-branch">
+              <h2 className="font-display text-lg font-semibold text-fg">{tr('Sucursal', 'Branch')}</h2>
+              <p className="text-sm text-fg">{branchLabel}</p>
+              {data?.branch?.address && <p className="text-xs text-muted">{data.branch.address}</p>}
+            </div>
+          )
         )}
         {draft && access.issue && (
           <form action={finalizeDocument} className="card space-y-3 p-4">

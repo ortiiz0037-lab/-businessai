@@ -123,7 +123,7 @@ export const KIND_SOURCES: Record<Kind, { client?: boolean; document?: string[];
 export function studioErrorCode(error: { message?: string | null; code?: string | null } | null): string {
   const m = error?.message ?? ''
   for (const c of ['STUDIO_CONFLICT', 'STUDIO_LOCKED', 'STUDIO_IMMUTABLE', 'STUDIO_NOT_FOUND', 'STUDIO_CONTENT_INVALID', 'STUDIO_REF_INVALID', 'STUDIO_ASSET_INVALID',
-    'STUDIO_ITEMS_INVALID', 'STUDIO_SOURCE_REQUIRED', 'STUDIO_SOURCE_DRAFT', 'STUDIO_TRANSITION', 'STUDIO_ACTION_INVALID', 'REASON_REQUIRED', 'FORBIDDEN']) {
+    'STUDIO_ITEMS_INVALID', 'STUDIO_BRANCH_INVALID', 'STUDIO_BRANCH_FORBIDDEN', 'STUDIO_SOURCE_REQUIRED', 'STUDIO_SOURCE_DRAFT', 'STUDIO_TRANSITION', 'STUDIO_ACTION_INVALID', 'REASON_REQUIRED', 'FORBIDDEN']) {
     if (new RegExp(`\\b${c}\\b`).test(m)) return c.toLowerCase()
   }
   if (/studio_templates_name_uidx/.test(m)) return 'template_name_taken'
@@ -139,6 +139,7 @@ const MESSAGES: Record<Locale, Record<string, string>> = {
     studio_immutable: 'Los documentos no se borran: se archivan con un motivo.',
     studio_not_found: 'Documento no encontrado o sin permiso.',
     studio_content_invalid: 'El contenido no es válido (bloques desconocidos, demasiado largo o con código).',
+    studio_branch_invalid: 'La sucursal no existe en esta empresa o está archivada.', studio_branch_forbidden: 'Solo puedes usar las sucursales a las que estás asignado.',
     studio_ref_invalid: 'El cliente, documento, empleado o proveedor elegido no es válido para este tipo de documento.',
     studio_asset_invalid: 'La imagen no es válida o no pertenece a esta empresa.',
     studio_items_invalid: 'Las líneas no coinciden con el documento comercial: no se puede emitir con importes distintos.',
@@ -164,6 +165,7 @@ const MESSAGES: Record<Locale, Record<string, string>> = {
     studio_immutable: 'Documents are not deleted: they are archived with a reason.',
     studio_not_found: 'Document not found or no permission.',
     studio_content_invalid: 'The content is not valid (unknown blocks, too long or contains code).',
+    studio_branch_invalid: 'The branch does not exist in this company or is archived.', studio_branch_forbidden: 'You can only use the branches you are assigned to.',
     studio_ref_invalid: 'The chosen client, document, employee or vendor is not valid for this kind of document.',
     studio_asset_invalid: 'The image is not valid or does not belong to this company.',
     studio_items_invalid: 'The lines do not match the business document: it cannot be issued with different amounts.',

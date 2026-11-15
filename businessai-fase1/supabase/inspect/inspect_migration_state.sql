@@ -10,7 +10,7 @@
 -- writes. It works whatever is applied: tables that may not exist are only
 -- looked up by name (to_regclass / to_regprocedure), never queried.
 --
--- One row per migration (0001–0004 together, then 0005 … 0036):
+-- One row per migration (0001–0004 together, then 0005 … 0037):
 --   status   applied | not applied | PARTIAL — review | n/a
 --   evidence what was measured (counts, flags) — compare it with the
 --            "applied when" column.
@@ -147,6 +147,9 @@ e as (
     -- 0036
     to_regclass('public.employee_access_uses') is not null as t_employee_access_uses,
     to_regprocedure('public.employee_access_check(text)') is not null as f_employee_access_check,
+    -- 0037
+    exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'studio_documents' and column_name = 'branch_id') as c_studio_branch,
+    to_regprocedure('public.studio_set_branch(uuid,uuid)') is not null as f_studio_set_branch,
     -- staging bookkeeping (absent in Production)
     to_regclass('ba_meta.applied_migrations') is not null as t_record,
     to_regclass('ba_meta.environment') is not null        as t_marker
@@ -345,7 +348,13 @@ r(ord, migration, applied_when, status, evidence) as (
     format('employee_access_uses=%s employee_access_check=%s', t_employee_access_uses, f_employee_access_check)
   from e
   union all
-  select 32, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
+  select 32, '0037_studio_branches', 'studio_documents.branch_id + studio_set_branch',
+    case when c_studio_branch and f_studio_set_branch then 'applied'
+         when not (c_studio_branch or f_studio_set_branch) then 'not applied' else 'PARTIAL — review' end,
+    format('studio_documents.branch_id=%s studio_set_branch=%s', c_studio_branch, f_studio_set_branch)
+  from e
+  union all
+  select 33, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
     case when t_record or t_marker then 'present (staging?)' else 'absent' end,
     format('ba_meta.applied_migrations=%s ba_meta.environment=%s', t_record, t_marker)
   from e

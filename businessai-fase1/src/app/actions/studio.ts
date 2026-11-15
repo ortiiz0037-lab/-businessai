@@ -120,6 +120,20 @@ export async function saveBindings(formData: FormData) {
   go(back, { done: 'bindings' })
 }
 
+/** The branch the draft is issued from (0037): an active branch of the company; with branch scoping, one of the member's. */
+export async function setDocumentBranch(formData: FormData) {
+  const id = text(formData, 'id')
+  const back = backTo(formData, `/studio/${id}`)
+  if (!UUID.test(id)) go(back, { error: 'invalid' })
+  const branch = text(formData, 'branch_id')
+  if (branch && !UUID.test(branch)) go(back, { error: 'studio_branch_invalid' })
+  const { supabase } = await company()
+  const { error } = await supabase.rpc('studio_set_branch', { doc: id, target_branch: branch || null })
+  if (error) go(back, { error: studioErrorCode(error) })
+  refresh()
+  go(back, { done: 'branch' })
+}
+
 /** Issue: refuses missing data, needs an explicit confirmation; the database freezes the data and assigns the number. */
 export async function finalizeDocument(formData: FormData) {
   const id = text(formData, 'id')
@@ -250,8 +264,8 @@ export async function saveBrand(formData: FormData) {
   const color = (k: string) => { const v = text(formData, k); return v && HEX.test(v) ? v : null }
   const fonts = (k: string) => (text(formData, k) === 'serif' ? 'serif' : 'sans')
   const formats: Record<string, string> = {}
-  // letters, digits, separators and the {YYYY} {YY} {####} tokens; {####} is required
-  for (const k of KINDS) { const v = text(formData, `format_${k}`).slice(0, 30); if (v) { if (!/^([A-Za-z0-9 ._/-]|\{YYYY\}|\{YY\}|\{####\})+$/.test(v) || !v.includes('{####}')) go(back, { error: 'number_format' }); formats[k] = v } }
+  // letters, digits, separators and the {YYYY} {YY} {####} {SUC} tokens ({SUC}: branch code, 0037); {####} is required
+  for (const k of KINDS) { const v = text(formData, `format_${k}`).slice(0, 30); if (v) { if (!/^([A-Za-z0-9 ._/-]|\{YYYY\}|\{YY\}|\{####\}|\{SUC\})+$/.test(v) || !v.includes('{####}')) go(back, { error: 'number_format' }); formats[k] = v } }
   const stamp = uuidOrNull(formData, 'stamp_asset_id')
   const opacity = Number(text(formData, 'watermark_opacity') || 8)
   const settings = {

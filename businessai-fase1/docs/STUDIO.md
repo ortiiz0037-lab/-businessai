@@ -138,9 +138,27 @@ conectó ningún servicio externo.
 | `tests/studio.test.ts` | Modelo, campos combinados, fuentes y subconjuntos, maquetación (márgenes, paginación, tablas partidas, totales, estado de cuenta, tamaños, identidad), imágenes, PDF (estructura, xref, `ToUnicode` con caracteres reales), plantillas y asistente. |
 | `e2e/studio.auth.e2e.mjs` | Navegador con sesión iniciada sobre la pila local (ver `docs/FINANCE.md`): factura vinculada con cifras reales, edición, campos, guardado, conflicto, PDF verificado con `pdftotext`/`pdfinfo`, emisión con confirmación, correo preparado, duplicar, datos faltantes que bloquean, asistente, plantilla de la empresa, identidad, roles, aislamiento, subida rechazada por contenido, iPhone e iPad. |
 
+## Sucursales (Studio · entrega S1, migración 0037)
+
+- Un borrador se emite **desde una sucursal** de la empresa (bloque «Sucursal»
+  del editor). Solo sucursales activas de la misma empresa; con el alcance por
+  sucursal del CRM activado, un miembro solo usa las suyas (`branches.manage`
+  puede elegir cualquiera). Un documento emitido conserva su sucursal.
+- Campos combinados del grupo **Sucursal**: `{{branch.name}}`, `{{branch.code}}`,
+  `{{branch.address}}`. Si un documento los usa, no se emite sin sucursal
+  («faltan datos»).
+- Numeración: `{SUC}` en el formato (Identidad → Numeración), p. ej.
+  `OC-{SUC}-{YYYY}-{####}` → `OC-CEN-2026-0001`. Sin sucursal, el token y su
+  separador desaparecen. El consecutivo sigue siendo por empresa, tipo y año.
+- La instantánea inmutable al emitir guarda la sucursal: renombrarla después no
+  cambia lo emitido. La lista de documentos filtra por sucursal.
+- Sin 0037 (Staging hoy) el editor y la lista funcionan como antes, sin el bloque.
+- Pruebas: `110_studio_branches.test.sql` (escenario 44 de `npm run test:db`) y
+  `e2e/studio-branches.auth.e2e.mjs` (navegador, PDF real, inglés, iPhone).
+
 ## Limitaciones conocidas
 
-- **No hay catálogo de productos y servicios ni tabla de sucursales.** Las
+- **No hay catálogo de productos y servicios** (las sucursales llegan con 0037). Las
   líneas de factura, cotización y recibo vienen del documento comercial. Las
   órdenes de compra y de trabajo usan una tabla editable que **no** crea gastos
   ni facturas. Un catálogo real es otra entrega.

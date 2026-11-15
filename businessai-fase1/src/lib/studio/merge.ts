@@ -16,6 +16,7 @@ export type StudioData = {
   statement?: { number: string; issue_date: string; due_date: string | null; total_cents: number; paid_cents: number; balance_cents: number; days_past_due: number }[]
   employee?: Record<string, string | number | null> | null
   vendor?: Record<string, string | null> | null
+  branch?: { name?: string | null; code?: string | null; address?: string | null } | null   // 0037: the issuing branch
   items?: LineItem[]
   doc?: { number?: string | null; title?: string; issued_on?: string | null }
 }
@@ -27,6 +28,8 @@ export const FIELDS: { group: { es: string; en: string }; fields: Field[] }[] = 
     { path: 'company.name', es: 'Nombre en BusinessAI', en: 'Name in BusinessAI' }, { path: 'company.address', es: 'Dirección', en: 'Address' },
     { path: 'company.city', es: 'Ciudad', en: 'City' }, { path: 'company.phone', es: 'Teléfono', en: 'Phone' }, { path: 'company.email', es: 'Correo', en: 'E-mail' },
     { path: 'company.payment_info', es: 'Datos de pago', en: 'Payment details' }] },
+  { group: { es: 'Sucursal', en: 'Branch' }, fields: [
+    { path: 'branch.name', es: 'Nombre', en: 'Name' }, { path: 'branch.code', es: 'Código', en: 'Code' }, { path: 'branch.address', es: 'Dirección', en: 'Address' }] },
   { group: { es: 'Cliente', en: 'Client' }, fields: [
     { path: 'client.name', es: 'Nombre', en: 'Name' }, { path: 'client.business_name', es: 'Empresa del cliente', en: 'Client company' },
     { path: 'client.address', es: 'Dirección', en: 'Address' }, { path: 'client.city', es: 'Ciudad', en: 'City' }, { path: 'client.email', es: 'Correo', en: 'E-mail' },
