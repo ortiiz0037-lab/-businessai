@@ -12,6 +12,8 @@ import { canApproveAmount, categoryName, daysUntil, eventLabel, methodLabel, PAY
 import { accountName, sourceLabel } from '@/lib/finance/ledger'
 import { centsToInput, toCents } from '@/lib/finance/money'
 import { approveBill, deleteDraft, payBill, rejectBill, removeAttachment, scheduleBill, submitBill, voidBill, voidPayment } from '@/app/actions/payables'
+import { createFromFinance } from '@/app/actions/studio'
+import { kindLabel, statusLabel as studioStatusLabel } from '@/lib/studio/model'
 
 export const dynamic = 'force-dynamic'
 
@@ -27,6 +29,10 @@ export default async function BillPage({ params, searchParams }: { params: Promi
   if (!access.create && !access.view) return <NoPayablesAccess tr={tr} unavailable={!access.available} />
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound()
   const { data: b } = await supabase.from('bills').select('*').eq('id', id).eq('company_id', companyId).maybeSingle()
+  // 0038: Studio documents about this expense (purchase orders, payment vouchers); none without 0038 or without studio.view
+  const studioLinks = await supabase.rpc('studio_finance_links', { target: companyId, bill: id, document: null })
+  const studioDocs = (studioLinks.error ? [] : studioLinks.data ?? []) as { id: string; kind: string; title: string; status: string; number: string | null }[]
+  const studioReady = !studioLinks.error
   const bill = b as Bill | null
   if (!bill) notFound()
   const [{ data: vendor }, { data: lineData }, { data: cats }, { data: payData }, { data: attData }, { data: evData }, { data: members }, { data: accts }, { data: entries }, { data: settings }] = await Promise.all([
@@ -123,6 +129,10 @@ export default async function BillPage({ params, searchParams }: { params: Promi
                     <span className={x.voided_at ? 'text-muted line-through' : 'text-fg'}>{f.date(x.paid_on)} · {methodLabel(x.method, locale)} · {accountLabel(x.account_id)}{x.reference ? ` · ${x.reference}` : ''}</span>
                     <span className="font-semibold tabular-nums">{money(x.amount_cents)}</span>
                   </div>
+                  {!x.voided_at && studioReady && (
+                    <form action={createFromFinance}><input type="hidden" name="kind" value="payment_voucher" /><input type="hidden" name="bill_id" value={id} /><input type="hidden" name="payment_id" value={x.id} />
+                      <button type="submit" className="btn-secondary btn-sm">{tr('Comprobante de pago (Studio)', 'Payment voucher (Studio)')}</button></form>
+                  )}
                   {x.voided_at
                     ? <p className="text-xs text-red-300">{tr('Anulado', 'Voided')} · {name(x.voided_by)} · {x.void_reason}</p>
                     : access.pay && (
@@ -156,6 +166,14 @@ export default async function BillPage({ params, searchParams }: { params: Promi
             )}
           </section>
 
+          {studioDocs.length > 0 && (
+            <section className="card space-y-2 p-5" aria-labelledby="studio-title" data-testid="bill-studio-docs">
+              <h2 id="studio-title" className="font-display text-lg font-semibold text-fg">{tr('Documentos de Studio', 'Studio documents')}</h2>
+              <ul className="divide-y divide-line/60 text-sm">{studioDocs.map((s) => (
+                <li key={s.id} className="flex flex-wrap items-center justify-between gap-2 py-2"><Link href={`/studio/${s.id}`} className="text-accent">{kindLabel(s.kind, locale)}{s.number ? ` ${s.number}` : ''} · {s.title}</Link>
+                  <span className="text-xs text-muted">{studioStatusLabel(s.status, locale)}</span></li>))}</ul>
+            </section>
+          )}
           <section className="card space-y-3 p-5" aria-labelledby="att-title">
             <h2 id="att-title" className="font-display text-lg font-semibold text-fg">{tr('Adjuntos (recibos y facturas)', 'Attachments (receipts and invoices)')}</h2>
             {attachments.length === 0 && <p className="text-sm text-muted">{tr('Sin adjuntos.', 'No attachments.')}</p>}

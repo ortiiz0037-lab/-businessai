@@ -37,3 +37,9 @@ export async function studioPage() {
   }
   return { locale, tr, f, today, supabase, user, companyId: member.companyId, access, who }
 }
+
+/** Migration 0038 (Studio collections and payments) is applied: studio_documents.bill_id exists. */
+export async function studioFinanceReady(supabase: SupabaseClient, companyId: string): Promise<boolean> {
+  const probe = await supabase.from('studio_documents').select('bill_id').eq('company_id', companyId).limit(1)
+  return !probe.error
+}

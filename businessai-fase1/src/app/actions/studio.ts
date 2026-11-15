@@ -10,7 +10,8 @@ import { createClient } from '@/lib/supabase/server'
 import { getActiveMembership } from '@/lib/active-company'
 import { getLocale } from '@/lib/i18n/server'
 import { KINDS, parseContent, parsePage, studioErrorCode, type DocContent, type Kind, type PageSettings } from '@/lib/studio/model'
-import { systemTemplate } from '@/lib/studio/templates'
+import { systemTemplate, withoutFinance } from '@/lib/studio/templates'
+import { studioFinanceReady } from '@/lib/studio/page'
 import { missingFields } from '@/lib/studio/merge'
 import { loadData, loadDoc } from '@/lib/studio/server'
 import { createAssistantDraft } from '@/lib/studio/draft'
@@ -48,7 +49,8 @@ async function templateContent(supabase: Awaited<ReturnType<typeof createClient>
       name: locale === 'en' ? 'Untitled document' : 'Documento sin título' }
   }
   if (ref.startsWith('sys:')) {
-    const t = systemTemplate(ref.slice(4), locale)
+    const found = systemTemplate(ref.slice(4), locale)
+    const t = found && !(await studioFinanceReady(supabase, companyId)) ? withoutFinance(found) : found   // without 0038 the database refuses those blocks
     return t ? { content: t.content, page: t.page, kind: t.kind, templateId: null, base: t.key, name: t.name } : null
   }
   if (ref.startsWith('tpl:') && UUID.test(ref.slice(4))) {
@@ -132,6 +134,82 @@ export async function setDocumentBranch(formData: FormData) {
   if (error) go(back, { error: studioErrorCode(error) })
   refresh()
   go(back, { done: 'branch' })
+}
+
+/** Links a purchase order or a voucher draft to an expense (and, for a voucher, one of its payments) — 0038. */
+export async function setFinanceLink(formData: FormData) {
+  const id = text(formData, 'id')
+  const back = backTo(formData, `/studio/${id}`)
+  if (!UUID.test(id)) go(back, { error: 'invalid' })
+  const [bill = '', payment = ''] = text(formData, 'link').split(':')
+  if ((bill && !UUID.test(bill)) || (payment && !UUID.test(payment))) go(back, { error: 'studio_ref_invalid' })
+  const { supabase } = await company()
+  const { error } = await supabase.rpc('studio_set_finance_link', { doc: id, bill: bill || null, payment: payment || null })
+  if (error) go(back, { error: studioErrorCode(error) })
+  refresh()
+  go(back, { done: 'finance_link' })
+}
+
+/**
+ * Starts a Studio document FROM a finance record (0038): a collection letter
+ * from an issued invoice, or a payment voucher from a recorded vendor payment.
+ * The amounts stay in Receivables / Payables; Studio only reads them.
+ */
+export async function createFromFinance(formData: FormData) {
+  const kind = text(formData, 'kind')
+  const docId = uuidOrNull(formData, 'document_id'), bill = uuidOrNull(formData, 'bill_id'), payment = uuidOrNull(formData, 'payment_id')
+  const fail = kind === 'collection_letter' && docId ? `/receivables/invoices/${docId}` : bill ? `/payables/${bill}` : '/studio'
+  const bad = (e: string): never => redirect(`${fail}?error=${encodeURIComponent(e)}`)
+  if (!['collection_letter', 'payment_voucher'].includes(kind)) bad('invalid')
+  if (kind === 'collection_letter' && !docId) bad('invalid')
+  if (kind === 'payment_voucher' && (!bill || !payment)) bad('invalid')
+  const { supabase, companyId } = await company()
+  const tpl = await templateContent(supabase, companyId, `sys:${kind}`)
+  if (!tpl) bad('invalid')
+  let client: string | null = null
+  if (docId) client = ((await supabase.from('documents').select('client_id').eq('id', docId).eq('company_id', companyId).maybeSingle()).data as { client_id: string | null } | null)?.client_id ?? null
+  const locale = await getLocale()
+  const title = kind === 'collection_letter' ? (locale === 'en' ? 'Payment reminder' : 'Aviso de cobro') : (locale === 'en' ? 'Payment voucher' : 'Comprobante de pago')
+  const { data, error } = await supabase.rpc('studio_save_document', {
+    target: companyId, doc: null, doc_kind: tpl!.kind, doc_title: title, doc_folder: null, doc_content: tpl!.content, doc_page: tpl!.page,
+    client, source_document: docId, employee: null, vendor: null, template: null, base: tpl!.base, expected_version: null, doc_origin: 'user',
+  })
+  const row = ((data ?? []) as { id: string }[])[0]
+  if (error || !row) bad(studioErrorCode(error))
+  if (kind === 'payment_voucher') {
+    const { error: e2 } = await supabase.rpc('studio_set_finance_link', { doc: row.id, bill, payment })
+    if (e2) go(`/studio/${row.id}`, { error: studioErrorCode(e2) })
+  }
+  refresh()
+  go(`/studio/${row.id}`, { done: 'created' })
+}
+
+/**
+ * Keeps the ISSUED document with its expense: the PDF goes to the private
+ * Finance-attachments storage (same rules as any receipt) and is registered on
+ * the expense; the Studio history records it. Nothing is paid or posted.
+ */
+export async function attachToBill(formData: FormData) {
+  const id = text(formData, 'id')
+  const back = backTo(formData, `/studio/${id}`)
+  if (!UUID.test(id)) go(back, { error: 'invalid' })
+  const { supabase, companyId } = await company()
+  const doc = await loadDoc(supabase, companyId, id) as (Awaited<ReturnType<typeof loadDoc>> & { bill_id?: string | null }) | null
+  if (!doc || doc.status !== 'final' || !doc.bill_id) go(back, { error: 'studio_transition' })
+  const { renderStudioPdf } = await import('@/lib/studio/render')
+  const { ATTACHMENT_BUCKET, attachmentPath } = await import('@/lib/finance/payables')
+  const { bytes, fileName } = await renderStudioPdf(supabase, companyId, doc!, await getLocale())
+  const path = attachmentPath(companyId, doc!.bill_id!, crypto.randomUUID(), fileName)
+  const up = await supabase.storage.from(ATTACHMENT_BUCKET).upload(path, Buffer.from(bytes), { contentType: 'application/pdf', upsert: false })
+  if (up.error) go(back, { error: 'forbidden' })
+  const { error } = await supabase.from('bill_attachments').insert({ company_id: companyId, bill_id: doc!.bill_id, storage_path: path, file_name: fileName, content_type: 'application/pdf', size_bytes: bytes.length })
+  if (error) {
+    await supabase.storage.from(ATTACHMENT_BUCKET).remove([path])   // not registered: the policy lets the uploader remove it
+    go(back, { error: 'forbidden' })
+  }
+  await supabase.rpc('studio_record', { doc: id, act: 'attached_to_bill', info: { bill: doc!.bill_id, file: fileName } })
+  refresh()
+  go(back, { done: 'attached' })
 }
 
 /** Issue: refuses missing data, needs an explicit confirmation; the database freezes the data and assigns the number. */

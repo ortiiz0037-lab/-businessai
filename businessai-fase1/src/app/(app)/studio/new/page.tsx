@@ -3,9 +3,9 @@ import { SubmitButton } from '@/components/submit-button'
 import { Flash } from '@/components/accounting-nav'
 import { NoStudioAccess, StudioNav } from '@/components/studio-nav'
 import { BindingFields } from '@/components/studio/bindings'
-import { studioPage } from '@/lib/studio/page'
+import { studioFinanceReady, studioPage } from '@/lib/studio/page'
 import { bindingOptions } from '@/lib/studio/options'
-import { systemTemplates } from '@/lib/studio/templates'
+import { FINANCE_KINDS, systemTemplates, templatesFor } from '@/lib/studio/templates'
 import { KINDS, kindLabel, studioMessage } from '@/lib/studio/model'
 import { assistantDraft, createDocument } from '@/app/actions/studio'
 
@@ -17,11 +17,13 @@ export default async function NewStudioDocument({ searchParams }: { searchParams
   const { locale, tr, supabase, companyId, access } = await studioPage()
   if (!access.view || !access.available) return <NoStudioAccess tr={tr} unavailable={!access.available} />
   if (!access.edit) return <NoStudioAccess tr={tr} unavailable={false} />
-  const [options, { data: own }] = await Promise.all([
+  const [options, { data: own }, financeReady] = await Promise.all([
     bindingOptions(supabase, companyId, access),
     supabase.from('studio_templates').select('id, kind, name, description').eq('company_id', companyId).eq('status', 'active').order('name'),
+    studioFinanceReady(supabase, companyId),
   ])
-  const system = systemTemplates(locale)
+  const system = templatesFor(systemTemplates(locale), financeReady)   // without 0038: no letter / voucher, no expense or ageing blocks
+  const kinds = financeReady ? KINDS : KINDS.filter((k) => !FINANCE_KINDS.includes(k))
   const company = (own ?? []) as { id: string; kind: string; name: string; description: string | null }[]
   const chosen = sp.template ?? `sys:${system[0].key}`
   return (
@@ -39,7 +41,7 @@ export default async function NewStudioDocument({ searchParams }: { searchParams
               <span className="min-w-0 flex-1"><span className="block font-semibold text-fg">{tr('Documento en blanco', 'Blank document')}</span>
                 <span className="block text-xs text-muted">{tr('Desde cero, con el tipo que elijas:', 'From scratch, of the kind you choose:')}</span>
                 <select name="blank_kind" defaultValue="letter" className="field mt-1 py-1 text-xs" aria-label={tr('Tipo del documento en blanco', 'Kind of the blank document')}>
-                  {KINDS.map((k) => <option key={k} value={k}>{kindLabel(k, locale)}</option>)}</select></span>
+                  {kinds.map((k) => <option key={k} value={k}>{kindLabel(k, locale)}</option>)}</select></span>
             </label>
             {[...company.map((t) => ({ ref: `tpl:${t.id}`, kind: t.kind, name: t.name, description: t.description ?? tr('Plantilla de la empresa', 'Company template'), own: true })),
               ...system.map((t) => ({ ref: `sys:${t.key}`, kind: t.kind, name: t.name, description: t.description, own: false }))].map((t) => (
@@ -72,7 +74,7 @@ export default async function NewStudioDocument({ searchParams }: { searchParams
           <label className="block text-sm"><span className="field-label">{tr('Instrucción', 'Instruction')}</span>
             <textarea name="instruction" required minLength={5} maxLength={4000} rows={3} className="field" placeholder={tr('Ej.: Carta para agradecer a Cliente Uno la renovación del servicio anual.', 'E.g. Letter thanking Client One for renewing the yearly service.')} /></label>
           <label className="block text-sm sm:w-72"><span className="field-label">{tr('Tipo (opcional: se deduce de la instrucción)', 'Kind (optional: inferred from the instruction)')}</span>
-            <select name="kind" className="field" defaultValue=""><option value="">{tr('Automático', 'Automatic')}</option>{KINDS.map((k) => <option key={k} value={k}>{kindLabel(k, locale)}</option>)}</select></label>
+            <select name="kind" className="field" defaultValue=""><option value="">{tr('Automático', 'Automatic')}</option>{kinds.map((k) => <option key={k} value={k}>{kindLabel(k, locale)}</option>)}</select></label>
           <BindingFields tr={tr} options={options} />
           <SubmitButton className="w-full sm:w-auto">{tr('Crear borrador con el asistente', 'Create a draft with the assistant')}</SubmitButton>
         </form>

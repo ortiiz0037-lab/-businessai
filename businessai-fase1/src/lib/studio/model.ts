@@ -5,7 +5,7 @@
  */
 import type { Locale } from '@/lib/i18n/app'
 
-export const KINDS = ['letter', 'quote', 'invoice', 'receipt', 'work_order', 'purchase_order', 'contract', 'report', 'account_statement', 'certificate'] as const
+export const KINDS = ['letter', 'quote', 'invoice', 'receipt', 'work_order', 'purchase_order', 'contract', 'report', 'account_statement', 'certificate', 'collection_letter', 'payment_voucher'] as const
 export type Kind = (typeof KINDS)[number]
 export type Align = 'left' | 'center' | 'right' | 'justify'
 
@@ -19,7 +19,7 @@ export type Block =
   | { type: 'spacer'; size: number }                                        // mm
   | { type: 'divider' }
   | { type: 'pagebreak' }
-  | { type: 'items' } | { type: 'totals' } | { type: 'payments' } | { type: 'statement' }
+  | { type: 'items' } | { type: 'totals' } | { type: 'payments' } | { type: 'statement' } | { type: 'bill' } | { type: 'aging' }
   | { type: 'fields'; rows: [string, string][] }                            // label / value (with merge fields)
 
 export type DocContent = { v: 1; blocks: Block[] }
@@ -82,7 +82,7 @@ export function parseContent(input: unknown): { ok: true; content: DocContent } 
       case 'signature': blocks.push({ type: 'signature', label: str(raw.label, 120) || undefined, name: str(raw.name, 120) || undefined, title: str(raw.title, 120) || undefined, withImage: raw.withImage === true, align: align(raw.align) }); break
       case 'stamp': blocks.push({ type: 'stamp', align: align(raw.align) }); break
       case 'spacer': blocks.push({ type: 'spacer', size: num(raw.size, 1, 100, 6) }); break
-      case 'divider': case 'pagebreak': case 'items': case 'totals': case 'payments': case 'statement': blocks.push({ type: raw.type } as Block); break
+      case 'divider': case 'pagebreak': case 'items': case 'totals': case 'payments': case 'statement': case 'bill': case 'aging': blocks.push({ type: raw.type } as Block); break
       case 'fields': blocks.push({ type: 'fields', rows: (Array.isArray(raw.rows) ? (raw.rows as unknown[]) : []).slice(0, 40).map((r) => (Array.isArray(r) ? [str(r[0], 120), str(r[1], 1000)] : ['', ''])) as [string, string][] }); break
       default: return { ok: false, error: 'block_type' }
     }
@@ -106,18 +106,20 @@ export function parsePage(input: unknown): PageSettings {
 }
 
 export const kindLabel = (k: string, locale: Locale) => (locale === 'en'
-  ? { letter: 'Business letter', quote: 'Quote', invoice: 'Invoice', receipt: 'Receipt', work_order: 'Work order', purchase_order: 'Purchase order', contract: 'Contract', report: 'Business report', account_statement: 'Account statement', certificate: 'Certificate' }
-  : { letter: 'Carta empresarial', quote: 'Cotización', invoice: 'Factura', receipt: 'Recibo', work_order: 'Orden de trabajo', purchase_order: 'Orden de compra', contract: 'Contrato', report: 'Informe empresarial', account_statement: 'Estado de cuenta', certificate: 'Certificado' })[k as Kind] ?? k
+  ? { letter: 'Business letter', quote: 'Quote', invoice: 'Invoice', receipt: 'Receipt', work_order: 'Work order', purchase_order: 'Purchase order', contract: 'Contract', report: 'Business report', account_statement: 'Account statement', collection_letter: 'Collection letter', payment_voucher: 'Vendor payment voucher', certificate: 'Certificate' }
+  : { letter: 'Carta empresarial', quote: 'Cotización', invoice: 'Factura', receipt: 'Recibo', work_order: 'Orden de trabajo', purchase_order: 'Orden de compra', contract: 'Contrato', report: 'Informe empresarial', account_statement: 'Estado de cuenta', collection_letter: 'Carta de cobro', payment_voucher: 'Comprobante de pago a proveedor', certificate: 'Certificado' })[k as Kind] ?? k
 
 export const statusLabel = (s: string, locale: Locale) => (locale === 'en' ? { draft: 'Draft', final: 'Issued', archived: 'Archived' } : { draft: 'Borrador', final: 'Emitido', archived: 'Archivado' })[s as 'draft'] ?? s
 export const statusTone = (s: string) => ({ draft: 'badge-neutral', final: 'badge-success', archived: 'badge-neutral' } as Record<string, string>)[s] ?? 'badge-neutral'
 
 /** Which record a kind is built on (the editor offers these pickers). */
-export const KIND_SOURCES: Record<Kind, { client?: boolean; document?: string[]; employee?: boolean; vendor?: boolean; required?: 'document' | 'client' | 'recipient' }> = {
+export const KIND_SOURCES: Record<Kind, { client?: boolean; document?: string[]; employee?: boolean; vendor?: boolean; required?: 'document' | 'client' | 'recipient'; finance?: 'bill' | 'payment' }> = {
   letter: { client: true }, quote: { document: ['quote'], required: 'document' }, invoice: { document: ['invoice'], required: 'document' },
   receipt: { document: ['receipt', 'invoice'], required: 'document' }, work_order: { client: true, document: ['work_order', 'quote', 'invoice'] },
-  purchase_order: { vendor: true }, contract: { client: true }, report: { client: true }, account_statement: { client: true, required: 'client' },
+  purchase_order: { vendor: true, finance: 'bill' }, contract: { client: true }, report: { client: true }, account_statement: { client: true, required: 'client' },
   certificate: { client: true, employee: true, required: 'recipient' },
+  // 0038: about an issued invoice / a recorded vendor payment (linked from the expense, never typed)
+  collection_letter: { client: true, document: ['invoice'], required: 'document' }, payment_voucher: { finance: 'payment' },
 }
 
 export function studioErrorCode(error: { message?: string | null; code?: string | null } | null): string {

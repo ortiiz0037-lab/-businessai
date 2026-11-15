@@ -243,6 +243,8 @@ export function layout(input: LayoutInput): LayoutResult {
       case 'fields': {
         const labelW = contentW * 0.32
         for (const [label, value] of b.rows) {
+          // a row whose only data is optional and empty ({{vendor.tax_id?}}) is left out
+          if (/\{\{[^}]*\?\s*\}\}/.test(value) && !merge(value).trim()) continue
           const y0 = y
           para(label, { w: labelW, bold: true, size: base - 0.5, color: MUTED })
           const yl = y; y = y0
@@ -288,6 +290,27 @@ export function layout(input: LayoutInput): LayoutResult {
         table([22, 26, 30, 22], [{ text: es ? 'Fecha' : 'Date' }, { text: es ? 'Método' : 'Method' }, { text: es ? 'Referencia' : 'Reference' }, { text: es ? 'Importe' : 'Amount', align: 'right' }],
           ps.length ? ps.map((p) => [{ text: fmt.date(p.date) }, { text: p.method ?? '—' }, { text: p.reference ?? '—' }, { text: money(p.amount), align: 'right' }])
             : [[{ text: es ? 'Sin pagos registrados.' : 'No payments recorded.' }, { text: '' }, { text: '' }, { text: '' }]])
+        break
+      }
+      case 'bill': {   // 0038: the linked expense (Payables): lines, total, paid, balance
+        const bl = input.data.bill
+        if (!bl) { missing.add('bill'); para(es ? '[falta: gasto vinculado]' : '[missing: linked expense]', { color: MISSING }); break }
+        const lines = bl.lines ?? []
+        table([34, 46, 20], [{ text: es ? 'Categoría' : 'Category' }, { text: es ? 'Detalle' : 'Detail' }, { text: es ? 'Importe' : 'Amount', align: 'right' }],
+          [...lines.map((l) => [{ text: (es ? l.category : l.category_en || l.category) ?? '—' }, { text: l.description ?? '' }, { text: money(cents(l.amount_cents)), align: 'right' as Align }]),
+            [{ text: 'Total', bold: true }, { text: '' }, { text: money(cents(bl.total_cents ?? 0)), align: 'right', bold: true }],
+            [{ text: es ? 'Pagado' : 'Paid' }, { text: '' }, { text: money(cents(bl.paid_cents ?? 0)), align: 'right' }],
+            [{ text: es ? 'Saldo' : 'Balance', bold: true }, { text: '' }, { text: money(cents(bl.balance_cents ?? 0)), align: 'right', bold: true }]],
+          { zebra: true, total: true })
+        break
+      }
+      case 'aging': {   // 0038: the client's balance by age (Receivables)
+        const ag = input.data.aging
+        if (!ag) { missing.add('aging'); para(es ? '[falta: cliente vinculado]' : '[missing: linked client]', { color: MISSING }); break }
+        table([17, 17, 17, 17, 16, 16], [{ text: es ? 'Corriente' : 'Current', align: 'right' }, { text: '1–30', align: 'right' }, { text: '31–60', align: 'right' },
+          { text: '61–90', align: 'right' }, { text: '90+', align: 'right' }, { text: 'Total', align: 'right' }],
+          [[ag.current_cents, ag.d1_30_cents, ag.d31_60_cents, ag.d61_90_cents, ag.d90_plus_cents, ag.total_cents].map((v, i) => ({ text: money(cents(v)), align: 'right' as Align, bold: i === 5 }))],
+          { zebra: false, total: true })
         break
       }
       case 'statement': {

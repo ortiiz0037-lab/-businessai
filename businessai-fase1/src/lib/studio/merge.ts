@@ -17,6 +17,12 @@ export type StudioData = {
   employee?: Record<string, string | number | null> | null
   vendor?: Record<string, string | null> | null
   branch?: { name?: string | null; code?: string | null; address?: string | null } | null   // 0037: the issuing branch
+  // 0038: finance records the document is about (read from Payables / Receivables; amounts in cents)
+  bill?: { vendor_invoice_number?: string | null; description?: string; bill_date?: string; due_date?: string | null; status?: string; total_cents?: number; paid_cents?: number;
+    balance_cents?: number; lines?: { category: string | null; category_en: string | null; description: string | null; amount_cents: number }[] } | null
+  bill_payment?: { paid_on: string; amount_cents: number; method: string | null; reference: string | null; voided: boolean } | null
+  collection?: { balance_cents: number; days_past_due: number; due_date: string | null; status: string | null; number: string | null; promise_date: string | null; promise_cents: number | null } | null
+  aging?: { current_cents: number; d1_30_cents: number; d31_60_cents: number; d61_90_cents: number; d90_plus_cents: number; total_cents: number } | null
   items?: LineItem[]
   doc?: { number?: string | null; title?: string; issued_on?: string | null }
 }
@@ -46,6 +52,17 @@ export const FIELDS: { group: { es: string; en: string }; fields: Field[] }[] = 
   { group: { es: 'Proveedor', en: 'Vendor' }, fields: [
     { path: 'vendor.name', es: 'Nombre', en: 'Name' }, { path: 'vendor.tax_id', es: 'Identificación fiscal', en: 'Tax ID' }, { path: 'vendor.address', es: 'Dirección', en: 'Address' },
     { path: 'vendor.email', es: 'Correo', en: 'E-mail' }] },
+  { group: { es: 'Cobro (factura vinculada)', en: 'Collection (linked invoice)' }, fields: [
+    { path: 'collection.balance', es: 'Balance pendiente', en: 'Balance due', kind: 'money' }, { path: 'collection.days_past_due', es: 'Días vencida', en: 'Days past due' },
+    { path: 'collection.due_date', es: 'Vencimiento', en: 'Due date', kind: 'date' }, { path: 'collection.number', es: 'Número de factura', en: 'Invoice number' },
+    { path: 'collection.promise_date', es: 'Fecha prometida', en: 'Promised date', kind: 'date' }, { path: 'collection.promise_amount', es: 'Importe prometido', en: 'Promised amount', kind: 'money' },
+    { path: 'aging.total', es: 'Saldo total del cliente', en: 'Client total balance', kind: 'money' }] },
+  { group: { es: 'Gasto y pago al proveedor', en: 'Expense and vendor payment' }, fields: [
+    { path: 'bill.vendor_invoice_number', es: 'Factura del proveedor', en: 'Vendor invoice' }, { path: 'bill.description', es: 'Descripción del gasto', en: 'Expense description' },
+    { path: 'bill.bill_date', es: 'Fecha del gasto', en: 'Expense date', kind: 'date' }, { path: 'bill.total', es: 'Total del gasto', en: 'Expense total', kind: 'money' },
+    { path: 'bill.balance', es: 'Saldo del gasto', en: 'Expense balance', kind: 'money' }, { path: 'payment.amount', es: 'Importe pagado', en: 'Amount paid', kind: 'money' },
+    { path: 'payment.date', es: 'Fecha del pago', en: 'Payment date', kind: 'date' }, { path: 'payment.method', es: 'Método', en: 'Method' },
+    { path: 'payment.reference', es: 'Referencia', en: 'Reference' }] },
   { group: { es: 'Este documento', en: 'This document' }, fields: [
     { path: 'doc.number', es: 'Número (al emitir)', en: 'Number (when issued)' }, { path: 'doc.title', es: 'Título', en: 'Title' },
     { path: 'today', es: 'Fecha de hoy', en: "Today's date", kind: 'date' }] },
@@ -59,6 +76,19 @@ export function fieldValue(data: StudioData, path: string): string | number | nu
     if (!d) return null
     const paid = (data.payments ?? []).reduce((s, p) => s + Math.round(Number(p.amount) * 100), 0)
     return path === 'document.paid' ? paid / 100 : (Math.round(Number(d.total) * 100) - paid) / 100
+  }
+  // 0038: amounts stored in cents are shown as money; payment.* is the linked vendor payment
+  const centsOf = (v: number | null | undefined) => (v === null || v === undefined ? null : Number(v) / 100)
+  switch (path) {
+    case 'collection.balance': return centsOf(data.collection?.balance_cents)
+    case 'collection.promise_amount': return centsOf(data.collection?.promise_cents)
+    case 'aging.total': return centsOf(data.aging?.total_cents)
+    case 'bill.total': return centsOf(data.bill?.total_cents)
+    case 'bill.balance': return centsOf(data.bill?.balance_cents)
+    case 'payment.amount': return centsOf(data.bill_payment?.amount_cents)
+    case 'payment.date': return data.bill_payment?.paid_on ?? null
+    case 'payment.method': return data.bill_payment?.method ?? null
+    case 'payment.reference': return data.bill_payment?.reference ?? null
   }
   const [root, key] = path.split('.')
   const obj = (data as Record<string, unknown>)[root] as Record<string, unknown> | null | undefined
@@ -77,11 +107,13 @@ export function makeFormatters(locale: Locale, currency = 'USD'): Formatters {
   }
 }
 
-const TAG = /\{\{\s*([a-z_]+(?:\.[a-z_]+)?)\s*\}\}/g
+const TAG = /\{\{\s*([a-z_]+(?:\.[a-z_]+)?)(\?)?\s*\}\}/g
 /** Replaces merge fields; missing ones become a visible marker. */
 export function mergeText(text: string, data: StudioData, fmt: Formatters, locale: Locale, missing?: Set<string>): string {
-  return text.replace(TAG, (_, path: string) => {
+  return text.replace(TAG, (_, path: string, optional?: string) => {
     const v = KIND_OF.has(path) || path === 'today' ? fieldValue(data, path) : null
+    // {{path?}}: optional — empty when there is no data, never missing (a known field only)
+    if (v === null && optional && KIND_OF.has(path)) return ''
     // the number is assigned when the document is issued: not missing data
     if (v === null && path === 'doc.number') return locale === 'en' ? '[number on issue]' : '[nº al emitir]'
     if (v === null) { missing?.add(path); return `[${locale === 'en' ? 'missing' : 'falta'}: ${path}]` }
@@ -101,6 +133,8 @@ export function missingFields(blocks: { type: string; text?: string; rows?: unkn
     if (Array.isArray(b.rows)) for (const r of b.rows as unknown[][]) for (const c of r) if (typeof c === 'string') mergeText(c, data, fmt, locale, missing)
     if ((b.type === 'items' || b.type === 'totals' || b.type === 'payments') && !data.document) missing.add('document')
     if (b.type === 'statement' && !data.statement) missing.add('statement')
+    if (b.type === 'bill' && !data.bill) missing.add('bill')
+    if (b.type === 'aging' && !data.aging) missing.add('aging')
   }
   return [...missing]
 }

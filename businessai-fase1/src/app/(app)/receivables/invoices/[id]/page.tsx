@@ -11,6 +11,8 @@ import { paymentMethodLabel } from '@/lib/documents/payments'
 import { centsToInput } from '@/lib/finance/money'
 import { emailConfigured } from '@/lib/email/resend'
 import { addCollectionNote, addPromise, cancelPromise, markReminder, sendReminder, setCollectionStatus, voidClientPayment } from '@/app/actions/receivables'
+import { createFromFinance } from '@/app/actions/studio'
+import { kindLabel, statusLabel as studioStatusLabel } from '@/lib/studio/model'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,6 +25,10 @@ export default async function InvoiceCollectionPage({ params, searchParams }: { 
   if (!access.view) return <NoReceivablesAccess tr={tr} unavailable={!access.available} />
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound()
   const { data: balData } = await supabase.rpc('ar_invoice_balances', { target: companyId, as_of: null })
+  // 0038: Studio documents about this invoice (collection letters…); none without 0038 or without studio.view
+  const studioLinks = await supabase.rpc('studio_finance_links', { target: companyId, bill: null, document: id })
+  const studioDocs = (studioLinks.error ? [] : studioLinks.data ?? []) as { id: string; kind: string; title: string; status: string; number: string | null }[]
+  const studioReady = !studioLinks.error
   const b = ((balData ?? []) as InvoiceBalance[]).find((r) => r.document_id === id)
   if (!b) notFound()
   const [{ data: client }, { data: payData }, { data: notes }, { data: promData }, { data: remData }, { data: evData }, { data: settings }, { data: co }, name] = await Promise.all([
@@ -153,6 +159,16 @@ export default async function InvoiceCollectionPage({ params, searchParams }: { 
                 <button type="submit" className="btn-secondary">{tr('Guardar', 'Save')}</button>
               </form>
               <p className="text-xs text-muted">{tr('En disputa o en pausa: no se preparan recordatorios.', 'Disputed or on hold: no reminders are prepared.')}</p>
+            </section>
+          )}
+          {studioReady && (
+            <section className="card space-y-3 p-5" aria-labelledby="studio-title" data-testid="invoice-studio-docs">
+              <h2 id="studio-title" className="font-display text-lg font-semibold text-fg">{tr('Cartas y documentos de Studio', 'Letters and Studio documents')}</h2>
+              {studioDocs.length > 0 && <ul className="divide-y divide-line/60 text-sm">{studioDocs.map((s) => (
+                <li key={s.id} className="flex flex-wrap items-center justify-between gap-2 py-2"><Link href={`/studio/${s.id}`} className="text-accent">{kindLabel(s.kind, locale)}{s.number ? ` ${s.number}` : ''} · {s.title}</Link>
+                  <span className="text-xs text-muted">{studioStatusLabel(s.status, locale)}</span></li>))}</ul>}
+              <form action={createFromFinance}><input type="hidden" name="kind" value="collection_letter" /><input type="hidden" name="document_id" value={id} />
+                <button type="submit" className="btn-secondary btn-sm">{tr('Preparar carta de cobro (Studio)', 'Prepare a collection letter (Studio)')}</button></form>
             </section>
           )}
           <section className="card space-y-3 p-5" aria-labelledby="prom-title">

@@ -13,7 +13,7 @@ import { imageKeys, loadBrand, loadData, loadDoc, loadImage } from '@/lib/studio
 import { imageInfo } from '@/lib/studio/images'
 import { KIND_SOURCES, effectiveBrand, kindLabel, statusLabel, statusTone, studioMessage } from '@/lib/studio/model'
 import { missingFields } from '@/lib/studio/merge'
-import { archiveDocument, duplicateDocument, finalizeDocument, prepareEmail, restoreVersion, saveBindings, setDocumentBranch, saveDocumentState } from '@/app/actions/studio'
+import { archiveDocument, duplicateDocument, finalizeDocument, prepareEmail, restoreVersion, saveBindings, setDocumentBranch, setFinanceLink, attachToBill, saveDocumentState } from '@/app/actions/studio'
 
 export const dynamic = 'force-dynamic'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -55,6 +55,18 @@ export default async function StudioDocumentPage({ params, searchParams }: { par
     ? (((await supabase.from('branches').select('id, name, code').eq('company_id', companyId).is('archived_at', null).order('name')).data ?? []) as { id: string; name: string; code: string }[])
     : []
   const branchId = (doc as { branch_id?: string | null }).branch_id ?? null
+  // 0038: expense links (purchase orders and vouchers), read with payables.view (RLS); none without 0038
+  const financeKind = (KIND_SOURCES as Record<string, { finance?: 'bill' | 'payment' }>)[doc.kind]?.finance ?? null
+  const billId = (doc as { bill_id?: string | null }).bill_id ?? null
+  const paymentId = (doc as { bill_payment_id?: string | null }).bill_payment_id ?? null
+  const hasFinance = 'bill_id' in doc && !!financeKind
+  const [billRows, payRows] = hasFinance && draft && access.edit ? await Promise.all([
+    supabase.from('bills').select('id, vendor_invoice_number, description, status, total_cents, bill_date').eq('company_id', companyId).neq('status', 'voided').order('bill_date', { ascending: false }).limit(100),
+    supabase.from('bill_payments').select('id, bill_id, amount_cents, paid_on, method').eq('company_id', companyId).is('voided_at', null).order('paid_on', { ascending: false }).limit(200),
+  ]) : [{ data: [] }, { data: [] }]
+  const bills = (billRows.data ?? []) as { id: string; vendor_invoice_number: string | null; description: string; status: string; total_cents: number; bill_date: string }[]
+  const pays = (payRows.data ?? []) as { id: string; bill_id: string; amount_cents: number; paid_on: string; method: string | null }[]
+  const billName = (b: { vendor_invoice_number: string | null; description: string }) => `${b.vendor_invoice_number ? `${b.vendor_invoice_number} · ` : ''}${b.description}`
   const branchLabel = data?.branch?.name ? `${data.branch.name}${data.branch.code ? ` (${data.branch.code})` : ''}` : null
   const canEdit = draft && access.edit
   const missing = draft ? missingFields(doc.content.blocks, data, locale) : []
@@ -62,6 +74,7 @@ export default async function StudioDocumentPage({ params, searchParams }: { par
   const back = `/studio/${id}`
   const done: Record<string, string> = {
     created: tr('Borrador creado.', 'Draft created.'), duplicated: tr('Copia creada como borrador.', 'Copy created as a draft.'), bindings: tr('Datos vinculados actualizados.', 'Linked data updated.'), branch: tr('Sucursal actualizada.', 'Branch updated.'),
+    finance_link: tr('Gasto vinculado actualizado.', 'Linked expense updated.'), attached: tr('PDF guardado como adjunto del gasto (almacenamiento privado).', 'PDF saved as an attachment of the expense (private storage).'),
     finalized: tr('Documento emitido: número asignado y datos congelados.', 'Document issued: number assigned and data frozen.'), archived: tr('Documento archivado.', 'Document archived.'),
     restored: tr('Versión restaurada.', 'Version restored.'), assistant: tr('Borrador creado por el asistente. Revíselo antes de emitirlo.', 'Draft created by the assistant. Review it before issuing.'),
     email: tr('Correo preparado (no se envió).', 'E-mail prepared (not sent).'),
@@ -126,6 +139,31 @@ export default async function StudioDocumentPage({ params, searchParams }: { par
             </div>
           )
         )}
+        {hasFinance && (canEdit ? (
+          <form action={setFinanceLink} className="card space-y-3 p-4" data-testid="studio-finance">
+            <input type="hidden" name="id" value={doc.id} /><input type="hidden" name="back" value={back} />
+            <h2 className="font-display text-lg font-semibold text-fg">{financeKind === 'payment' ? tr('Pago al proveedor', 'Vendor payment') : tr('Gasto vinculado', 'Linked expense')}</h2>
+            <p className="text-xs text-muted">{financeKind === 'payment'
+              ? tr('Un pago ya registrado en Gastos. El comprobante solo lo documenta: no registra pagos.', 'A payment already recorded in Expenses. The voucher only documents it: it records no payment.')
+              : tr('El gasto de Gastos al que corresponde esta orden. Sus líneas y totales se leen de allí.', 'The expense in Expenses this order belongs to. Its lines and totals are read from there.')}</p>
+            <select name="link" defaultValue={financeKind === 'payment' ? (billId && paymentId ? `${billId}:${paymentId}` : '') : (billId ?? '')} className="field" aria-label={tr('Gasto', 'Expense')}>
+              <option value="">{tr('Sin vincular', 'Not linked')}</option>
+              {financeKind === 'payment'
+                ? pays.map((x) => { const b = bills.find((y) => y.id === x.bill_id); return b ? <option key={x.id} value={`${x.bill_id}:${x.id}`}>{f.date(x.paid_on)} · {f.money(x.amount_cents / 100)} · {billName(b)}</option> : null })
+                : bills.map((b) => <option key={b.id} value={b.id}>{f.date(b.bill_date)} · {f.money(b.total_cents / 100)} · {billName(b)}</option>)}
+            </select>
+            <SubmitButton className="w-full sm:w-auto">{tr('Guardar vínculo', 'Save link')}</SubmitButton>
+          </form>
+        ) : billId && (
+          <div className="card space-y-2 p-4" data-testid="studio-finance">
+            <h2 className="font-display text-lg font-semibold text-fg">{tr('Gasto vinculado', 'Linked expense')}</h2>
+            <Link href={`/payables/${billId}`} className="text-sm text-accent">{data?.bill ? billName({ vendor_invoice_number: data.bill.vendor_invoice_number ?? null, description: data.bill.description ?? '' }) : tr('Ver gasto', 'View expense')}</Link>
+            {doc.status === 'final' && (
+              <form action={attachToBill}><input type="hidden" name="id" value={doc.id} /><input type="hidden" name="back" value={back} />
+                <SubmitButton className="w-full sm:w-auto">{tr('Guardar el PDF en el gasto', 'Save the PDF on the expense')}</SubmitButton></form>
+            )}
+          </div>
+        ))}
         {draft && access.issue && (
           <form action={finalizeDocument} className="card space-y-3 p-4">
             <input type="hidden" name="id" value={doc.id} /><input type="hidden" name="version" value={doc.version} /><input type="hidden" name="back" value={back} />

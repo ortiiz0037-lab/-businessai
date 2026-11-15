@@ -93,7 +93,33 @@ export function systemTemplates(locale: Locale): SystemTemplate[] {
       { type: 'heading', level: 1, text: es ? 'Estado de cuenta' : 'Account statement' },
       { type: 'fields', rows: es ? [['Cliente', '{{client.name}}'], ['Fecha', '{{today}}']] : [['Client', '{{client.name}}'], ['Date', '{{today}}']] },
       { type: 'statement' },
+      { type: 'heading', level: 2, text: es ? 'Antigüedad del saldo' : 'Balance ageing' },
+      { type: 'aging' },
       { type: 'paragraph', text: es ? 'Si ya realizó el pago, ignore este aviso. Datos de pago: {{company.payment_info}}' : 'If you have already paid, please disregard this notice. Payment details: {{company.payment_info}}', size: 9.5 },
+    ]),
+    // 0038: about an issued invoice (Receivables) and about a recorded vendor payment (Payables): amounts are read, never typed
+    t('collection_letter', 'collection_letter', es ? 'Carta de cobro' : 'Collection letter', es ? 'Aviso al cliente sobre una factura vencida: balance, días y promesa de pago, tomados de Cuentas por cobrar.' : 'Notice to the client about an overdue invoice: balance, days and payment promise, taken from Receivables.', [
+      { type: 'paragraph', text: '{{company.city}}, {{today}}', align: 'right' },
+      { type: 'paragraph', text: '{{client.name}}\n{{client.address}}' },
+      { type: 'heading', level: 1, text: es ? 'Aviso de cobro' : 'Payment reminder' },
+      { type: 'paragraph', text: es ? 'Estimado cliente: nuestros registros muestran un balance pendiente de {{collection.balance}} de la factura {{collection.number}}, vencida el {{collection.due_date}} ({{collection.days_past_due}} días).'
+        : 'Dear client: our records show a balance due of {{collection.balance}} on invoice {{collection.number}}, due on {{collection.due_date}} ({{collection.days_past_due}} days).', align: 'justify' },
+      { type: 'heading', level: 2, text: es ? 'Su saldo con nosotros' : 'Your balance with us' },
+      { type: 'aging' },
+      { type: 'paragraph', text: es ? 'Le agradeceremos realizar el pago a la mayor brevedad. Datos de pago: {{company.payment_info}}. Si ya pagó, por favor ignore este aviso.'
+        : 'We would appreciate your payment at your earliest convenience. Payment details: {{company.payment_info}}. If you have already paid, please disregard this notice.', align: 'justify' },
+      { type: 'spacer', size: 24 }, { type: 'signature' },
+    ]),
+    t('payment_voucher', 'payment_voucher', es ? 'Comprobante de pago a proveedor' : 'Vendor payment voucher', es ? 'Constancia de un pago ya registrado en Gastos: importe, fecha, método y el gasto que cubre. No registra pagos.' : 'Record of a payment already recorded in Expenses: amount, date, method and the expense it covers. It records no payment.', [
+      { type: 'heading', level: 1, text: es ? 'Comprobante de pago' : 'Payment voucher' },
+      { type: 'fields', rows: es
+        ? [['Proveedor', '{{vendor.name}}'], ['Identificación fiscal', '{{vendor.tax_id?}}'], ['Factura del proveedor', '{{bill.vendor_invoice_number?}}'], ['Fecha del pago', '{{payment.date}}'],
+           ['Método', '{{payment.method}}'], ['Referencia', '{{payment.reference?}}'], ['Importe pagado', '{{payment.amount}}']]
+        : [['Vendor', '{{vendor.name}}'], ['Tax ID', '{{vendor.tax_id?}}'], ['Vendor invoice', '{{bill.vendor_invoice_number?}}'], ['Payment date', '{{payment.date}}'],
+           ['Method', '{{payment.method}}'], ['Reference', '{{payment.reference?}}'], ['Amount paid', '{{payment.amount}}']] },
+      { type: 'heading', level: 2, text: es ? 'Gasto cubierto' : 'Expense covered' },
+      { type: 'bill' },
+      { type: 'spacer', size: 24 }, { type: 'signature' },
     ]),
     t('certificate', 'certificate', es ? 'Certificado' : 'Certificate', es ? 'Certificado de empleo o de participación, con firma y sello.' : 'Employment or participation certificate, with signature and stamp.', [
       { type: 'spacer', size: 20 },
@@ -109,3 +135,17 @@ export function systemTemplates(locale: Locale): SystemTemplate[] {
   ]
 }
 export const systemTemplate = (key: string, locale: Locale) => systemTemplates(locale).find((t) => t.key === key) ?? null
+
+/**
+ * Without migration 0038 (collections and payments) the database knows neither
+ * the collection letter / payment voucher kinds nor the expense and ageing
+ * blocks: those templates are hidden and those blocks left out, so every
+ * template stays usable on an older database.
+ */
+export const FINANCE_KINDS: readonly string[] = ['collection_letter', 'payment_voucher']
+export function withoutFinance<T extends { kind: string; content: DocContent }>(t: T): T {
+  return { ...t, content: { ...t.content, blocks: t.content.blocks.filter((b) => b.type !== 'bill' && b.type !== 'aging') } }
+}
+export function templatesFor<T extends { kind: string; content: DocContent }>(list: T[], financeReady: boolean): T[] {
+  return financeReady ? list : list.filter((t) => !FINANCE_KINDS.includes(t.kind)).map(withoutFinance)
+}

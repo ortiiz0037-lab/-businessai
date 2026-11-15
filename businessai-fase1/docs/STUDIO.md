@@ -156,6 +156,51 @@ conectó ningún servicio externo.
 - Pruebas: `110_studio_branches.test.sql` (escenario 44 de `npm run test:db`) y
   `e2e/studio-branches.auth.e2e.mjs` (navegador, PDF real, inglés, iPhone).
 
+## Cobros y pagos (Studio · entrega S2, migración 0038)
+
+Studio **lee** Finanzas (Cuentas por cobrar, Cuentas por pagar, proveedores):
+nunca crea pagos, cobros, gastos ni asientos. Las pruebas cuentan esos registros
+antes y después de cada acción de Studio.
+
+- **Carta de cobro** (`collection_letter`, numeración `CC-{YYYY}-{####}`): se
+  prepara desde la factura (Cobros → factura → «Preparar carta de cobro»). Lee el
+  saldo, los días de atraso, el vencimiento, la promesa de pago pendiente y la
+  antigüedad del saldo del cliente. Siempre apunta a una factura; no se emite
+  sobre un borrador.
+- **Comprobante de pago a proveedor** (`payment_voucher`, `CP-{YYYY}-{####}`):
+  se prepara desde un pago **ya registrado** en el gasto (Gastos → gasto →
+  «Comprobante de pago (Studio)»). Lee el proveedor, el pago (fecha, método,
+  referencia, importe) y las líneas del gasto. No se emite sobre un pago anulado.
+- **Orden de compra** vinculable a su gasto (bloque «Gasto vinculado» del editor):
+  muestra las líneas y el total del gasto.
+- **Estado de cuenta**: ahora incluye la **antigüedad del saldo** (corriente,
+  1–30, 31–60, 61–90, más de 90 días).
+- Bloques nuevos del editor: **Gasto** (`bill`) y **Antigüedad** (`aging`).
+  Campos combinados nuevos: grupos «Cobro (factura vinculada)» y «Gasto y pago al
+  proveedor». Un campo puede ser **opcional** con `?`: `{{vendor.tax_id?}}` queda
+  vacío sin bloquear la emisión, y una fila de «Campos» con un dato opcional vacío
+  no se imprime.
+- **Trazabilidad**: el gasto lista sus documentos de Studio (órdenes de compra,
+  comprobantes) y la factura lista sus cartas de cobro (`studio_finance_links`).
+  Cada vínculo queda en el historial de Studio (`finance_linked`).
+- **PDF en el gasto**: un comprobante u orden **emitido** guarda su PDF como
+  adjunto del gasto, en el almacenamiento privado `Finance-attachments` (mismas
+  reglas que cualquier recibo; descarga con enlace firmado). Queda en el historial
+  (`attached_to_bill`).
+- **Permisos**: vincular o leer un gasto exige `payables.view`; la carta de cobro
+  exige `documents.view`. Un miembro sin `payables.view` no ve los datos del gasto
+  en Studio ni la lista de documentos del gasto. Todo es por empresa.
+- Un pago con comprobante no se puede borrar (las anulaciones siguen igual: el
+  comprobante emitido conserva su instantánea).
+- **Sin 0038** (Staging hoy) la aplicación sigue funcionando: no aparecen los dos
+  tipos nuevos ni los bloques nuevos, y las páginas de gastos y facturas no
+  muestran la sección de Studio.
+- Pruebas: `112_studio_finance.test.sql` (escenario 45 de `npm run test:db`:
+  aplicar, reaplicar, rollback idéntico a 0037, rollback rechazado con datos o con
+  bloques nuevos) y `e2e/studio-finance.auth.e2e.mjs` (`npm run
+  test:e2e:studio-finance`: flujo completo en el navegador, PDF real, inglés,
+  iPhone).
+
 ## Limitaciones conocidas
 
 - **No hay catálogo de productos y servicios** (las sucursales llegan con 0037). Las

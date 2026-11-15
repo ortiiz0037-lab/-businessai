@@ -151,7 +151,7 @@ try {
   r = await act(o, payForm.getByRole('button', { name: 'Registrar pago' }))
   check(r.done === 'paid' && (await bill(B1)).status === 'partially_paid' && (await bill(B1)).paid_cents === 10000, 'D3: a partial payment of 100.00 → partially paid', `${r.done} ${r.error} ${JSON.stringify(await bill(B1))}`)
   await o.locator('summary', { hasText: 'Anular pago' }).first().click()
-  await o.locator('form').filter({ has: o.locator('input[name="payment_id"]') }).first().locator('input[name="reason"]').fill('Cheque devuelto')
+  await o.locator('form').filter({ has: o.locator('input[name="payment_id"]') }).filter({ has: o.locator('input[name="reason"]') }).first().locator('input[name="reason"]').fill('Cheque devuelto')
   r = await act(o, o.getByRole('button', { name: 'Anular con reversión' }).first())
   const voids = await db(`journal_entries?company_id=eq.${COMPANY}&source=eq.bill_payment_void&select=id`)
   check(r.done === 'payment_voided' && (await bill(B1)).paid_cents === 0 && voids.length === 1 && /Cheque devuelto/.test(r.body),
@@ -312,8 +312,8 @@ try {
   await open(o, `/receivables/invoices/${INV}`)
   const b1 = await balance()
   await o.locator('summary', { hasText: 'Anular pago' }).first().click()
-  await o.locator('form').filter({ has: o.locator('input[name="payment_id"]') }).first().locator('input[name="reason"]').fill('Cheque devuelto por el banco')
-  r = await act(o, o.locator('form').filter({ has: o.locator('input[name="payment_id"]') }).first().locator('button[type="submit"]'))
+  await o.locator('form').filter({ has: o.locator('input[name="payment_id"]') }).filter({ has: o.locator('input[name="reason"]') }).first().locator('input[name="reason"]').fill('Cheque devuelto por el banco')
+  r = await act(o, o.locator('form').filter({ has: o.locator('input[name="payment_id"]') }).filter({ has: o.locator('input[name="reason"]') }).first().locator('button[type="submit"]'))
   const voidedPay = await db(`payments?document_id=eq.${INV}&voided_at=not.is.null&select=amount,void_reason`)
   check(r.done === 'payment_voided' && voidedPay.length === 1 && await balance() > b1, 'D4: a client payment is voided (bounced check): the balance goes back up, the payment is kept as voided',
     `${r.done} ${r.error} ${JSON.stringify(voidedPay)} ${b1} → ${await balance()}`)

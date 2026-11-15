@@ -131,5 +131,6 @@ Errores corregidos gracias a esta prueba:
    `Pacific/Kiritimati` y `Etc/GMT+12` para detectar pruebas que dependan de la
    fecha UTC (como la de CRM corregida en `801d633`).
 4. **Borradores retenidos para Staging:** 0036 (aplicada en Staging el
-   2026-11-15, run #38) y 0037 (Studio por sucursal, no aplicada): cada uno
-   necesita autorización.
+   2026-11-15, run #38), 0037 (Studio por sucursal, no aplicada) y 0038
+   (Studio · cobros y pagos, no aplicada; necesita 0037): cada uno necesita
+   autorización.

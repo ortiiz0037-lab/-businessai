@@ -11,7 +11,7 @@ import { layout, parseRuns, FONT_FILES, type FontKey, type Fonts } from '@/lib/s
 import { buildPdf, decodePng } from '@/lib/studio/pdf'
 import { parseTtf, subsetTtf, textWidth } from '@/lib/studio/ttf'
 import { imageInfo } from '@/lib/studio/images'
-import { systemTemplates } from '@/lib/studio/templates'
+import { systemTemplates, templatesFor } from '@/lib/studio/templates'
 import { assertDraftIsSafe, guessKind, ruleAssistant } from '@/lib/studio/assistant'
 
 const fonts: Fonts = {}
@@ -77,6 +77,38 @@ describe('merge fields never invent data', () => {
   })
   it('data blocks without their record are reported', () => {
     expect(missingFields([{ type: 'items' }, { type: 'statement' }], { company: {} }, 'es')).toEqual(['document', 'statement'])
+  })
+})
+
+describe('collections and payments (0038)', () => {
+  const fin: StudioData = { ...data, vendor: { name: 'Proveedor Uno' },
+    bill: { vendor_invoice_number: 'P-9', description: 'Suministros', total_cents: 45000, paid_cents: 10000, balance_cents: 35000, lines: [{ description: 'Material', category: 'Oficina', category_en: null, amount_cents: 45000 }] },
+    bill_payment: { paid_on: '2026-11-10', amount_cents: 10000, method: 'check', reference: null, voided: false },
+    aging: { current_cents: 0, d1_30_cents: 0, d31_60_cents: 0, d61_90_cents: 100000, d90_plus_cents: 0, total_cents: 100000 } }
+  it('optional fields ({{x?}}) are empty, never missing; an unknown optional field is still missing', () => {
+    const missing = new Set<string>()
+    expect(mergeText('Ref: {{payment.reference?}} / {{vendor.name?}}', fin, fmt, 'es', missing)).toBe('Ref:  / Proveedor Uno')
+    expect(missing.size).toBe(0)
+    expect(mergeText('{{nope.x?}}', fin, fmt, 'es', missing)).toBe('[falta: nope.x]')
+  })
+  it('a fields row whose optional data is empty is left out of the layout', () => {
+    const r = layout({ content: { v: 1, blocks: [{ type: 'fields', rows: [['Referencia', '{{payment.reference?}}'], ['Proveedor', '{{vendor.name}}']] }] }, data: fin, locale: 'es', fonts })
+    expect(allText(r)).not.toContain('Referencia'); expect(allText(r)).toContain('Proveedor Uno'); expect(r.missing).toEqual([])
+  })
+  it('the expense and ageing blocks read the data, and report it when missing', () => {
+    const t = allText(layout({ content: { v: 1, blocks: [{ type: 'bill' }, { type: 'aging' }] }, data: fin, locale: 'es', fonts }))
+    for (const s of ['Material', '$450.00', '$100.00', '$350.00', '$1,000.00']) expect(t).toContain(s)
+    expect(missingFields([{ type: 'bill' }, { type: 'aging' }], { company: {} }, 'es')).toEqual(['bill', 'aging'])
+  })
+  it('without 0038 the letter / voucher templates are hidden and no template carries the expense or ageing blocks', () => {
+    const old = templatesFor(systemTemplates('es'), false)
+    expect(old.map((t) => t.kind)).not.toContain('collection_letter'); expect(old.map((t) => t.kind)).not.toContain('payment_voucher')
+    expect(JSON.stringify(old.map((t) => t.content))).not.toMatch(/"type":"(bill|aging)"/)
+    expect(templatesFor(systemTemplates('es'), true)).toHaveLength(systemTemplates('es').length)
+  })
+  it('the payment voucher template issues without a tax ID or reference', () => {
+    const v = systemTemplates('es').find((t) => t.kind === 'payment_voucher')!
+    expect(layout({ content: v.content, data: fin, locale: 'es', fonts }).missing).toEqual([])
   })
 })
 
@@ -188,7 +220,7 @@ describe('PDF writer', () => {
 })
 
 describe('templates', () => {
-  it('ten system templates, one per kind, valid in both languages, and laid out without error', () => {
+  it('one system template per kind, valid in both languages, and laid out without error', () => {
     for (const locale of ['es', 'en'] as const) {
       const ts = systemTemplates(locale)
       expect(ts.map((t) => t.kind).sort()).toEqual([...KINDS].sort())

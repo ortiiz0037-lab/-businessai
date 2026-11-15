@@ -10,7 +10,7 @@
 -- writes. It works whatever is applied: tables that may not exist are only
 -- looked up by name (to_regclass / to_regprocedure), never queried.
 --
--- One row per migration (0001–0004 together, then 0005 … 0037):
+-- One row per migration (0001–0004 together, then 0005 … 0038):
 --   status   applied | not applied | PARTIAL — review | n/a
 --   evidence what was measured (counts, flags) — compare it with the
 --            "applied when" column.
@@ -150,6 +150,9 @@ e as (
     -- 0037
     exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'studio_documents' and column_name = 'branch_id') as c_studio_branch,
     to_regprocedure('public.studio_set_branch(uuid,uuid)') is not null as f_studio_set_branch,
+    -- 0038
+    exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'studio_documents' and column_name = 'bill_payment_id') as c_studio_bill_payment,
+    to_regprocedure('public.studio_set_finance_link(uuid,uuid,uuid)') is not null as f_studio_finance_link,
     -- staging bookkeeping (absent in Production)
     to_regclass('ba_meta.applied_migrations') is not null as t_record,
     to_regclass('ba_meta.environment') is not null        as t_marker
@@ -354,7 +357,13 @@ r(ord, migration, applied_when, status, evidence) as (
     format('studio_documents.branch_id=%s studio_set_branch=%s', c_studio_branch, f_studio_set_branch)
   from e
   union all
-  select 33, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
+  select 33, '0038_studio_finance', 'studio_documents.bill_payment_id + studio_set_finance_link',
+    case when c_studio_bill_payment and f_studio_finance_link then 'applied'
+         when not (c_studio_bill_payment or f_studio_finance_link) then 'not applied' else 'PARTIAL — review' end,
+    format('studio_documents.bill_payment_id=%s studio_set_finance_link=%s', c_studio_bill_payment, f_studio_finance_link)
+  from e
+  union all
+  select 34, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
     case when t_record or t_marker then 'present (staging?)' else 'absent' end,
     format('ba_meta.applied_migrations=%s ba_meta.environment=%s', t_record, t_marker)
   from e

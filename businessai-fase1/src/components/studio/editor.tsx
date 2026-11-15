@@ -21,18 +21,18 @@ type Props = {
   action: (state: SaveState, fd: FormData) => Promise<SaveState>
 }
 
-const BLOCK_TYPES: Block['type'][] = ['heading', 'paragraph', 'fields', 'table', 'items', 'totals', 'payments', 'statement', 'image', 'signature', 'stamp', 'spacer', 'divider', 'pagebreak']
+const BLOCK_TYPES: Block['type'][] = ['heading', 'paragraph', 'fields', 'table', 'items', 'totals', 'payments', 'statement', 'bill', 'aging', 'image', 'signature', 'stamp', 'spacer', 'divider', 'pagebreak']
 const LABELS: Record<Locale, Record<string, string>> = {
   es: { heading: 'Título', paragraph: 'Párrafo', fields: 'Datos (etiqueta / valor)', table: 'Tabla', items: 'Líneas del documento comercial', totals: 'Totales', payments: 'Pagos registrados',
-    statement: 'Estado de cuenta (facturas abiertas)', image: 'Imagen', signature: 'Firma', stamp: 'Sello', spacer: 'Espacio', divider: 'Separador', pagebreak: 'Salto de página' },
+    statement: 'Estado de cuenta (facturas abiertas)', bill: 'Líneas del gasto vinculado', aging: 'Antigüedad del saldo del cliente', image: 'Imagen', signature: 'Firma', stamp: 'Sello', spacer: 'Espacio', divider: 'Separador', pagebreak: 'Salto de página' },
   en: { heading: 'Heading', paragraph: 'Paragraph', fields: 'Data (label / value)', table: 'Table', items: 'Business document lines', totals: 'Totals', payments: 'Recorded payments',
-    statement: 'Account statement (open invoices)', image: 'Image', signature: 'Signature', stamp: 'Stamp', spacer: 'Space', divider: 'Divider', pagebreak: 'Page break' },
+    statement: 'Account statement (open invoices)', bill: 'Lines of the linked expense', aging: 'Client balance ageing', image: 'Image', signature: 'Signature', stamp: 'Stamp', spacer: 'Space', divider: 'Divider', pagebreak: 'Page break' },
 }
 const DATA_HELP: Record<Locale, Record<string, string>> = {
   es: { items: 'Se toman de la factura o cotización vinculada; no se escriben aquí.', totals: 'Subtotal, impuesto, total, pagado y balance de la factura vinculada.',
-    payments: 'Pagos registrados en Pagos para la factura vinculada.', statement: 'Facturas con balance del cliente vinculado (Cuentas por cobrar).' },
+    payments: 'Pagos registrados en Pagos para la factura vinculada.', statement: 'Facturas con balance del cliente vinculado (Cuentas por cobrar).', bill: 'Líneas, total y saldo del gasto vinculado (Gastos).', aging: 'Saldo del cliente por antigüedad: corriente, 1–30, 31–60, 61–90 y más de 90 días.' },
   en: { items: 'Taken from the linked invoice or quote; not typed here.', totals: 'Subtotal, tax, total, paid and balance of the linked invoice.',
-    payments: 'Payments recorded in Payments for the linked invoice.', statement: 'Invoices with a balance of the linked client (Receivables).' },
+    payments: 'Payments recorded in Payments for the linked invoice.', statement: 'Invoices with a balance of the linked client (Receivables).', bill: 'Lines, total and balance of the linked expense (Expenses).', aging: 'Client balance by age: current, 1–30, 31–60, 61–90 and over 90 days.' },
 }
 
 function newBlock(t: Block['type']): Block {
@@ -177,7 +177,7 @@ export function StudioEditor(p: Props) {
       </div>
       case 'stamp': return <div className="flex items-center gap-2 text-xs text-muted">{alignSel(i, b)} {tr('El sello se configura en Identidad.', 'The stamp is set in Identity.')}</div>
       case 'spacer': return <label className="flex items-center gap-2 text-xs text-muted">{tr('Alto (mm)', 'Height (mm)')} <input type="number" min={1} max={100} value={b.size} onChange={(e) => change(i, { ...b, size: Number(e.target.value) || 1 })} className="field w-24 px-2 py-1" /></label>
-      case 'items': case 'totals': case 'payments': case 'statement': return <p className="text-xs text-muted">{DATA_HELP[p.locale][b.type]}</p>
+      case 'items': case 'totals': case 'payments': case 'statement': case 'bill': case 'aging': return <p className="text-xs text-muted">{DATA_HELP[p.locale][b.type]}</p>
       default: return null
     }
   }
