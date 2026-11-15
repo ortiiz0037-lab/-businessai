@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation'
+import { activeCatalog } from '@/lib/catalog'
 import { PageHeader } from '@/components/ui/page'
 import { Flash } from '@/components/accounting-nav'
 import { NoStudioAccess, StudioNav } from '@/components/studio-nav'
@@ -32,6 +33,7 @@ export default async function StudioTemplateEditor({ params, searchParams }: { p
   ])
   const data: StudioData = { company: { name: (c as { name?: string } | null)?.name ?? null, ...((p ?? {}) as Record<string, string | null>) }, doc: { title: t.name, issued_on: today } }
   const assets = ((assetRows ?? []) as { id: string; file_name: string; width: number; height: number }[]).map((a) => ({ id: a.id, name: a.file_name, width: a.width, height: a.height }))
+  const catalog = (await activeCatalog(supabase, companyId)).map((x) => ({ id: x.id, code: x.code, name: x.name, price_cents: x.price_cents, unit: x.unit, tax_rate: x.tax_rate }))   // 0039
   const images: PreviewImages = Object.fromEntries(assets.map((a) => [a.id, { width: a.width, height: a.height, url: `/studio/image?key=${a.id}` }]))
   for (const k of ['logo', 'signature', 'stamp']) { const img = await loadImage(supabase, companyId, k, ctx); const info = img ? imageInfo(img.bytes) : null; if (info) images[k] = { width: info.width, height: info.height, url: `/studio/image?key=${k}` } }
   return (
@@ -41,7 +43,7 @@ export default async function StudioTemplateEditor({ params, searchParams }: { p
       <StudioNav tr={tr} current="/studio/templates" />
       <Flash done={sp.done === 'template_created' ? tr('Copia de la plantilla creada para tu empresa.', 'Template copy created for your company.') : null} error={studioMessage(sp.error, locale)} />
       <StudioEditor mode="template" id={t.id} title={t.name} kind={t.kind} content={parsed.ok ? parsed.content : { v: 1, blocks: [] }} page={parsePage(t.page)}
-        brand={ctx.brand} accentFallback={ctx.accentFallback} data={data} locale={locale} currency={ctx.currency} images={images} assets={assets} canUpload={access.edit} action={saveTemplateState} />
+        brand={ctx.brand} accentFallback={ctx.accentFallback} data={data} locale={locale} currency={ctx.currency} images={images} assets={assets} canUpload={access.edit} catalog={catalog} action={saveTemplateState} />
     </div>
   )
 }

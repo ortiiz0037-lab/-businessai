@@ -8,7 +8,9 @@ import { createClient } from '@/lib/supabase/server'
 import { billingErrorCode, billingErrorMessage } from '@/lib/billing/state'
 import { fetchUsage, isBlocked, usageNotice } from '@/lib/billing/usage'
 import { activeCompanyRow } from '@/lib/active-company'
-import { computeTotals, parseItemsInput, type LineItem } from '@/lib/documents/items'
+import { attachCatalog, computeTotals, parseItemsInput, type LineItem } from '@/lib/documents/items'
+import { activeCatalog } from '@/lib/catalog'
+import { CatalogLinePicker } from '@/components/catalog-line-picker'
 import { insertDocument } from '@/lib/documents/numbering'
 import { todayIn } from '@/lib/documents/lifecycle'
 import { paymentMethodLabel } from '@/lib/documents/payments'
@@ -120,8 +122,16 @@ async function createDocument(formData: FormData) {
 
     clientName = client.business_name?.trim() || client.name?.trim() || tr('Cliente', 'Client')
 
+    // Lines chosen from the catalog (0039): only active items of this company; code and unit are copied into the line.
+    const picked = [...new Set(parsed.items.map((i) => i.catalog_item_id).filter((x): x is string => !!x))]
+    const known = picked.length
+      ? ((await supabase.from('catalog_items').select('id, code, unit').eq('company_id', companyId).eq('status', 'active').in('id', picked)).data ?? []) as { id: string; code: string; unit: string }[]
+      : []
+    const withCatalog = attachCatalog(parsed.items, known)
+    if (!withCatalog) redirect(`/documents/new?type=${type}&error=catalog`)
+
     // Items are stored as data (documents.items); notes keep only the user's notes.
-    items = parsed.items
+    items = withCatalog
     subtotal = parsed.subtotal
     ;({ tax, total } = computeTotals(subtotal, discount, taxRate))
     metadata = { discount: Math.round(discount * 100) / 100, tax_rate: taxRate }
@@ -252,6 +262,9 @@ export default async function NewDocumentPage({
     .order('name')
     .limit(1000)
   const crm = await crmAvailable()
+  // catalog (0039): empty without the migration or without catalog.view
+  const catalog = (params?.type ?? 'invoice') === 'invoice' || params?.type === 'quote' ? await activeCatalog(supabase, membership.company_id) : []
+  const pickerItems = catalog.map((c) => ({ id: c.id, code: c.code, name: c.name, price_cents: c.price_cents, unit: c.unit, tax_rate: c.tax_rate }))
   const { data: archivedRows } = crm
     ? await supabase.from('clients').select('id').eq('company_id', membership.company_id).not('archived_at', 'is', null).limit(1000)
     : { data: [] as { id: string }[] }
@@ -310,6 +323,7 @@ export default async function NewDocumentPage({
   const errorMessage: Record<string, string> = {
     required: tr('Completa los campos obligatorios y añade al menos una partida.', 'Fill in the required fields and add at least one line item.'),
     price: tr('La cantidad debe ser mayor que cero y el precio no puede ser negativo.', 'The quantity must be greater than zero and the price cannot be negative.'),
+    catalog: tr('Un artículo del catálogo ya no está disponible (archivado o eliminado de tu acceso). Vuelve a elegirlo o escribe la línea a mano.', 'A catalog item is no longer available (archived or out of your access). Choose it again or type the line in.'),
     tax: tr('Revisa el impuesto y el descuento.', 'Check the tax and the discount.'),
     client: tr('No encontramos ese cliente en tu empresa.', 'We could not find that client in your company.'),
     invoice: tr('Selecciona una factura emitida con balance pendiente para el recordatorio.', 'Choose an issued invoice with an open balance for the reminder.'),
@@ -333,6 +347,7 @@ export default async function NewDocumentPage({
   ))
   const itemRow = (index: number) => (
     <div key={index} className="grid gap-3 rounded-2xl border border-line bg-card p-4 shadow-sm sm:grid-cols-6">
+      <CatalogLinePicker index={index} items={pickerItems} label={tr(`Partida ${index} — del catálogo (opcional)`, `Item ${index} — from the catalog (optional)`)} none={tr('— Escribir a mano —', '— Type it in —')} />
       <label className="field-label sm:col-span-3">
         {tr(`Partida ${index} — descripción`, `Item ${index} — description`)}
         <input name={`item_description_${index}`} required={index === 1} maxLength={500} className={`${fieldClass} mt-2`}

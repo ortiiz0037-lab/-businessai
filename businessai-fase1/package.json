@@ -17,6 +17,7 @@
     "test:e2e:finance-flows": "node e2e/finance-flows.auth.e2e.mjs",
     "test:e2e:studio-branches": "node e2e/studio-branches.auth.e2e.mjs",
     "test:e2e:studio-finance": "node e2e/studio-finance.auth.e2e.mjs",
+    "test:e2e:catalog": "node e2e/catalog.auth.e2e.mjs",
     "test:e2e:assistant": "node e2e/assistant.auth.e2e.mjs",
     "bench": "node bench/run.mjs",
     "test:e2e:benchmark": "node bench/run.mjs --mode both",

@@ -29,6 +29,7 @@ const ROUTES = [
   ['/documents/e4000000-0000-4000-8000-000000000001', 'works'], ['/payments', 'works'], ['/settings/company', 'works'], ['/billing', 'works'],
   ['/finance', 'pending'], ['/accounting', 'pending'], ['/receivables', 'pending'], ['/payables', 'pending'], ['/bank', 'pending'],
   ['/studio', 'pending'], ['/workforce', 'pending'], ['/payroll', 'pending'], ['/crm', 'pending'], ['/assistant', 'pending'],
+  ['/catalog', 'pending'], ['/documents/new?type=invoice', 'works'],
 ]
 
 let passed = 0, failed = 0

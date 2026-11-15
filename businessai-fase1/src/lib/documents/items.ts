@@ -9,9 +9,29 @@
  * exactly as it was.
  */
 
-export type LineItem = { description: string; quantity: number; unit_price: number; amount: number }
+export type LineItem = { description: string; quantity: number; unit_price: number; amount: number
+  // 0039: a line chosen from the catalog keeps where it came from (values are a copy; the catalog never rewrites a document)
+  catalog_item_id?: string; code?: string; unit?: string }
 
 export const MAX_ITEMS = 30
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * Lines chosen from the catalog (0039): each catalog_item_id must be an ACTIVE
+ * item of the company (`known`); its code and unit are copied into the line.
+ * Returns null when a line points at an unknown or archived item.
+ */
+export function attachCatalog(items: LineItem[], known: { id: string; code: string; unit: string }[]): LineItem[] | null {
+  const byId = new Map(known.map((k) => [k.id.toLowerCase(), k]))
+  const out: LineItem[] = []
+  for (const it of items) {
+    if (!it.catalog_item_id) { out.push(it); continue }
+    const k = byId.get(it.catalog_item_id)
+    if (!k) return null
+    out.push({ ...it, code: k.code, unit: k.unit })
+  }
+  return out
+}
 
 // Half-up to cents; the tiny bias corrects binary artefacts (1.005 * 100 = 100.49999…).
 const cents = (n: number) => Math.round((n + Math.sign(n) * 1e-9) * 100) / 100
@@ -35,7 +55,9 @@ export function parseItemsInput(get: (key: string) => string): ItemsInput {
     // M1: the line amount is quantity × the price AS SHOWN (rounded to cents),
     // so every printed line adds up: 3 × $0.33 = $0.99, never $1.00.
     const price = cents(unitPrice)
-    items.push({ description: description.slice(0, 500), quantity, unit_price: price, amount: cents(quantity * price) })
+    const catalog = get(`item_catalog_${i}`).trim()
+    items.push({ description: description.slice(0, 500), quantity, unit_price: price, amount: cents(quantity * price),
+      ...(UUID.test(catalog) ? { catalog_item_id: catalog.toLowerCase() } : {}) })
   }
   return { items, subtotal: cents(items.reduce((s, i) => s + i.amount, 0)), error: null }
 }

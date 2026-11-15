@@ -7,9 +7,10 @@
 import { useActionState, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Locale } from '@/lib/i18n/app'
 import { PAGE_DEFAULTS, studioMessage, type Align, type Block, type Brand, type DocContent, type Kind, type PageSettings } from '@/lib/studio/model'
-import { FIELDS, type StudioData } from '@/lib/studio/merge'
+import { FIELDS, makeFormatters, type StudioData } from '@/lib/studio/merge'
 import { StudioPreview, type PreviewImages } from '@/components/studio/preview'
 import type { SaveState } from '@/app/actions/studio'
+import type { PickerItem } from '@/components/catalog-line-picker'
 
 type Asset = { id: string; name: string; width: number; height: number }
 type Props = {
@@ -18,6 +19,7 @@ type Props = {
   content: DocContent; page: PageSettings
   brand: Brand; accentFallback: string | null; data: StudioData; locale: Locale; currency: string
   images: PreviewImages; assets: Asset[]; canUpload: boolean
+  catalog?: PickerItem[]   // 0039: active catalog items; a table row can be added from one (a copy)
   action: (state: SaveState, fd: FormData) => Promise<SaveState>
 }
 
@@ -33,6 +35,13 @@ const DATA_HELP: Record<Locale, Record<string, string>> = {
     payments: 'Pagos registrados en Pagos para la factura vinculada.', statement: 'Facturas con balance del cliente vinculado (Cuentas por cobrar).', bill: 'Líneas, total y saldo del gasto vinculado (Gastos).', aging: 'Saldo del cliente por antigüedad: corriente, 1–30, 31–60, 61–90 y más de 90 días.' },
   en: { items: 'Taken from the linked invoice or quote; not typed here.', totals: 'Subtotal, tax, total, paid and balance of the linked invoice.',
     payments: 'Payments recorded in Payments for the linked invoice.', statement: 'Invoices with a balance of the linked client (Receivables).', bill: 'Lines, total and balance of the linked expense (Expenses).', aging: 'Client balance by age: current, 1–30, 31–60, 61–90 and over 90 days.' },
+}
+
+/** A table row copied from a catalog item, fitted to the table's columns: [code,] name, [unit,] price. */
+export function catalogRow(it: PickerItem, cols: number, money: (cents: number) => string): string[] {
+  const price = `${money(it.price_cents)} / ${it.unit}`
+  const cells = cols >= 4 ? [it.code, it.name, it.unit, money(it.price_cents)] : cols === 3 ? [it.name, it.unit, money(it.price_cents)] : cols === 2 ? [it.name, price] : [`${it.name} · ${price}`]
+  return [...cells, ...Array(Math.max(0, cols - cells.length)).fill('')]
 }
 
 function newBlock(t: Block['type']): Block {
@@ -58,6 +67,7 @@ export function StudioEditor(p: Props) {
   const [folder, setFolder] = useState(p.folder ?? '')
   const [assets, setAssets] = useState(p.assets)
   const [images, setImages] = useState(p.images)
+  const money = useMemo(() => { const fm = makeFormatters(p.locale, p.currency || 'USD'); return (c: number) => fm.money(c / 100) }, [p.locale, p.currency])
   const [edits, setEdits] = useState(0)            // edits since the page loaded
   const [submitted, setSubmitted] = useState(0)    // edits included in the last save request
   const [tab, setTab] = useState<'edit' | 'preview'>('edit')
@@ -160,6 +170,12 @@ export function StudioEditor(p: Props) {
             <button type="button" className="btn-secondary btn-sm" disabled={cols >= 8} onClick={() => change(i, { ...b, rows: b.rows.map((r) => [...r, '']), widths: undefined })}>{tr('+ Columna', '+ Column')}</button>
             <button type="button" className="btn-secondary btn-sm" disabled={cols < 2} onClick={() => change(i, { ...b, rows: b.rows.map((r) => r.slice(0, -1)), widths: undefined })}>{tr('− Columna', '− Column')}</button>
             <label className="flex items-center gap-1 text-muted"><input type="checkbox" checked={b.header} onChange={(e) => change(i, { ...b, header: e.target.checked })} /> {tr('Primera fila como encabezado', 'First row as header')}</label>
+            {(p.catalog?.length ?? 0) > 0 && (
+              <select value="" className="field w-auto py-1 text-xs" aria-label={tr('Añadir fila del catálogo', 'Add a row from the catalog')} data-testid="studio-table-catalog"
+                onChange={(e) => { const it = p.catalog!.find((x) => x.id === e.target.value); if (it) change(i, { ...b, rows: [...b.rows, catalogRow(it, cols, money)] }) }}>
+                <option value="">{tr('+ Fila del catálogo…', '+ Row from the catalog…')}</option>
+                {p.catalog!.map((x) => <option key={x.id} value={x.id}>{x.code} · {x.name}</option>)}
+              </select>)}
           </div></div>
       }
       case 'image': return <div className="flex flex-wrap items-center gap-2">

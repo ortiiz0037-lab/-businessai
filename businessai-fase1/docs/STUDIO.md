@@ -203,10 +203,10 @@ antes y después de cada acción de Studio.
 
 ## Limitaciones conocidas
 
-- **No hay catálogo de productos y servicios** (las sucursales llegan con 0037). Las
-  líneas de factura, cotización y recibo vienen del documento comercial. Las
-  órdenes de compra y de trabajo usan una tabla editable que **no** crea gastos
-  ni facturas. Un catálogo real es otra entrega.
+- **Catálogo (0039, `docs/CATALOG.md`)**: las tablas del editor toman filas del
+  catálogo de productos y servicios (una copia en texto). Las líneas de factura,
+  cotización y recibo siguen viniendo del documento comercial. Las órdenes de
+  compra y de trabajo **no** crean gastos ni facturas.
 - **La subida y la descarga de imágenes no se probaron contra el servidor de
   Storage de Supabase.** Se probaron con una emulación local que aplica las
   **políticas reales** de los buckets, con el logo, la firma, el sello y las

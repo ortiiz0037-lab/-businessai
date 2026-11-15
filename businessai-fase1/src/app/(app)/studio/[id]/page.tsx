@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { activeCatalog } from '@/lib/catalog'
 import { notFound } from 'next/navigation'
 import { PageHeader } from '@/components/ui/page'
 import { SubmitButton } from '@/components/submit-button'
@@ -41,6 +42,7 @@ export default async function StudioDocumentPage({ params, searchParams }: { par
   ])
   const assets = ((assetRows ?? []) as { id: string; file_name: string; width: number; height: number }[]).map((a) => ({ id: a.id, name: a.file_name, width: a.width, height: a.height }))
   // preview images: uploaded assets (known size) + logo / signature / stamp (read once to know their size)
+  const catalog = (await activeCatalog(supabase, companyId)).map((x) => ({ id: x.id, code: x.code, name: x.name, price_cents: x.price_cents, unit: x.unit, tax_rate: x.tax_rate }))   // 0039
   const images: PreviewImages = Object.fromEntries(assets.map((a) => [a.id, { width: a.width, height: a.height, url: `/studio/image?key=${a.id}` }]))
   for (const k of imageKeys(doc.content, ctx.brand).filter((k) => ['logo', 'signature', 'stamp'].includes(k)).concat(['logo', 'signature'])) {
     if (images[k]) continue
@@ -100,7 +102,7 @@ export default async function StudioDocumentPage({ params, searchParams }: { par
 
       {canEdit ? (
         <StudioEditor mode="document" id={doc.id} version={doc.version} title={doc.title} folder={doc.folder} kind={doc.kind} content={doc.content} page={doc.page}
-          brand={effectiveBrand(ctx.brand, doc.status, locale)} accentFallback={ctx.accentFallback} data={data} locale={locale} currency={ctx.currency} images={images} assets={assets} canUpload={access.edit} action={saveDocumentState} />
+          brand={effectiveBrand(ctx.brand, doc.status, locale)} accentFallback={ctx.accentFallback} data={data} locale={locale} currency={ctx.currency} images={images} assets={assets} canUpload={access.edit} catalog={catalog} action={saveDocumentState} />
       ) : (
         <section aria-label={tr('Documento', 'Document')} className="mx-auto max-w-3xl">
           <StudioPreview content={doc.content} page={doc.page} brand={effectiveBrand(ctx.brand, doc.status, locale)} accentFallback={ctx.accentFallback}

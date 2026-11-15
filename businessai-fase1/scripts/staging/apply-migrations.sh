@@ -97,6 +97,7 @@ ORDER=(
   0036_workforce_access_check
   0037_studio_branches
   0038_studio_finance
+  0039_catalog
 )
 EXPECTED_VERIFY="10,0,2,0,f,0,2,3,t,t,t,"
 
