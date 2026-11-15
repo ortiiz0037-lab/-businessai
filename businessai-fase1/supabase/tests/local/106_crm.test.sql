@@ -198,7 +198,33 @@ do $$ declare q uuid; qd uuid; inv uuid; inv2 uuid; ji integer; e text; dB uuid;
   perform at.ok((select status from public.documents where id = q) = 'accepted', 'quote accepted through the existing lifecycle');
   ji := (select count(*) from public.journal_entries where company_id = at.id('A'));
   perform at.ok(at.err('member', format('select public.crm_link_document(%L, %L, true)', at.id('o1'), qd)) like '%CRM_DOCUMENT_OTHER_CLIENT%', 'a document of another client cannot be linked');
-  perform at.ok(at.err('owner', format('select public.crm_convert_quote(%L, null, current_date - 1, gen_random_uuid())', q)) like '%CRM_DUE_DATE_INVALID%', 'the due date cannot be in the past');
+  -- "past" is measured in Puerto Rico (public.ba_today()), like crm_convert_quote does; never with
+  -- current_date, which follows the server's timezone (UTC on Supabase: between 00:00 and 04:00 UTC
+  -- current_date - 1 is still TODAY in Puerto Rico, and this check failed although the code was right).
+  perform at.ok(at.err('owner', format('select public.crm_convert_quote(%L, null, public.ba_today() - 1, gen_random_uuid())', q)) like '%CRM_DUE_DATE_INVALID%', 'the due date cannot be in the past');
+  -- Regression: the day boundary between UTC and Puerto Rico.
+  declare tz0 text := current_setting('timezone'); tz text; probe text; crossed boolean := false; begin
+    -- the reported failure, at the exact instant of the run (2026-11-15 01:36 UTC = 2026-11-14 21:36 in Puerto Rico):
+    -- the UTC "yesterday" was today in Puerto Rico, so it was not a past date
+    perform at.ok((timestamptz '2026-11-15 01:36:25+00' at time zone 'UTC')::date - 1
+                  = (timestamptz '2026-11-15 01:36:25+00' at time zone 'America/Puerto_Rico')::date,
+      'reproduces the reported failure: at 01:36 UTC, UTC''s yesterday is still today in Puerto Rico');
+    -- whatever the server's timezone (UTC, 14 h ahead, 12 h behind), the decision is the same:
+    -- yesterday in Puerto Rico is refused, today in Puerto Rico is accepted
+    foreach tz in array array['UTC', 'Pacific/Kiritimati', 'Etc/GMT+12'] loop
+      perform set_config('timezone', tz, true);
+      crossed := crossed or current_date <> public.ba_today();
+      perform at.ok(at.err('owner', format('select public.crm_convert_quote(%L, null, public.ba_today() - 1, gen_random_uuid())', q)) like '%CRM_DUE_DATE_INVALID%',
+        'server timezone ' || tz || ': yesterday in Puerto Rico is refused');
+      -- accepted, then undone: the probe raises after converting, so nothing is kept
+      probe := at.err('owner', format('do $p$ begin perform public.crm_convert_quote(%L, null, public.ba_today(), gen_random_uuid()); raise exception ''PROBE_ACCEPTED''; end $p$', q));
+      perform at.ok(probe like '%PROBE_ACCEPTED%', 'server timezone ' || tz || ': today in Puerto Rico is accepted [' || probe || ']');
+    end loop;
+    perform set_config('timezone', tz0, true);
+    -- +14 h and -12 h around Puerto Rico (UTC-4): at any moment at least one of them is on another date
+    perform at.ok(crossed, 'the regression really ran on a server date different from Puerto Rico''s');
+    perform at.ok(not exists (select 1 from public.crm_quote_conversions c where c.quote_id = q), 'the probes left no conversion behind');
+  end;
   inv := at.val('member', format('select public.crm_convert_quote(%L, %L, current_date + 30, %L)', q, at.id('o1'), 'ac000000-0000-4000-8000-000000000001'))::uuid;
   perform at.ok((select document_type || '|' || status || '|' || total || '|' || tax || '|' || (client_id = at.id('c1')) || '|' || (items = (select items from public.documents where id = q)) || '|' || (document_number like 'FAC-%')
                  from public.documents where id = inv) = 'invoice|draft|1115.00|115.00|true|true|true', 'accepted quote → DRAFT invoice: same client, lines and totals; numbered by the database');
