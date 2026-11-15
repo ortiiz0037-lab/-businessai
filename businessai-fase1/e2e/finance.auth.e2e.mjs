@@ -9,56 +9,22 @@
  *   PSQL="psql -h /sock -p 5432 -U postgres" bash e2e/local-stack/db.sh
  *   PGRST_BIN=/path/to/postgrest PG_SOCKET=/sock PG_PORT=5432 node e2e/finance.auth.e2e.mjs
  */
-import { spawn } from 'node:child_process'
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { randomBytes, createHmac } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
+import { startStack } from './local-stack/stack.mjs'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 // the pre-installed Playwright (same as e2e/public.e2e.mjs)
 const { chromium, devices } = createRequire(import.meta.url)('playwright')
 const { PGRST_BIN, PG_SOCKET, PG_PORT = '5432', DB = 'ba_e2e_fin' } = process.env
 if (!PGRST_BIN || !PG_SOCKET?.startsWith('/')) { console.error('Set PGRST_BIN and PG_SOCKET (a local unix-socket directory).'); process.exit(2) }
-const APP = Number(process.env.PORT ?? 3220), PGRST = APP + 1, STUB = APP + 2
-const BASE = `http://127.0.0.1:${APP}`
-const PASSWORD = `local-${randomBytes(9).toString('hex')}`
-const SECRET = randomBytes(36).toString('base64url')
-const USERS = { 'owner@e2e.local': 'e1000000-0000-4000-8000-000000000001', 'admin@e2e.local': 'e1000000-0000-4000-8000-000000000002',
-  'member@e2e.local': 'e1000000-0000-4000-8000-000000000003', 'other@e2e.local': 'e1000000-0000-4000-8000-000000000004' }
-const b64 = (s) => Buffer.from(s).toString('base64url')
-const jwt = (p) => { const h = b64(JSON.stringify({ alg: 'HS256', typ: 'JWT' })), b = b64(JSON.stringify(p)); return `${h}.${b}.${createHmac('sha256', SECRET).update(`${h}.${b}`).digest('base64url')}` }
-const ANON = jwt({ role: 'anon', iss: 'e2e-local', iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 7200 })
 
-// ------------------------------------------------------------- stack
-const work = mkdtempSync(join(tmpdir(), 'ba-e2e-'))
-writeFileSync(join(work, 'postgrest.conf'), [`db-uri = "postgres://authenticator@/${DB}?host=${PG_SOCKET}&port=${PG_PORT}"`, 'db-schemas = "public"', 'db-anon-role = "anon"',
-  'db-pool = 10', `jwt-secret = "${SECRET}"`, 'server-host = "127.0.0.1"', `server-port = ${PGRST}`, 'log-level = "warn"'].join('\n'), { mode: 0o600 })
-const logs = { pgrst: '', stub: '', next: '' }
-const procs = []
-function start(name, cmd, args, env) {
-  // own process group, so stop() also ends the children (npx → next-server)
-  const p = spawn(cmd, args, { cwd: root, env: { PATH: process.env.PATH, HOME: process.env.HOME, ...env }, stdio: ['ignore', 'pipe', 'pipe'], detached: true })
-  p.stdout.on('data', (d) => { logs[name] += d }); p.stderr.on('data', (d) => { logs[name] += d })
-  procs.push(p); return p
-}
-start('pgrst', PGRST_BIN, [join(work, 'postgrest.conf')], {})
-start('stub', process.execPath, ['e2e/local-stack/auth-stub.mjs'], { STUB_PORT: String(STUB), PGRST_URL: `http://127.0.0.1:${PGRST}`, JWT_SECRET: SECRET, TEST_PASSWORD: PASSWORD, USERS: JSON.stringify(USERS) })
-start('next', 'npx', ['next', 'start', '-p', String(APP), '-H', '127.0.0.1'], { NODE_ENV: 'production', APP_ENV: 'development', NEXT_PUBLIC_SUPABASE_URL: `http://127.0.0.1:${STUB}`,
-  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ANON, NEXT_PUBLIC_APP_URL: BASE, STRIPE_SECRET_KEY: '', SUPABASE_SERVICE_ROLE_KEY: '' })
-const signal = (sig) => { for (const p of procs) try { process.kill(-p.pid, sig) } catch { /* gone */ } }
-const alive = () => procs.some((p) => { try { process.kill(-p.pid, 0); return true } catch { return false } })
-// SIGTERM, wait up to 4 s for a graceful exit, then SIGKILL (next-server can linger on open connections)
-const stop = async () => { signal('SIGTERM'); for (let i = 0; i < 20 && alive(); i++) await new Promise((r) => setTimeout(r, 200)); signal('SIGKILL'); for (let i = 0; i < 20 && alive(); i++) { await new Promise((r) => setTimeout(r, 100)); signal('SIGKILL') } rmSync(work, { recursive: true, force: true }) }
-process.on('exit', () => { signal('SIGKILL'); rmSync(work, { recursive: true, force: true }) })
-for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, async () => { await stop(); process.exit(130) })
-async function ready(url, ms = 60000) {
-  for (const t0 = Date.now(); Date.now() - t0 < ms;) { try { const r = await fetch(url, { redirect: 'manual' }); if (r.status < 500) return } catch { /* not yet */ } await new Promise((r) => setTimeout(r, 400)) }
-  throw new Error(`not ready: ${url}\n${JSON.stringify(logs, null, 1).slice(0, 3000)}`)
-}
-await ready(`http://127.0.0.1:${PGRST}/`); await ready(`http://127.0.0.1:${STUB}/auth/v1/logout`); await ready(`${BASE}/login`)
+// ------------------------------------------------------------- stack (shared local stack: PostgREST + auth/storage stub + next start)
+// startStack also gives the stub a STORAGE_DIR, so Storage calls (attachments) work against the same RLS.
+const stack = await startStack({ root, port: Number(process.env.PORT ?? 3220), pgrstBin: PGRST_BIN, pgSocket: PG_SOCKET, pgPort: PG_PORT, db: DB })
+const { BASE, PASSWORD, logs, work, stop } = stack
 if (process.env.SERVE_ONLY) {   // debugging: keep the local stack up and print how to sign in
   writeFileSync(process.env.SERVE_ONLY, JSON.stringify({ base: BASE, password: PASSWORD }), { mode: 0o600 })
   console.log(`serving ${BASE}`); await new Promise(() => {})
