@@ -9,6 +9,9 @@
  * forged from the REST API. The company is the active membership; the user
  * is the one verified by the Auth server. Neither comes from the request.
  */
+import { applyEdits, EditOps } from '@/lib/studio/edit-ops'
+import { loadDoc } from '@/lib/studio/server'
+import { studioErrorCode } from '@/lib/studio/model'
 import { createFinanceDraft } from '@/lib/studio/finance-draft'
 import { z } from 'zod'
 import type { SupabaseClient, User } from '@supabase/supabase-js'
@@ -226,6 +229,7 @@ const CrmPayload = z.object({
   due_at: z.string().regex(/^\d{4}-\d{2}-\d{2}T09:00:00-04:00$/).nullable(),
 }).strict()
 
+const EditPayload = z.object({ document_id: z.uuid(), version: z.number().int().min(1), ops: EditOps }).strict()
 const FinancePayload = z.object({ invoice_id: z.uuid().optional(), bill_id: z.uuid().optional(), payment_id: z.uuid().optional() }).strict()
 
 type ActionOutcome = { ok: boolean; status: string; error?: string; link?: string; actions?: ChatAction[] }
@@ -281,6 +285,38 @@ async function executeAction(s: Session, signer: ServerSigner, actionId: string)
         },
       })
       result = r.ok ? { ok: true, link: `/studio/${r.id}`, missing: [] } : { ok: false, error: r.error }
+    }
+  } else if (claimed.kind === 'studio_edit') {
+    // S5 (0041): edits of a Studio DRAFT, applied on the exact version they were proposed for (optimistic lock)
+    const payload = EditPayload.safeParse(claimed.payload)
+    if (!payload.success) result = { ok: false, error: 'invalid_payload' }
+    else {
+      const { document_id, version, ops } = payload.data
+      const doc = await loadDoc(s.supabase, claimed.company_id, document_id)
+      const saved = (claimed.progress as { saved_version?: number } | null)?.saved_version
+      if (!doc) result = { ok: false, error: 'studio_not_found' }
+      else if (saved && doc.version === saved) result = { ok: true, link: `/studio/${doc.id}/compare?from=${version}&to=${saved}`, missing: [] }   // an earlier attempt already saved it
+      else if (doc.status !== 'draft') result = { ok: false, error: 'studio_locked' }
+      else if (doc.version !== version) result = { ok: false, error: 'studio_conflict' }
+      else {
+        const applied = applyEdits(doc.content, doc.page, ops)
+        if (!applied.ok) result = { ok: false, error: applied.error.slice(0, 60) }
+        else {
+          const { data, error } = await s.supabase.rpc('studio_save_document', {
+            target: claimed.company_id, doc: doc.id, doc_kind: doc.kind, doc_title: doc.title, doc_folder: doc.folder, doc_content: applied.content, doc_page: applied.page,
+            client: doc.client_id, source_document: doc.source_document_id, employee: doc.employee_id, vendor: doc.vendor_id, template: doc.template_id, base: doc.base_key,
+            expected_version: version, doc_origin: doc.origin,
+          })
+          const row = ((data ?? []) as { id: string; version: number }[])[0]
+          if (error || !row) result = { ok: false, error: studioErrorCode(error) }
+          else {
+            const progress = JSON.stringify({ saved_version: row.version })
+            const p = signer.progress(actionId, progress)
+            await s.supabase.rpc('assistant_action_progress', { act: actionId, progress_text: progress, key: p.key, ts: p.ts, mac: p.mac })
+            result = { ok: true, link: `/studio/${doc.id}/compare?from=${version}&to=${row.version}`, missing: [] }
+          }
+        }
+      }
     }
   } else result = { ok: false, error: 'unknown_kind' }
   const res = result.ok ? JSON.stringify({ link: result.link, missing: result.missing }) : null

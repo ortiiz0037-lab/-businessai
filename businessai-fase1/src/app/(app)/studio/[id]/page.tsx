@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { FAMILIES } from '@/lib/studio/fonts'
 import { activeCatalog } from '@/lib/catalog'
 import { notFound } from 'next/navigation'
 import { PageHeader } from '@/components/ui/page'
@@ -8,7 +9,7 @@ import { NoStudioAccess, StudioNav } from '@/components/studio-nav'
 import { BindingFields } from '@/components/studio/bindings'
 import { StudioEditor } from '@/components/studio/editor'
 import { StudioPreview, type PreviewImages } from '@/components/studio/preview'
-import { studioPage } from '@/lib/studio/page'
+import { studioFontsReady, studioPage } from '@/lib/studio/page'
 import { bindingOptions } from '@/lib/studio/options'
 import { imageKeys, loadBrand, loadData, loadDoc, loadImage } from '@/lib/studio/server'
 import { imageInfo } from '@/lib/studio/images'
@@ -102,7 +103,7 @@ export default async function StudioDocumentPage({ params, searchParams }: { par
 
       {canEdit ? (
         <StudioEditor mode="document" id={doc.id} version={doc.version} title={doc.title} folder={doc.folder} kind={doc.kind} content={doc.content} page={doc.page}
-          brand={effectiveBrand(ctx.brand, doc.status, locale)} accentFallback={ctx.accentFallback} data={data} locale={locale} currency={ctx.currency} images={images} assets={assets} canUpload={access.edit} catalog={catalog} action={saveDocumentState} />
+          brand={effectiveBrand(ctx.brand, doc.status, locale)} accentFallback={ctx.accentFallback} data={data} locale={locale} currency={ctx.currency} images={images} assets={assets} canUpload={access.edit} catalog={catalog} families={(await studioFontsReady(supabase)) ? [...FAMILIES] : ['sans', 'serif']} action={saveDocumentState} />
       ) : (
         <section aria-label={tr('Documento', 'Document')} className="mx-auto max-w-3xl">
           <StudioPreview content={doc.content} page={doc.page} brand={effectiveBrand(ctx.brand, doc.status, locale)} accentFallback={ctx.accentFallback}
@@ -215,15 +216,17 @@ export default async function StudioDocumentPage({ params, searchParams }: { par
           <Link href="/studio" className="text-sm text-accent">{tr('← Todos los documentos', '← All documents')}</Link>
         </div>
 
-        {draft && versions.length > 1 && (
-          <div className="card space-y-2 p-4">
-            <h2 className="font-display text-lg font-semibold text-fg">{tr('Versiones guardadas', 'Saved versions')}</h2>
+        {versions.length > 1 && (
+          <div className="card space-y-2 p-4" data-testid="studio-versions">
+            <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="font-display text-lg font-semibold text-fg">{tr('Versiones guardadas', 'Saved versions')}</h2>
+              <Link href={`/studio/${doc.id}/compare`} className="text-sm text-accent">{tr('Comparar versiones', 'Compare versions')}</Link></div>
             <ul className="divide-y divide-line/60 text-sm">
               {versions.map((v) => (
                 <li key={v.version} className="flex flex-wrap items-center justify-between gap-2 py-2">
                   <span className="text-slate-300">v{v.version} · {f.dateTime(v.saved_at)} · {name(v.saved_by)}</span>
-                  {access.edit && v.version !== doc.version && <form action={restoreVersion}><input type="hidden" name="id" value={doc.id} /><input type="hidden" name="version" value={doc.version} />
-                    <input type="hidden" name="from_version" value={v.version} /><input type="hidden" name="back" value={back} /><button type="submit" className="btn-secondary btn-sm">{tr('Restaurar', 'Restore')}</button></form>}
+                  <span className="flex flex-wrap items-center gap-2">{v.version !== doc.version && <Link href={`/studio/${doc.id}/compare?from=${v.version}&to=${doc.version}`} className="btn-secondary btn-sm">{tr('Comparar', 'Compare')}</Link>}
+                  {draft && access.edit && v.version !== doc.version && <form action={restoreVersion}><input type="hidden" name="id" value={doc.id} /><input type="hidden" name="version" value={doc.version} />
+                    <input type="hidden" name="from_version" value={v.version} /><input type="hidden" name="back" value={back} /><button type="submit" className="btn-secondary btn-sm">{tr('Restaurar', 'Restore')}</button></form>}</span>
                 </li>))}
             </ul>
           </div>

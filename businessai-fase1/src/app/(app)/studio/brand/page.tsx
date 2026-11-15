@@ -4,10 +4,11 @@ import { SubmitButton } from '@/components/submit-button'
 import { Flash } from '@/components/accounting-nav'
 import { NoStudioAccess, StudioNav } from '@/components/studio-nav'
 import { AssetUploader } from '@/components/studio/asset-uploader'
-import { studioPage } from '@/lib/studio/page'
+import { studioFontsReady, studioPage } from '@/lib/studio/page'
 import { loadBrand } from '@/lib/studio/server'
 import { KINDS, PAGE_DEFAULTS, kindLabel, studioMessage } from '@/lib/studio/model'
 import { saveBrand } from '@/app/actions/studio'
+import { FAMILIES, FAMILY_INFO, type Family } from '@/lib/studio/fonts'
 
 export const dynamic = 'force-dynamic'
 
@@ -17,6 +18,7 @@ export default async function StudioBrand({ searchParams }: { searchParams: Prom
   const { locale, tr, supabase, companyId, access } = await studioPage()
   if (!access.view || !access.available) return <NoStudioAccess tr={tr} unavailable={!access.available} />
   const [ctx, { data: assetRows }] = await Promise.all([loadBrand(supabase, companyId), supabase.from('studio_assets').select('id, file_name').eq('company_id', companyId).order('created_at', { ascending: false }).limit(200)])
+  const families: Family[] = (await studioFontsReady(supabase)) ? [...FAMILIES] : ['sans', 'serif']   // 0041: nine typefaces
   const b = ctx.brand
   const page = { ...PAGE_DEFAULTS, ...b.page }
   const assets = (assetRows ?? []) as { id: string; file_name: string }[]
@@ -33,8 +35,8 @@ export default async function StudioBrand({ searchParams }: { searchParams: Prom
       <form action={saveBrand} className="space-y-4">
         <fieldset disabled={ro} className="card grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4">
           <legend className="px-1 font-display text-lg font-semibold text-fg">{tr('Tipografía y color', 'Type and colour')}</legend>
-          <label className="text-sm"><span className="field-label">{tr('Títulos', 'Headings')}</span><select name="heading_font" defaultValue={b.heading_font} className="field"><option value="sans">Sans</option><option value="serif">Serif</option></select></label>
-          <label className="text-sm"><span className="field-label">{tr('Texto', 'Body')}</span><select name="body_font" defaultValue={b.body_font} className="field"><option value="sans">Sans</option><option value="serif">Serif</option></select></label>
+          <label className="text-sm"><span className="field-label">{tr('Títulos', 'Headings')}</span><select name="heading_font" defaultValue={b.heading_font} className="field">{families.map((f) => <option key={f} value={f}>{FAMILY_INFO[f].label}</option>)}</select></label>
+          <label className="text-sm"><span className="field-label">{tr('Texto', 'Body')}</span><select name="body_font" defaultValue={b.body_font} className="field">{families.map((f) => <option key={f} value={f}>{FAMILY_INFO[f].label}</option>)}</select></label>
           <label className="text-sm"><span className="field-label">{tr('Color de acento', 'Accent colour')}</span><input type="color" name="accent_color" defaultValue={b.accent_color ?? ctx.accentFallback ?? '#1D4ED8'} className="field h-10 p-1" /></label>
           <label className="text-sm"><span className="field-label">{tr('Color del texto', 'Text colour')}</span><input type="color" name="text_color" defaultValue={b.text_color} className="field h-10 p-1" /></label>
           <label className="text-sm"><span className="field-label">{tr('Tamaño de página', 'Page size')}</span><select name="size" defaultValue={page.size} className="field"><option value="letter">Carta / Letter</option><option value="a4">A4</option><option value="legal">Legal</option></select></label>

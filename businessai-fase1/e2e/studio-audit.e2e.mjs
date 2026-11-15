@@ -185,7 +185,7 @@ try {
   const bold = await p.locator('section[aria-label="Vista previa"] svg text', { hasText: 'importante' }).first().getAttribute('font-weight')
   const italic = await p.locator('section[aria-label="Vista previa"] svg text', { hasText: 'destacada' }).first().getAttribute('font-style')
   const imageInPreview = await p.locator(`section[aria-label="Vista previa"] svg image[href="/studio/image?key=${imgSel}"]`).count()
-  check(headingFill?.toLowerCase() === '#0f766e' && headingFont === 'BAStudioSerif', 'Vista previa: color de acento y tipografía Serif aplicados al título', '', `${headingFill} ${headingFont}`)
+  check(headingFill?.toLowerCase() === '#0f766e' && headingFont === 'BAStudio-serif', 'Vista previa: color de acento y tipografía Serif aplicados al título', '', `${headingFill} ${headingFont}`)
   check(bold === '700' && italic === 'italic', 'Vista previa: la negrita y la cursiva se ven como tales', '', `${bold} ${italic}`)
   check(imageInPreview === 1 && /Laura Méndez/.test(prev) && /Directora de Finanzas/.test(prev) && /Meta superada/.test(prev), 'Vista previa: imagen, tabla y firma presentes')
   const img = await p.request.get(`${BASE}/studio/image?key=${imgSel}`)

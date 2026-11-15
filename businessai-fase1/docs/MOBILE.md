@@ -32,6 +32,12 @@ base de datos. Nunca incluye claves de servicio, de Stripe ni del proveedor de I
 - **Pruebas en tamaños móviles**: todas las pruebas de navegador comprueban que no
   haya desplazamiento horizontal en iPhone 13 (y iPad Mini en Finanzas).
 
+- **Esqueleto de la fase 1** (`mobile/`): plantilla `capacitor.config.json` (solo HTTPS,
+  navegación limitada al dominio de la app) y los pasos de creación; sin dependencias
+  instaladas.
+- **Document Studio en móvil (S5)**: barra de formato fija con botones táctiles, tablas
+  con desplazamiento propio y comparación de versiones probadas en iPhone 13 e iPad Mini.
+
 ## 3. Contrato del puente nativo (versión 1)
 
 ```ts

@@ -6,6 +6,15 @@ reales y autorizados, propuestas de borradores con confirmación explícita, voz
 push-to-talk y auditoría. **No hay respuestas simuladas**: sin una clave de
 proveedor configurada el asistente lo dice y no responde.
 
+## S5. Edición de borradores de Document Studio
+
+`read_studio_document` (`studio.view`) y `propose_studio_edit` (`studio.edit`, propuesta
+`studio_edit` de la migración 0041): el asistente lee los bloques numerados y propone
+cambios concretos de un **borrador**; se aplican solo al confirmar y sobre la versión
+propuesta (un documento cambiado mientras tanto rechaza la edición). Detalle en
+`docs/STUDIO.md` § S5. La configuración segura de la clave real y la prueba con una
+sola llamada están en `docs/AI_PROVIDER_SETUP.md` (`scripts/assistant/smoke-real.mjs`).
+
 ## S4. Asistente como capacidad central (prevalece sobre el texto de abajo)
 
 **Proveedor real.** El asistente usa la API de Anthropic con el SDK oficial

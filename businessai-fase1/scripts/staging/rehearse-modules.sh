@@ -76,7 +76,7 @@ ok "$(grep -c 'user/host is not the staging project' <<<"$o")" 1 "a user that is
 echo "== 2. DRY_RUN with the module approvals"
 o="$(mig "$(url $DB)" DRY_RUN=1 APPROVED_DRAFTS=$MODULES)"; echo "$o" | grep -E '^(Pending|Held|DRY_RUN|Environment marker)' | sed 's/^/    /'
 ok "$(grep -c "^Pending: ${MODULES//,/ }$" <<<"$o")" 1 "dry run lists exactly 0015 … 0035, in order"
-ok "$(grep -c '^Held (draft not approved.*): 0036_workforce_access_check 0037_studio_branches 0038_studio_finance 0039_catalog 0040_assistant_finance$' <<<"$o")" 1 "once 0015–0035 are approved only the later drafts (0036–0040) stay held (each needs its own approval)"
+ok "$(grep -c '^Held (draft not approved.*): 0036_workforce_access_check 0037_studio_branches 0038_studio_finance 0039_catalog 0040_assistant_finance 0041_studio_advanced$' <<<"$o")" 1 "once 0015–0035 are approved only the later drafts (0036–0041) stay held (each needs its own approval)"
 fp $DB > /tmp/rehearsal_fp1.$$
 ok "$(diff -q /tmp/rehearsal_fp0.$$ /tmp/rehearsal_fp1.$$ >/dev/null && echo same || echo changed)" same "dry run and refusals wrote nothing (catalog fingerprint identical)"
 o="$(mig "$(url $DB)" DRY_RUN=1)"; ok "$(grep -c '^Held (draft not approved' <<<"$o")" 1 "without APPROVED_DRAFTS the same drafts stay held"

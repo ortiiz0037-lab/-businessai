@@ -201,6 +201,45 @@ antes y después de cada acción de Studio.
   test:e2e:studio-finance`: flujo completo en el navegador, PDF real, inglés,
   iPhone).
 
+## Document Studio avanzado (entrega S5, migración 0041)
+
+- **Formato por palabras**: seleccione palabras y use la barra de formato: negrita,
+  cursiva, **subrayado, tachado, color del texto, resaltado, tamaño (8–36 pt) y
+  tipografía**, y «Quitar formato». Se guarda como marcas en el texto
+  (`{c=#C0392B;s=14;u|palabras}`; claves `c` color, `s` tamaño, `u` subrayado,
+  `x` tachado, `h` resaltado, `f` tipografía). Los estilos se **combinan** y nunca se
+  anidan (subrayar y luego colorear da un solo tramo con ambos). Una marca inválida se
+  muestra tal cual (nunca se pierde texto). Una línea con palabras grandes crece en alto.
+- **Nueve tipografías incrustadas** (SIL Open Font License, `public/studio/fonts/licenses/`):
+  Liberation Sans y Serif, Lato, Montserrat, IBM Plex Sans, IBM Plex Serif, Lora,
+  Playfair Display e IBM Plex Mono, con regular, negrita, cursiva y negrita cursiva. Se
+  eligen para el documento, la identidad corporativa o palabras concretas. La vista
+  previa solo descarga las familias que el documento usa. Sin 0041 solo se ofrecen
+  Sans y Serif.
+- **Tablas**: por fila (subir, bajar, insertar debajo, duplicar, eliminar) y por columna
+  (mover, insertar a la derecha, eliminar, alineación, ancho relativo), estilo
+  (bandas, cuadrícula, simple) y «última fila como total». Hasta 8 columnas y 200 filas;
+  los anchos y alineaciones siguen a su columna al moverla.
+- **PDF real**: el mismo motor dibuja la vista previa y el PDF. Cada tipografía usada se
+  incrusta como subconjunto con mapa ToUnicode (texto seleccionable y buscable, «Ñ»
+  incluida); colores, subrayados, tachados y resaltados son operaciones del PDF.
+- **Comparar versiones** (`/studio/[id]/compare`): dos versiones guardadas, bloques
+  añadidos, eliminados y modificados con diferencias **por palabra**, cambios solo de
+  formato marcados como tales, y cambios de página (tipografía, márgenes…). Disponible
+  también en documentos emitidos (solo lectura).
+- **Asistente**: `read_studio_document` (lee bloques numerados) y `propose_studio_edit`
+  (añadir / insertar / reescribir párrafos y títulos, dar formato a palabras, añadir
+  tablas o filas, cambiar la tipografía). Solo borradores; se aplica **solo al pulsar
+  Confirmar** y sobre la versión propuesta (si el documento cambió, se rechaza y no se
+  sobrescribe nada); sin cifras escritas (campos combinados); los bloques de datos no
+  se tocan. La tarjeta enlaza a la comparación de la edición.
+- **iPhone / iPad / escritorio**: pestañas Editar / Vista previa en teléfonos, barra de
+  formato fija arriba con botones táctiles de 40 px, tablas con desplazamiento propio
+  (sin desplazamiento horizontal de la página), atajo Ctrl/⌘+S en escritorio.
+- Pruebas: `118_studio_advanced.test.sql` (escenario 48), `tests/studio-advanced.test.ts`,
+  `tests/studio-editing.test.ts`, `tests/studio-assistant-edit.test.ts` y
+  `e2e/studio-advanced.auth.e2e.mjs` (`npm run test:e2e:studio-advanced`).
+
 ## Limitaciones conocidas
 
 - **Catálogo (0039, `docs/CATALOG.md`)**: las tablas del editor toman filas del
@@ -214,10 +253,9 @@ antes y después de cada acción de Studio.
 - **El asistente aún no usa un modelo de lenguaje.** La arquitectura y las
   barreras están listas.
 - **El correo se prepara, no se envía** (no hay proveedor configurado).
-- **El editor es por bloques, no de texto enriquecido libre.** Dentro de un
-  párrafo, la negrita y la cursiva se aplican al texto seleccionado con los
-  botones **B** e *I* (internamente `**…**` y `__…__`). No hay color por
-  palabra: el color de acento es por documento o por identidad.
+- **El editor es por bloques, no de texto enriquecido libre (WYSIWYG).** El formato
+  por palabras se aplica con la barra sobre el texto seleccionado y se ve en la vista
+  previa exacta; el campo de edición muestra las marcas (`**…**`, `{c=…|…}`).
 - **Tipografías:** solo Sans y Serif, para que el PDF y la vista previa
   coincidan exactamente.
 - **El PDF no es PDF/A ni lleva firma digital criptográfica.** La «firma» es la

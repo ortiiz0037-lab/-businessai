@@ -43,3 +43,9 @@ export async function studioFinanceReady(supabase: SupabaseClient, companyId: st
   const probe = await supabase.from('studio_documents').select('bill_id').eq('company_id', companyId).limit(1)
   return !probe.error
 }
+
+/** Migration 0041 (advanced Studio) is applied: the database accepts the nine typefaces. Otherwise only sans / serif are offered. */
+export async function studioFontsReady(supabase: SupabaseClient): Promise<boolean> {
+  const { data, error } = await supabase.rpc('studio_valid_page', { p: { font: 'lora' } })
+  return !error && data === true
+}

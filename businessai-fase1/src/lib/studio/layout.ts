@@ -8,12 +8,9 @@ import type { Locale } from '@/lib/i18n/app'
 import { textWidth, type TtfFont } from '@/lib/studio/ttf'
 import { BRAND_DEFAULTS, PAGE_DEFAULTS, kindLabel, type Align, type Block, type Brand, type DocContent, type Kind, type PageSettings } from '@/lib/studio/model'
 import { makeFormatters, mergeText, type Formatters, type StudioData } from '@/lib/studio/merge'
+import { FAMILY_INFO, FONT_FILES, familyOf, fontKeyOf, isFamily, type Family, type FontKey } from '@/lib/studio/fonts'
 
-export type FontKey = 'sans' | 'sans-bold' | 'sans-italic' | 'sans-bolditalic' | 'serif' | 'serif-bold' | 'serif-italic' | 'serif-bolditalic'
-export const FONT_FILES: Record<FontKey, string> = {
-  sans: 'LiberationSans-Regular.ttf', 'sans-bold': 'LiberationSans-Bold.ttf', 'sans-italic': 'LiberationSans-Italic.ttf', 'sans-bolditalic': 'LiberationSans-BoldItalic.ttf',
-  serif: 'LiberationSerif-Regular.ttf', 'serif-bold': 'LiberationSerif-Bold.ttf', 'serif-italic': 'LiberationSerif-Italic.ttf', 'serif-bolditalic': 'LiberationSerif-BoldItalic.ttf',
-}
+export { FONT_FILES, type FontKey }
 export type Fonts = Partial<Record<FontKey, TtfFont>>
 
 export type Prim =
@@ -35,20 +32,50 @@ const MM = 72 / 25.4
 const SIZES = { letter: [612, 792], a4: [595.28, 841.89], legal: [612, 1008] } as const
 const MUTED = '#6B7280', BORDER = '#D1D5DB', MISSING = '#B91C1C'
 
-type Run = { text: string; bold: boolean; italic: boolean; missing: boolean }
-/** **bold**, __italic__, and merge-field markers (shown in red when data is missing). */
+/** Inline formatting of a span (S5): colour, size in pt, underline, strike-through, highlight, typeface. */
+export type SpanStyle = { color?: string; size?: number; underline?: boolean; strike?: boolean; highlight?: string; family?: Family }
+type Run = { text: string; bold: boolean; italic: boolean; missing: boolean } & SpanStyle
+const HEX = /^#[0-9A-Fa-f]{6}$/
+/**
+ * A span opener `{c=#c0392b;s=14;u|` … `}`. Keys: c colour, s size (6–48 pt), u underline, x strike-through,
+ * h highlight colour, f typeface. Anything else is plain text (shown as typed). Spans do not nest.
+ */
+export function parseSpanOpen(text: string, at: number): { style: SpanStyle; length: number } | null {
+  const m = /^\{([a-z](?:=[^;|{}]{1,24})?(?:;[a-z](?:=[^;|{}]{1,24})?){0,5})\|/.exec(text.slice(at, at + 160))
+  if (!m || !text.includes('}', at + m[0].length)) return null
+  const style: SpanStyle = {}
+  for (const part of m[1].split(';')) {
+    const [k, v] = part.split('=')
+    if (k === 'c' && v && HEX.test(v)) style.color = v
+    else if (k === 'h' && v && HEX.test(v)) style.highlight = v
+    else if (k === 's' && v && /^\d{1,2}(\.\d)?$/.test(v) && Number(v) >= 6 && Number(v) <= 48) style.size = Number(v)
+    else if (k === 'u' && v === undefined) style.underline = true
+    else if (k === 'x' && v === undefined) style.strike = true
+    else if (k === 'f' && isFamily(v)) style.family = v
+    else return null
+  }
+  return { style, length: m[0].length }
+}
+/** **bold**, __italic__, {…|span} formatting and merge-field markers (shown in red when data is missing). */
 export function parseRuns(text: string): Run[] {
   const out: Run[] = []
-  let bold = false, italic = false, buf = ''
-  const push = () => { if (buf) { for (const part of buf.split(/(\[(?:falta|missing): [a-z_.]+\])/)) if (part) out.push({ text: part, bold, italic, missing: /^\[(falta|missing): /.test(part) }) } buf = '' }
+  let bold = false, italic = false, buf = '', span: SpanStyle | null = null
+  const push = () => {
+    if (buf) for (const part of buf.split(/(\[(?:falta|missing): [a-z_.]+\])/)) if (part) out.push({ text: part, bold, italic, missing: /^\[(falta|missing): /.test(part), ...(span ?? {}) })
+    buf = ''
+  }
   for (let i = 0; i < text.length; i++) {
     if (text.startsWith('**', i)) { push(); bold = !bold; i++; continue }
     if (text.startsWith('__', i)) { push(); italic = !italic; i++; continue }
+    if (!span && text[i] === '{') { const o = parseSpanOpen(text, i); if (o) { push(); span = o.style; i += o.length - 1; continue } }
+    if (span && text[i] === '}') { push(); span = null; continue }
     buf += text[i]
   }
   push()
   return out
 }
+/** The text without formatting marks (for diffs, search and plain-text uses). */
+export const plainText = (text: string) => parseRuns(text).map((r) => r.text).join('')
 
 export function layout(input: LayoutInput): LayoutResult {
   const brand: Brand = { ...BRAND_DEFAULTS, ...(input.brand ?? {}) }
@@ -69,8 +96,12 @@ export function layout(input: LayoutInput): LayoutResult {
   const lh = page.lineHeight
   const es = locale !== 'en'
 
-  const fontKey = (fam: 'sans' | 'serif', bold: boolean, italic: boolean): FontKey => `${fam}${bold && italic ? '-bolditalic' : bold ? '-bold' : italic ? '-italic' : ''}` as FontKey
-  const fontOf = (k: FontKey) => input.fonts[k] ?? input.fonts[k.startsWith('serif') ? 'serif' : 'sans'] ?? Object.values(input.fonts)[0]
+  const fontKey = fontKeyOf
+  // a missing style falls back to the family's regular, then to the default serif / sans (fonts load per family)
+  const fontOf = (k: FontKey) => input.fonts[k] ?? input.fonts[familyOf(k)] ?? input.fonts[FAMILY_INFO[familyOf(k)]?.serif ? fontKeyOf('serif', /-bold/.test(k), /italic$/.test(k)) : fontKeyOf('sans', /-bold/.test(k), /italic$/.test(k))]
+    ?? input.fonts.sans ?? Object.values(input.fonts)[0]
+  /** the key actually drawn: the requested one when loaded, else the fallback measured above (PDF and preview must agree) */
+  const drawKey = (k: FontKey): FontKey => { if (input.fonts[k]) return k; const f = fontOf(k); const hit = (Object.keys(input.fonts) as FontKey[]).find((x) => input.fonts[x] === f); return hit ?? k }
   const measure = (text: string, k: FontKey, size: number) => { const f = fontOf(k); return f ? textWidth(f, text, size) : text.length * size * 0.5 }
   const merge = (t: string) => mergeText(t, input.data, fmt, locale, missing)
 
@@ -88,13 +119,15 @@ export function layout(input: LayoutInput): LayoutResult {
   const ensure = (h: number) => { if (y + h > bottom && y > top + 0.5) newPage() }
 
   // ---------------------------------------------------------------- text wrapping
-  type Word = { text: string; font: FontKey; w: number; color: string; space: number }
-  function wrap(runs: Run[], fam: 'sans' | 'serif', size: number, maxW: number, baseColor: string, forceBold = false): Word[][] {
+  type Word = { text: string; font: FontKey; w: number; color: string; space: number; size: number; underline?: boolean; strike?: boolean; highlight?: string }
+  function wrap(runs: Run[], fam: Family, size0: number, maxW: number, baseColor: string, forceBold = false): Word[][] {
     const lines: Word[][] = [[]]
     let lineW = 0
     for (const r of runs) {
-      const k = fontKey(fam, r.bold || forceBold, r.italic)
-      const c = r.missing ? MISSING : baseColor
+      const size = r.size ?? size0
+      const k = drawKey(fontKey(r.family ?? fam, r.bold || forceBold, r.italic))
+      const c = r.missing ? MISSING : r.color ?? baseColor
+      const deco = { size, ...(r.underline ? { underline: true } : {}), ...(r.strike ? { strike: true } : {}), ...(r.highlight ? { highlight: r.highlight } : {}) }
       const parts = r.text.split(/(\n| +)/)
       for (const p of parts) {
         if (p === '') continue
@@ -107,38 +140,48 @@ export function layout(input: LayoutInput): LayoutResult {
         if (w > maxW) {                                            // break a long word by characters
           let chunk = ''
           for (const ch of p) {
-            if (measure(chunk + ch, k, size) > maxW && chunk) { const l = lines[lines.length - 1]; l.push({ text: chunk, font: k, w: measure(chunk, k, size), color: c, space: 0 }); lines.push([]); lineW = 0; chunk = '' }
+            if (measure(chunk + ch, k, size) > maxW && chunk) { const l = lines[lines.length - 1]; l.push({ text: chunk, font: k, w: measure(chunk, k, size), color: c, space: 0, ...deco }); lines.push([]); lineW = 0; chunk = '' }
             chunk += ch
           }
           w = measure(chunk, k, size)
-          lines[lines.length - 1].push({ text: chunk, font: k, w, color: c, space: 0 }); lineW = w; continue
+          lines[lines.length - 1].push({ text: chunk, font: k, w, color: c, space: 0, ...deco }); lineW = w; continue
         }
         const l = lines[lines.length - 1]
         lineW += (l.length ? l[l.length - 1].space : 0) + w
-        l.push({ text: p, font: k, w, color: c, space: 0 })
+        l.push({ text: p, font: k, w, color: c, space: 0, ...deco })
       }
     }
     for (const l of lines) if (l.length) l[l.length - 1].space = 0
     return lines
   }
+  /** a line is as tall as its largest word (inline sizes, S5) */
+  const lineSize = (line: Word[], size: number) => Math.max(size, ...line.map((w) => w.size))
   function drawLines(lines: Word[][], x: number, maxW: number, size: number, align: Align, onPage = true) {
-    const step = size * lh
     lines.forEach((line, i) => {
+      const big = lineSize(line, size)
+      const step = big * lh
       if (onPage) ensure(step)
       const natural = line.reduce((s, w) => s + w.w + w.space, 0)
       const gaps = line.slice(0, -1).filter((w) => w.space > 0).length
       const last = i === lines.length - 1
       let cx = x + (align === 'center' ? (maxW - natural) / 2 : align === 'right' ? maxW - natural : 0)
       const extra = align === 'justify' && !last && gaps > 0 ? (maxW - natural) / gaps : 0
-      const baseline = y + size * 0.8 + (step - size) / 2
-      for (const w of line) {
-        cur.prims.push({ t: 'text', x: cx, y: baseline, size, font: w.font, color: w.color, text: w.text })
-        cx += w.w + w.space + (w.space > 0 ? extra : 0)
-      }
+      const baseline = y + big * 0.8 + (step - big) / 2
+      line.forEach((w, j) => {
+        const next = line[j + 1]
+        const gap = w.space + (w.space > 0 ? extra : 0)
+        // decorations run across the space to the next word when it has the same decoration
+        if (w.highlight) cur.prims.push({ t: 'rect', x: cx, y: baseline - w.size * 0.82, w: w.w + (next?.highlight === w.highlight ? gap : 0), h: w.size * 1.08, fill: w.highlight })
+        cur.prims.push({ t: 'text', x: cx, y: baseline, size: w.size, font: w.font, color: w.color, text: w.text })
+        const lw = Math.max(0.5, w.size * 0.06)
+        if (w.underline) cur.prims.push({ t: 'line', x1: cx, y1: baseline + w.size * 0.12, x2: cx + w.w + (next?.underline ? gap : 0), y2: baseline + w.size * 0.12, color: w.color, lw })
+        if (w.strike) cur.prims.push({ t: 'line', x1: cx, y1: baseline - w.size * 0.28, x2: cx + w.w + (next?.strike ? gap : 0), y2: baseline - w.size * 0.28, color: w.color, lw })
+        cx += w.w + gap
+      })
       y += step
     })
   }
-  const para = (text: string, opts: { size?: number; align?: Align; fam?: 'sans' | 'serif'; bold?: boolean; color?: string; x?: number; w?: number } = {}) => {
+  const para = (text: string, opts: { size?: number; align?: Align; fam?: Family; bold?: boolean; color?: string; x?: number; w?: number } = {}) => {
     const size = opts.size ?? base
     const lines = wrap(parseRuns(merge(text)), opts.fam ?? family, size, opts.w ?? contentW, opts.color ?? color, opts.bold)
     drawLines(lines, opts.x ?? ml, opts.w ?? contentW, size, opts.align ?? 'left')
@@ -146,13 +189,13 @@ export function layout(input: LayoutInput): LayoutResult {
 
   // ---------------------------------------------------------------- tables
   type Cell = { text: string; align?: Align; bold?: boolean }
-  function table(widths: number[], header: Cell[] | null, rows: Cell[][], opts: { size?: number; zebra?: boolean; total?: boolean } = {}) {
+  function table(widths: number[], header: Cell[] | null, rows: Cell[][], opts: { size?: number; zebra?: boolean; total?: boolean; grid?: boolean } = {}) {
     const size = opts.size ?? Math.max(7.5, base - 1)
     const sum = widths.reduce((a, b) => a + b, 0)
     const cols = widths.map((w) => (w / sum) * contentW)
     const pad = 4
     const rowLines = (cells: Cell[], bold: boolean) => cells.map((c, i) => wrap(parseRuns(merge(c.text)), family, size, cols[i] - pad * 2, color, bold || c.bold))
-    const height = (ls: Word[][][]) => Math.max(1, ...ls.map((l) => l.length)) * size * lh + pad * 2
+    const height = (ls: Word[][][]) => Math.max(size * lh, ...ls.map((l) => l.reduce((h, line) => h + lineSize(line, size) * lh, 0))) + pad * 2
     const draw = (cells: Cell[], ls: Word[][][], h: number, fill?: string, textColor?: string) => {
       let x = ml
       if (fill) cur.prims.push({ t: 'rect', x: ml, y, w: contentW, h, fill })
@@ -165,6 +208,11 @@ export function layout(input: LayoutInput): LayoutResult {
       })
       y = y0 + h
       cur.prims.push({ t: 'line', x1: ml, y1: y, x2: ml + contentW, y2: y, color: BORDER, lw: 0.5 })
+      if (opts.grid) {   // vertical rules and the outer frame of the row
+        let gx = ml
+        for (let i = 0; i <= cols.length; i++) { cur.prims.push({ t: 'line', x1: gx, y1: y0, x2: gx, y2: y, color: BORDER, lw: 0.5 }); gx += cols[i] ?? 0 }
+        cur.prims.push({ t: 'line', x1: ml, y1: y0, x2: ml + contentW, y2: y0, color: BORDER, lw: 0.5 })
+      }
     }
     const head = header ? { cells: header, ls: rowLines(header, true) } : null
     const drawHead = () => { if (head) { const h = height(head.ls); draw(head.cells, head.ls, h, accent, '#FFFFFF') } }
@@ -236,8 +284,9 @@ export function layout(input: LayoutInput): LayoutResult {
       case 'table': {
         const cols = b.rows[0]?.length ?? 1
         const widths = b.widths?.length === cols ? b.widths : Array.from({ length: cols }, () => 1)
-        const rows = b.rows.map((r) => r.map((t) => ({ text: t })))
-        table(widths, b.header && rows.length ? rows[0] : null, b.header ? rows.slice(1) : rows, { zebra: true })
+        const rows = b.rows.map((r) => r.map((t, j) => ({ text: t, align: b.align?.[j] })))
+        const style = b.style ?? 'zebra'
+        table(widths, b.header && rows.length ? rows[0] : null, b.header ? rows.slice(1) : rows, { zebra: style === 'zebra', grid: style === 'grid', total: b.total })
         break
       }
       case 'fields': {

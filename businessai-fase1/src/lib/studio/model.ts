@@ -4,15 +4,17 @@
  * the editor and the server actions refuse bad input before the round trip.
  */
 import type { Locale } from '@/lib/i18n/app'
+import { isFamily, type Family } from '@/lib/studio/fonts'
 
 export const KINDS = ['letter', 'quote', 'invoice', 'receipt', 'work_order', 'purchase_order', 'contract', 'report', 'account_statement', 'certificate', 'collection_letter', 'payment_voucher'] as const
 export type Kind = (typeof KINDS)[number]
 export type Align = 'left' | 'center' | 'right' | 'justify'
+export type TableStyle = 'zebra' | 'grid' | 'plain'
 
 export type Block =
   | { type: 'heading'; level: 1 | 2 | 3; text: string; align?: Align }
   | { type: 'paragraph'; text: string; align?: Align; size?: number }
-  | { type: 'table'; header: boolean; widths?: number[]; rows: string[][] }
+  | { type: 'table'; header: boolean; widths?: number[]; rows: string[][]; align?: Align[]; style?: TableStyle; total?: boolean }   // S5: column alignment, style, total row
   | { type: 'image'; asset: string; width: number; align?: Align }        // asset: 'logo' or a studio asset id
   | { type: 'signature'; label?: string; name?: string; title?: string; withImage?: boolean; align?: Align }
   | { type: 'stamp'; align?: Align }
@@ -24,14 +26,14 @@ export type Block =
 
 export type DocContent = { v: 1; blocks: Block[] }
 export type PageSettings = {
-  size?: 'letter' | 'a4' | 'legal'; orientation?: 'portrait' | 'landscape'; font?: 'sans' | 'serif'
+  size?: 'letter' | 'a4' | 'legal'; orientation?: 'portrait' | 'landscape'; font?: Family
   fontSize?: number; lineHeight?: number; marginTop?: number; marginRight?: number; marginBottom?: number; marginLeft?: number
   accent?: string                                                          // #RRGGBB: overrides the identity accent for this document
 }
 export const PAGE_DEFAULTS: Required<Omit<PageSettings, 'accent'>> = { size: 'letter', orientation: 'portrait', font: 'sans', fontSize: 10.5, lineHeight: 1.35, marginTop: 20, marginRight: 20, marginBottom: 20, marginLeft: 20 }
 
 export type Brand = {
-  heading_font: 'sans' | 'serif'; body_font: 'sans' | 'serif'; accent_color: string | null; text_color: string
+  heading_font: Family; body_font: Family; accent_color: string | null; text_color: string
   header_text: string | null; footer_text: string | null; show_logo: boolean; show_page_numbers: boolean
   watermark_text: string | null; watermark_opacity: number; stamp_asset_id: string | null
   signature_name: string | null; signature_title: string | null; page: PageSettings; number_formats: Record<string, string>
@@ -72,7 +74,10 @@ export function parseContent(input: unknown): { ok: true; content: DocContent } 
         const rows = Array.isArray(raw.rows) ? (raw.rows as unknown[]).slice(0, 200).map((r) => (Array.isArray(r) ? r.slice(0, 8).map((x) => str(x, 2000)) : [])) : []
         const cols = Math.max(1, ...rows.map((r) => r.length))
         const widths = Array.isArray(raw.widths) ? (raw.widths as unknown[]).slice(0, cols).map((w) => num(w, 1, 100, 1)) : undefined
-        blocks.push({ type: 'table', header: raw.header !== false, rows: rows.map((r) => Array.from({ length: cols }, (_, i) => r[i] ?? '')), ...(widths ? { widths } : {}) }); break
+        const al = Array.isArray(raw.align) ? (raw.align as unknown[]).slice(0, cols).map((a) => align(a) ?? 'left') : undefined
+        const style = raw.style === 'grid' || raw.style === 'plain' || raw.style === 'zebra' ? raw.style : undefined
+        blocks.push({ type: 'table', header: raw.header !== false, rows: rows.map((r) => Array.from({ length: cols }, (_, i) => r[i] ?? '')), ...(widths ? { widths } : {}),
+          ...(al && al.some((a) => a !== 'left') ? { align: Array.from({ length: cols }, (_, i) => al[i] ?? 'left') } : {}), ...(style ? { style } : {}), ...(raw.total === true ? { total: true } : {}) }); break
       }
       case 'image': {
         const asset = str(raw.asset, 40)
@@ -97,7 +102,7 @@ export function parsePage(input: unknown): PageSettings {
   const out: PageSettings = {}
   if (p.size === 'letter' || p.size === 'a4' || p.size === 'legal') out.size = p.size
   if (p.orientation === 'portrait' || p.orientation === 'landscape') out.orientation = p.orientation
-  if (p.font === 'sans' || p.font === 'serif') out.font = p.font
+  if (isFamily(p.font)) out.font = p.font
   if (p.fontSize !== undefined && p.fontSize !== '') out.fontSize = num(p.fontSize, 8, 16, 10.5)
   if (p.lineHeight !== undefined && p.lineHeight !== '') out.lineHeight = num(p.lineHeight, 1, 2.2, 1.35)
   for (const k of ['marginTop', 'marginRight', 'marginBottom', 'marginLeft'] as const) if (p[k] !== undefined && p[k] !== '') out[k] = num(p[k], 8, 50, 20)

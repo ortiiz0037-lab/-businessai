@@ -12,6 +12,7 @@ import { getLocale } from '@/lib/i18n/server'
 import { KINDS, parseContent, parsePage, studioErrorCode, type DocContent, type Kind, type PageSettings } from '@/lib/studio/model'
 import { systemTemplate, withoutFinance } from '@/lib/studio/templates'
 import { studioFinanceReady } from '@/lib/studio/page'
+import { isFamily } from '@/lib/studio/fonts'
 import { missingFields } from '@/lib/studio/merge'
 import { loadData, loadDoc } from '@/lib/studio/server'
 import { createAssistantDraft } from '@/lib/studio/draft'
@@ -331,7 +332,7 @@ const HEX = /^#[0-9A-Fa-f]{6}$/
 export async function saveBrand(formData: FormData) {
   const back = backTo(formData, '/studio/brand')
   const color = (k: string) => { const v = text(formData, k); return v && HEX.test(v) ? v : null }
-  const fonts = (k: string) => (text(formData, k) === 'serif' ? 'serif' : 'sans')
+  const fonts = (k: string) => { const v = text(formData, k); return isFamily(v) ? v : 'sans' }   // S5: nine typefaces (the database decides with 0041)
   const formats: Record<string, string> = {}
   // letters, digits, separators and the {YYYY} {YY} {####} {SUC} tokens ({SUC}: branch code, 0037); {####} is required
   for (const k of KINDS) { const v = text(formData, `format_${k}`).slice(0, 30); if (v) { if (!/^([A-Za-z0-9 ._/-]|\{YYYY\}|\{YY\}|\{####\}|\{SUC\})+$/.test(v) || !v.includes('{####}')) go(back, { error: 'number_format' }); formats[k] = v } }

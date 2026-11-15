@@ -7,6 +7,7 @@
 import { deflateSync, inflateSync } from 'node:zlib'
 import { subsetTtf, type TtfFont } from '@/lib/studio/ttf'
 import type { FontKey, Fonts, LaidPage } from '@/lib/studio/layout'
+import { FAMILY_INFO, familyOf } from '@/lib/studio/fonts'
 
 export type PdfImage = { bytes: Uint8Array; mime: 'image/png' | 'image/jpeg' }
 type Obj = { id: number; body: Uint8Array | string }
@@ -102,7 +103,7 @@ export function buildPdf(pages: LaidPage[], fonts: Fonts, images: Record<string,
     const sub = subsetTtf(f, new Set(glyphs.keys()))
     set(file, stream(`/Length1 ${sub.length}`, sub))
     const ps = `BAI${String.fromCharCode(65 + fi)}${'ABCDE'[fi % 5]}+${f.postscriptName}`.slice(0, 63)
-    const flags = 32 | (f.italicAngle ? 64 : 0) | (key.startsWith('serif') ? 2 : 0)
+    const flags = 32 | (f.italicAngle ? 64 : 0) | (FAMILY_INFO[familyOf(key)].serif ? 2 : 0) | (FAMILY_INFO[familyOf(key)].mono ? 1 : 0)
     set(desc, `<< /Type /FontDescriptor /FontName /${ps} /Flags ${flags} /FontBBox [${f.bbox.map((x) => Math.round(x * scale)).join(' ')}] /ItalicAngle ${f.italicAngle} /Ascent ${Math.round(f.ascender * scale)} /Descent ${Math.round(f.descender * scale)} /CapHeight ${Math.round(f.capHeight * scale)} /StemV 80 /FontFile2 ${file} 0 R >>`)
     const gids = [...glyphs.keys()].sort((a, b) => a - b)
     set(cid, `<< /Type /Font /Subtype /CIDFontType2 /BaseFont /${ps} /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor ${desc} 0 R /CIDToGIDMap /Identity /DW 1000 /W [${gids.map((g) => `${g} [${Math.round(f.advance(g) * scale)}]`).join(' ')}] >>`)

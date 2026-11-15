@@ -133,5 +133,6 @@ Errores corregidos gracias a esta prueba:
 4. **Borradores retenidos para Staging:** 0036 (aplicada en Staging el
    2026-11-15, run #38), 0037 (Studio por sucursal, no aplicada), 0038
    (Studio · cobros y pagos, no aplicada; necesita 0037), 0039 (catálogo de
-   productos y servicios, no aplicada) y 0040 (asistente S4, no aplicada; necesita
-   0038): cada uno necesita autorización.
+   productos y servicios, no aplicada), 0040 (asistente S4, no aplicada; necesita
+   0038) y 0041 (Document Studio avanzado, no aplicada; necesita 0040): cada uno
+   necesita autorización.

@@ -17,7 +17,7 @@ import { LOGO_BUCKET, parseSignatureRef } from '@/lib/branding-assets'
 import type { PdfImage } from '@/lib/studio/pdf'
 
 let fontCache: Promise<Fonts> | null = null
-/** The 8 font files, parsed once per server process. */
+/** Every font file (nine families × four styles, S5), parsed once per server process; the PDF embeds only the glyphs used. */
 export function serverFonts(): Promise<Fonts> {
   fontCache ??= (async () => {
     const dir = path.join(process.cwd(), 'public', 'studio', 'fonts')

@@ -202,4 +202,6 @@ export const TOOL_LABELS: Record<string, { es: string; en: string }> = {
   get_recommendations: { es: 'Recomendaciones', en: 'Recommendations' },
   propose_collection_letter: { es: 'Propuesta de carta de cobro', en: 'Collection letter proposal' },
   propose_payment_voucher: { es: 'Propuesta de comprobante de pago', en: 'Payment voucher proposal' },
+  read_studio_document: { es: 'Documento de Studio', en: 'Studio document' },
+  propose_studio_edit: { es: 'Propuesta de edición del borrador', en: 'Draft edit proposal' },
 }

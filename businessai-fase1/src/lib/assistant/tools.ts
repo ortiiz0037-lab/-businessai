@@ -21,7 +21,10 @@ import { incomeTotals, type StatementRow } from '@/lib/finance/statements'
 import { loadBalance, loadIncome, loadQuality } from '@/lib/finance/finance-page'
 import { workforceRules } from '@/lib/workforce/context'
 import { buildReport } from '@/lib/workforce/report'
-import { KINDS, type Kind as StudioKind } from '@/lib/studio/model'
+import { KINDS, parseContent, parsePage, type Block, type Kind as StudioKind } from '@/lib/studio/model'
+import { applyEdits, describeEdits, EditOps } from '@/lib/studio/edit-ops'
+import { blockText } from '@/lib/studio/diff'
+import { plainText } from '@/lib/studio/layout'
 import { assertDraftIsSafe, ruleAssistant } from '@/lib/studio/assistant'
 import { calculate, centsToDecimal, minutesToHours, type FactStore, type Kind, type ToolOutput } from '@/lib/intelligence/facts'
 import type { Tier, ToolSpec } from '@/lib/intelligence/types'
@@ -821,6 +824,49 @@ const proposeVoucher = def({
   },
 })
 
+// ------------------------------------------------------------- S5: read a Studio document, propose edits of a DRAFT
+const readStudioDoc = def({
+  name: 'read_studio_document',
+  description: 'Read one Document Studio document: kind, status, version, page typeface and its blocks with their NUMBER (0-based, used by propose_studio_edit), type and plain text (formatting marks removed, long texts cut). Data blocks (items, totals, payments, statement, bill, ageing) are filled from the records and cannot be edited.',
+  schema: z.object({ document_id: uuid }).strict(),
+  minTier: 'P1',
+  allowed: (a) => a.perms['studio.view'],
+  async run(ctx, input) {
+    const { data, error } = await ctx.supabase.from('studio_documents').select('id, kind, title, status, version, content, page').eq('company_id', ctx.companyId).eq('id', input.document_id).maybeSingle(); dbFail(error)
+    if (!data) fail('not_found')
+    const d = data as { id: string; kind: string; title: string; status: string; version: number; content: { blocks?: Block[] }; page: { font?: string } }
+    const blocks = (d.content?.blocks ?? []).slice(0, 120)
+    return out({ title: d.title, kind: d.kind, status: d.status, version: d.version, editable: d.status === 'draft', page_font: d.page?.font ?? 'sans',
+      blocks: blocks.map((b, i) => ({ number: i, type: b.type, text: plainText(blockText(b)).slice(0, 600) })), link: `/studio/${d.id}` },
+    { title: 'text', kind: 'text', status: 'text', version: 'count', page_font: 'text', number: 'count', type: 'text', text: 'text' },
+    { source: 'studio_documents', complete: (d.content?.blocks ?? []).length <= 120 })
+  },
+})
+
+const proposeEdit = def({
+  name: 'propose_studio_edit',
+  description: 'PROPOSE edits of an existing Document Studio DRAFT: add / insert / rewrite paragraphs and headings, format specific words (colour, size, underline, strike-through, highlight, typeface, bold), add a table or rows, change the page typeface. Read the document first (read_studio_document) to know the block numbers. Nothing changes until the user presses Confirm; if the document changes meanwhile the edit is refused. Write no amounts: use merge fields such as {{document.balance}}. Never issues or sends.',
+  schema: z.object({ document_id: uuid, ops: EditOps }).strict(),
+  minTier: 'P1',
+  allowed: (a) => a.perms['studio.edit'],
+  async run(ctx, input) {
+    const { data, error } = await ctx.supabase.from('studio_documents').select('id, title, status, version, content, page').eq('company_id', ctx.companyId).eq('id', input.document_id).maybeSingle(); dbFail(error)
+    if (!data) fail('not_found')
+    const d = data as { id: string; title: string; status: string; version: number; content: unknown; page: unknown }
+    if (d.status !== 'draft') fail('document_not_a_draft')
+    const parsed = parseContent(d.content)
+    if (!parsed.ok) fail('invalid_content')
+    const dry = applyEdits(parsed.content, parsePage(d.page), input.ops)      // checked now, applied only after the confirmation
+    if (!dry.ok) fail(dry.error.slice(0, 60))
+    const summary = `${ctx.locale === 'en' ? 'Edit' : 'Editar'} «${d.title}»: ${describeEdits(input.ops, ctx.locale)}`.slice(0, 400)
+    const { data: id, error: pe } = await ctx.supabase.rpc('assistant_propose', { turn: ctx.turnId, act_kind: 'studio_edit', act_summary: summary, act_payload: { document_id: d.id, version: d.version, ops: input.ops } })
+    if (pe) fail(/FORBIDDEN/.test(pe.message) ? 'forbidden' : /too_many_pending/.test(`${pe.hint ?? ''}${pe.message}`) ? 'too_many_pending_actions' : /kind/.test(`${pe.hint ?? ''}`) ? 'module_not_enabled' : 'proposal_failed')
+    return out({ action_id: id as string, status: 'awaiting_user_confirmation', level: 'draft', document: d.title, on_version: d.version, changes: describeEdits(input.ops, ctx.locale) },
+      { action_id: 'text', document: 'text', on_version: 'count', changes: 'text' },
+      { source: 'assistant_propose', complete: true, note: 'Shown to the user with Confirm / Cancel buttons. Nothing changed yet.' })
+  },
+})
+
 const OPERATIONS = {
   new_invoice: { perm: 'documents.create', level: 'execute', link: (i: { client_id?: string }) => `/documents/new?type=invoice${i.client_id ? `&client=${i.client_id}` : ''}` },
   new_quote: { perm: 'documents.create', level: 'execute', link: (i: { client_id?: string }) => `/documents/new?type=quote${i.client_id ? `&client=${i.client_id}` : ''}` },
@@ -849,7 +895,7 @@ const prepare = def({
 })
 
 export const TOOLS: ToolDef[] = [overview, invoices, payments, bills, budget, clients, client, documents, employees, attendance, workforceStatus, income, bank, studioDocs, pipeline, opportunities, followups,
-  catalogSearch, branchesTool, aging, recommendations, calc, proposeDraft, proposeActivity, proposeLetter, proposeVoucher, prepare]
+  catalogSearch, branchesTool, aging, recommendations, readStudioDoc, calc, proposeDraft, proposeActivity, proposeLetter, proposeVoucher, proposeEdit, prepare]
 export const TOOL_NAMES = TOOLS.map((t) => t.name)
 export const findTool = (name: string) => TOOLS.find((t) => t.name === name)
 
@@ -862,7 +908,8 @@ export function strictSchema(schema: z.ZodObject): Record<string, unknown> {
     const o: Record<string, unknown> = {}
     for (const [k, x] of Object.entries(v)) {
       if (['$schema', 'minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum', 'minLength', 'maxLength', 'pattern', 'minItems', 'maxItems', 'multipleOf'].includes(k)) continue
-      o[k] = strip(x)
+      // strict tool use supports anyOf (not oneOf): a discriminated union is exclusive by its "op" const anyway
+      o[k === 'oneOf' ? 'anyOf' : k] = strip(x)
     }
     if (o.type === 'object') o.additionalProperties = false
     return o

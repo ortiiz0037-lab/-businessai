@@ -11,6 +11,9 @@ import { FIELDS, makeFormatters, type StudioData } from '@/lib/studio/merge'
 import { StudioPreview, type PreviewImages } from '@/components/studio/preview'
 import type { SaveState } from '@/app/actions/studio'
 import type { PickerItem } from '@/components/catalog-line-picker'
+import { FAMILIES, FAMILY_INFO, type Family } from '@/lib/studio/fonts'
+import { applySpan, clearFormatting, toggleMark, type Edit, type SpanProps } from '@/lib/studio/format'
+import { deleteCol, deleteRow, duplicateRow, insertCol, insertRow, moveCol, moveRow, setColAlign, setColWidth, MAX_COLS, type Table } from '@/lib/studio/tables'
 
 type Asset = { id: string; name: string; width: number; height: number }
 type Props = {
@@ -20,6 +23,7 @@ type Props = {
   brand: Brand; accentFallback: string | null; data: StudioData; locale: Locale; currency: string
   images: PreviewImages; assets: Asset[]; canUpload: boolean
   catalog?: PickerItem[]   // 0039: active catalog items; a table row can be added from one (a copy)
+  families?: Family[]      // S5 / 0041: typefaces the database accepts (sans / serif without 0041)
   action: (state: SaveState, fd: FormData) => Promise<SaveState>
 }
 
@@ -108,16 +112,20 @@ export function StudioEditor(p: Props) {
     f.apply(v)
     requestAnimationFrame(() => { el.focus(); el.setSelectionRange(s + tag.length, s + tag.length) })
   }
-  /** Wraps the selected text of the focused field in **…** (bold) or __…__ (italic). */
-  const format = (mark: '**' | '__') => {
+  /** Applies a formatting edit to the selected words of the focused field (S5: bold, italic, colour, size, underline, strike, highlight, typeface). */
+  const editSel = (fn: (e: Edit) => Edit) => {
     const f = focused.current
     if (!f) return
-    const { el } = f, s = el.selectionStart ?? el.value.length, e = el.selectionEnd ?? s
-    const sel = el.value.slice(s, e)
-    const v = el.value.slice(0, s) + mark + sel + mark + el.value.slice(e)
-    f.apply(v)
-    requestAnimationFrame(() => { el.focus(); el.setSelectionRange(s + mark.length, e + mark.length) })
+    const { el } = f, start = el.selectionStart ?? el.value.length, end = el.selectionEnd ?? start
+    const r = fn({ value: el.value, start, end })
+    if (r.value === el.value) return
+    f.apply(r.value)
+    requestAnimationFrame(() => { el.focus(); el.setSelectionRange(r.start, r.end) })
   }
+  const format = (mark: '**' | '__') => editSel((e) => toggleMark(e, mark))
+  const span = (p: SpanProps) => editSel((e) => applySpan(e, p))
+  const [inkColor, setInkColor] = useState('#C0392B')
+  const [markColor, setMarkColor] = useState('#FFF59D')
   async function upload(file: File, i: number | null) {
     setUploadMsg(tr('Subiendo…', 'Uploading…'))
     const fd = new FormData(); fd.append('file', file)
@@ -154,7 +162,7 @@ export function StudioEditor(p: Props) {
       case 'paragraph': return <div className="space-y-2">{text(i, b, true, tr('Texto del párrafo', 'Paragraph text'))}
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted">{alignSel(i, b)}
           <label className="flex items-center gap-1">{tr('Tamaño', 'Size')} <input type="number" min={7} max={24} step={0.5} value={b.size ?? ''} placeholder="auto" onChange={(e) => change(i, { ...b, size: e.target.value ? Number(e.target.value) : undefined })} className="field w-20 px-2 py-1" /></label>
-          <span>{tr('**negrita** · __cursiva__', '**bold** · __italic__')}</span></div></div>
+          <span>{tr('Seleccione palabras y use la barra de formato', 'Select words and use the formatting bar')}</span></div></div>
       case 'fields': return <div className="space-y-2">{b.rows.map((r, k) => (
         <div key={k} className="flex flex-wrap gap-2">{cellInput(r[0], (v) => change(i, { ...b, rows: b.rows.map((x, j) => (j === k ? [v, x[1]] : x)) as [string, string][] }), tr('Etiqueta', 'Label'))}
           {cellInput(r[1], (v) => change(i, { ...b, rows: b.rows.map((x, j) => (j === k ? [x[0], v] : x)) as [string, string][] }), tr('Valor', 'Value'))}
@@ -162,14 +170,41 @@ export function StudioEditor(p: Props) {
         <button type="button" className="btn-secondary btn-sm" onClick={() => change(i, { ...b, rows: [...b.rows, ['', '']] })}>{tr('+ Fila', '+ Row')}</button></div>
       case 'table': {
         const cols = b.rows[0]?.length ?? 1
-        return <div className="space-y-2"><div className="overflow-x-auto"><table className="text-xs"><tbody>{b.rows.map((r, k) => (
-          <tr key={k}>{r.map((c, j) => <td key={j} className="p-0.5">{cellInput(c, (v) => change(i, { ...b, rows: b.rows.map((x, rr) => (rr === k ? x.map((y, cc) => (cc === j ? v : y)) : x)) }), `${tr('Fila', 'Row')} ${k + 1}, ${tr('columna', 'column')} ${j + 1}`)}</td>)}</tr>))}</tbody></table></div>
-          <div className="flex flex-wrap gap-2 text-xs">
-            <button type="button" className="btn-secondary btn-sm" onClick={() => change(i, { ...b, rows: [...b.rows, Array(cols).fill('')] })}>{tr('+ Fila', '+ Row')}</button>
-            <button type="button" className="btn-secondary btn-sm" disabled={b.rows.length < 2} onClick={() => change(i, { ...b, rows: b.rows.slice(0, -1) })}>{tr('− Fila', '− Row')}</button>
-            <button type="button" className="btn-secondary btn-sm" disabled={cols >= 8} onClick={() => change(i, { ...b, rows: b.rows.map((r) => [...r, '']), widths: undefined })}>{tr('+ Columna', '+ Column')}</button>
-            <button type="button" className="btn-secondary btn-sm" disabled={cols < 2} onClick={() => change(i, { ...b, rows: b.rows.map((r) => r.slice(0, -1)), widths: undefined })}>{tr('− Columna', '− Column')}</button>
+        const set = (t: Table) => change(i, t)
+        const tb = 'btn-secondary btn-sm min-h-9 min-w-9 px-2'
+        return <div className="space-y-2" data-testid="studio-table-editor"><div className="overflow-x-auto"><table className="text-xs"><thead><tr><th className="w-24" />
+          {Array.from({ length: cols }, (_, j) => (
+            <th key={j} className="p-0.5 align-bottom font-normal" scope="col">
+              <div className="flex flex-col gap-1">
+                <span className="flex gap-1" role="group" aria-label={`${tr('Columna', 'Column')} ${j + 1}`}>
+                  <button type="button" className={tb} disabled={j === 0} onClick={() => set(moveCol(b, j, -1))} aria-label={`${tr('Mover columna a la izquierda', 'Move column left')} ${j + 1}`}>←</button>
+                  <button type="button" className={tb} disabled={j === cols - 1} onClick={() => set(moveCol(b, j, 1))} aria-label={`${tr('Mover columna a la derecha', 'Move column right')} ${j + 1}`}>→</button>
+                  <button type="button" className={tb} disabled={cols >= MAX_COLS} onClick={() => set(insertCol(b, j + 1))} aria-label={`${tr('Insertar columna a la derecha de', 'Insert column right of')} ${j + 1}`}>+</button>
+                  <button type="button" className={tb} disabled={cols < 2} onClick={() => set(deleteCol(b, j))} aria-label={`${tr('Eliminar columna', 'Delete column')} ${j + 1}`}>✕</button>
+                </span>
+                <span className="flex gap-1">
+                  <select value={b.align?.[j] ?? 'left'} onChange={(e) => set(setColAlign(b, j, e.target.value as Align))} className="field w-auto px-1 py-1 text-xs" aria-label={`${tr('Alineación de la columna', 'Column alignment')} ${j + 1}`}>
+                    <option value="left">⇤</option><option value="center">↔</option><option value="right">⇥</option></select>
+                  <input type="number" min={1} max={100} value={b.widths?.[j] ?? ''} placeholder={tr('ancho', 'width')} onChange={(e) => set(setColWidth(b, j, Number(e.target.value)))} className="field w-16 px-1 py-1 text-xs" aria-label={`${tr('Ancho relativo de la columna', 'Relative width of column')} ${j + 1}`} />
+                </span>
+              </div>
+            </th>))}</tr></thead>
+          <tbody>{b.rows.map((r, k) => (
+          <tr key={k}><td className="p-0.5 align-top"><span className="flex gap-1" role="group" aria-label={`${tr('Fila', 'Row')} ${k + 1}`}>
+            <button type="button" className={tb} disabled={k === 0} onClick={() => set(moveRow(b, k, -1))} aria-label={`${tr('Subir fila', 'Move row up')} ${k + 1}`}>↑</button>
+            <button type="button" className={tb} disabled={k === b.rows.length - 1} onClick={() => set(moveRow(b, k, 1))} aria-label={`${tr('Bajar fila', 'Move row down')} ${k + 1}`}>↓</button>
+            <button type="button" className={tb} onClick={() => set(insertRow(b, k + 1))} aria-label={`${tr('Insertar fila debajo de', 'Insert row below')} ${k + 1}`}>+</button>
+            <button type="button" className={tb} onClick={() => set(duplicateRow(b, k))} aria-label={`${tr('Duplicar fila', 'Duplicate row')} ${k + 1}`}>⧉</button>
+            <button type="button" className={tb} disabled={b.rows.length < 2} onClick={() => set(deleteRow(b, k))} aria-label={`${tr('Eliminar fila', 'Delete row')} ${k + 1}`}>✕</button></span></td>
+            {r.map((c, j) => <td key={j} className="p-0.5">{cellInput(c, (v) => change(i, { ...b, rows: b.rows.map((x, rr) => (rr === k ? x.map((y, cc) => (cc === j ? v : y)) : x)) }), `${tr('Fila', 'Row')} ${k + 1}, ${tr('columna', 'column')} ${j + 1}`)}</td>)}</tr>))}</tbody></table></div>
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <button type="button" className="btn-secondary btn-sm" onClick={() => set(insertRow(b, b.rows.length))}>{tr('+ Fila al final', '+ Row at the end')}</button>
+            <button type="button" className="btn-secondary btn-sm" disabled={cols >= MAX_COLS} onClick={() => set(insertCol(b, cols))}>{tr('+ Columna al final', '+ Column at the end')}</button>
             <label className="flex items-center gap-1 text-muted"><input type="checkbox" checked={b.header} onChange={(e) => change(i, { ...b, header: e.target.checked })} /> {tr('Primera fila como encabezado', 'First row as header')}</label>
+            <label className="flex items-center gap-1 text-muted"><input type="checkbox" checked={!!b.total} onChange={(e) => change(i, { ...b, total: e.target.checked || undefined })} /> {tr('Última fila como total', 'Last row as total')}</label>
+            <label className="flex items-center gap-1 text-muted">{tr('Estilo', 'Style')}
+              <select value={b.style ?? 'zebra'} onChange={(e) => change(i, { ...b, style: e.target.value as Table['style'] })} className="field w-auto py-1 text-xs">
+                <option value="zebra">{tr('Bandas', 'Banded')}</option><option value="grid">{tr('Cuadrícula', 'Grid')}</option><option value="plain">{tr('Simple', 'Plain')}</option></select></label>
             {(p.catalog?.length ?? 0) > 0 && (
               <select value="" className="field w-auto py-1 text-xs" aria-label={tr('Añadir fila del catálogo', 'Add a row from the catalog')} data-testid="studio-table-catalog"
                 onChange={(e) => { const it = p.catalog!.find((x) => x.id === e.target.value); if (it) change(i, { ...b, rows: [...b.rows, catalogRow(it, cols, money)] }) }}>
@@ -219,9 +254,9 @@ export function StudioEditor(p: Props) {
           className={`flex-1 rounded-xl border px-3 py-2 text-sm font-semibold ${tab === t ? 'border-electric/60 bg-brand/20 text-fg' : 'border-line bg-card text-slate-300'}`}>{t === 'edit' ? tr('Editar', 'Edit') : tr('Vista previa', 'Preview')}</button>)}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <section aria-label={tr('Contenido', 'Content')} className={`space-y-3 ${tab === 'preview' ? 'hidden lg:block' : ''}`}>
-          <div className="card flex flex-wrap items-end gap-2 p-3">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <section aria-label={tr('Contenido', 'Content')} className={`min-w-0 space-y-3 ${tab === 'preview' ? 'hidden lg:block' : ''}`}>
+          <div className="card sticky top-0 z-10 flex flex-wrap items-end gap-2 p-3 sm:static" data-testid="studio-toolbar">
             <label className="text-sm"><span className="field-label">{tr('Añadir bloque', 'Add block')}</span>
               <select value={addType} onChange={(e) => setAddType(e.target.value as Block['type'])} className="field w-auto">{BLOCK_TYPES.map((t) => <option key={t} value={t}>{LABELS[p.locale][t]}</option>)}</select></label>
             <button type="button" onClick={add} className="btn-secondary">{tr('Añadir', 'Add')}{selected !== null ? tr(' debajo', ' below') : ''}</button>
@@ -230,15 +265,31 @@ export function StudioEditor(p: Props) {
                 <option value="">{tr('Elegir dato…', 'Choose data…')}</option>
                 {FIELDS.map((g) => <optgroup key={g.group.es} label={es ? g.group.es : g.group.en}>{g.fields.map((f) => <option key={f.path} value={f.path}>{es ? f.es : f.en}</option>)}</optgroup>)}
               </select></label>
-            <span className="flex gap-1" role="group" aria-label={tr('Formato del texto seleccionado', 'Format the selected text')}>
-              <button type="button" className="btn-secondary btn-sm font-bold" onMouseDown={(e) => e.preventDefault()} onClick={() => format('**')} aria-label={tr('Negrita', 'Bold')}>B</button>
-              <button type="button" className="btn-secondary btn-sm italic" onMouseDown={(e) => e.preventDefault()} onClick={() => format('__')} aria-label={tr('Cursiva', 'Italic')}>I</button>
+            <span className="flex flex-wrap items-center gap-1" role="group" aria-label={tr('Formato del texto seleccionado', 'Format the selected text')} data-testid="studio-format">
+              {/* onMouseDown prevents the field from losing its selection; touch devices keep it (selectionStart/End persist) */}
+              <button type="button" className="btn-secondary btn-sm min-h-10 min-w-10 font-bold" onMouseDown={(e) => e.preventDefault()} onClick={() => format('**')} aria-label={tr('Negrita', 'Bold')}>B</button>
+              <button type="button" className="btn-secondary btn-sm min-h-10 min-w-10 italic" onMouseDown={(e) => e.preventDefault()} onClick={() => format('__')} aria-label={tr('Cursiva', 'Italic')}>I</button>
+              <button type="button" className="btn-secondary btn-sm min-h-10 min-w-10 underline" onMouseDown={(e) => e.preventDefault()} onClick={() => span({ u: true })} aria-label={tr('Subrayado', 'Underline')}>U</button>
+              <button type="button" className="btn-secondary btn-sm min-h-10 min-w-10 line-through" onMouseDown={(e) => e.preventDefault()} onClick={() => span({ x: true })} aria-label={tr('Tachado', 'Strike-through')}>S</button>
+              <span className="flex items-center gap-1 rounded-lg border border-line px-1">
+                <input type="color" value={inkColor} onChange={(e) => setInkColor(e.target.value.toUpperCase())} className="h-8 w-8 cursor-pointer bg-transparent" aria-label={tr('Color del texto', 'Text colour')} />
+                <button type="button" className="btn-secondary btn-sm min-h-10" onMouseDown={(e) => e.preventDefault()} onClick={() => span({ c: inkColor })} style={{ color: inkColor }}>{tr('Color', 'Colour')}</button>
+              </span>
+              <span className="flex items-center gap-1 rounded-lg border border-line px-1">
+                <input type="color" value={markColor} onChange={(e) => setMarkColor(e.target.value.toUpperCase())} className="h-8 w-8 cursor-pointer bg-transparent" aria-label={tr('Color de resaltado', 'Highlight colour')} />
+                <button type="button" className="btn-secondary btn-sm min-h-10" onMouseDown={(e) => e.preventDefault()} onClick={() => span({ h: markColor })}>{tr('Resaltar', 'Highlight')}</button>
+              </span>
+              <select value="" onChange={(e) => { if (e.target.value) span({ s: Number(e.target.value) }) }} className="field w-auto min-h-10 py-1 text-xs" aria-label={tr('Tamaño de las palabras', 'Size of the words')}>
+                <option value="">{tr('Tamaño…', 'Size…')}</option>{[8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36].map((n) => <option key={n} value={n}>{n} pt</option>)}</select>
+              <select value="" onChange={(e) => { if (e.target.value) span({ f: e.target.value as Family }) }} className="field w-auto min-h-10 py-1 text-xs" aria-label={tr('Tipografía de las palabras', 'Typeface of the words')}>
+                <option value="">{tr('Tipografía…', 'Typeface…')}</option>{(p.families ?? FAMILIES).map((f) => <option key={f} value={f}>{FAMILY_INFO[f].label}</option>)}</select>
+              <button type="button" className="btn-secondary btn-sm min-h-10" onMouseDown={(e) => e.preventDefault()} onClick={() => editSel(clearFormatting)} aria-label={tr('Quitar formato', 'Clear formatting')}>⌫ {tr('Formato', 'Format')}</button>
             </span>
             {uploadMsg && <span role="status" className="text-xs text-muted">{uploadMsg}</span>}
           </div>
           <ol className="space-y-2">
             {blocks.map((b, i) => (
-              <li key={i} className={`card p-3 ${selected === i ? 'ring-1 ring-electric/60' : ''}`} onFocusCapture={() => setSelected(i)}>
+              <li key={i} className={`card min-w-0 p-3 ${selected === i ? 'ring-1 ring-electric/60' : ''}`} onFocusCapture={() => setSelected(i)}>
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <span className="text-xs font-semibold uppercase tracking-wide text-blue-300">{LABELS[p.locale][b.type]}</span>
                   <span className="flex gap-1">
@@ -259,7 +310,7 @@ export function StudioEditor(p: Props) {
             <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
               <label className="text-sm"><span className="field-label">{tr('Tamaño', 'Size')}</span><select value={pg.size} onChange={(e) => setPg({ size: e.target.value as 'letter' })} className="field"><option value="letter">Carta / Letter</option><option value="a4">A4</option><option value="legal">Legal</option></select></label>
               <label className="text-sm"><span className="field-label">{tr('Orientación', 'Orientation')}</span><select value={pg.orientation} onChange={(e) => setPg({ orientation: e.target.value as 'portrait' })} className="field"><option value="portrait">{tr('Vertical', 'Portrait')}</option><option value="landscape">{tr('Horizontal', 'Landscape')}</option></select></label>
-              <label className="text-sm"><span className="field-label">{tr('Tipografía', 'Typeface')}</span><select value={pg.font} onChange={(e) => setPg({ font: e.target.value as 'sans' })} className="field"><option value="sans">Sans (Arial)</option><option value="serif">Serif (Times)</option></select></label>
+              <label className="text-sm"><span className="field-label">{tr('Tipografía', 'Typeface')}</span><select value={pg.font} onChange={(e) => setPg({ font: e.target.value as Family })} className="field" data-testid="studio-page-font">{(p.families ?? FAMILIES).map((f) => <option key={f} value={f}>{FAMILY_INFO[f].label}{f === 'sans' ? ' (Arial)' : f === 'serif' ? ' (Times)' : ''}</option>)}</select></label>
               <label className="text-sm"><span className="field-label">{tr('Cuerpo (pt)', 'Body (pt)')}</span><input type="number" min={8} max={16} step={0.5} value={pg.fontSize} onChange={(e) => setPg({ fontSize: Number(e.target.value) })} className="field" /></label>
               <label className="text-sm"><span className="field-label">{tr('Color de acento', 'Accent colour')}</span>
                 <input type="color" value={page.accent ?? p.brand.accent_color ?? p.accentFallback ?? '#1D4ED8'} onChange={(e) => setPg({ accent: e.target.value })} className="field h-10 p-1" aria-label={tr('Color de acento del documento', 'Document accent colour')} /></label>
@@ -271,7 +322,7 @@ export function StudioEditor(p: Props) {
           </details>
         </section>
 
-        <section aria-label={tr('Vista previa', 'Preview')} className={`${tab === 'edit' ? 'hidden lg:block' : ''}`}>
+        <section aria-label={tr('Vista previa', 'Preview')} className={`min-w-0 ${tab === 'edit' ? 'hidden lg:block' : ''}`}>
           <div className="lg:sticky lg:top-24 lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
             <p className="mb-2 text-xs text-muted">{tr(`Vista exacta del PDF · ${layoutInfo.pages} página(s)`, `Exact PDF view · ${layoutInfo.pages} page(s)`)}
               {layoutInfo.missing.length > 0 && <span className="ml-2 text-red-300">{tr('Faltan datos: ', 'Missing data: ')}{layoutInfo.missing.join(', ')}</span>}</p>

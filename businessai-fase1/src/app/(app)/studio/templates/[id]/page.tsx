@@ -1,11 +1,12 @@
 import { notFound } from 'next/navigation'
+import { FAMILIES } from '@/lib/studio/fonts'
 import { activeCatalog } from '@/lib/catalog'
 import { PageHeader } from '@/components/ui/page'
 import { Flash } from '@/components/accounting-nav'
 import { NoStudioAccess, StudioNav } from '@/components/studio-nav'
 import { StudioEditor } from '@/components/studio/editor'
 import type { PreviewImages } from '@/components/studio/preview'
-import { studioPage } from '@/lib/studio/page'
+import { studioFontsReady, studioPage } from '@/lib/studio/page'
 import { loadBrand, loadImage } from '@/lib/studio/server'
 import { imageInfo } from '@/lib/studio/images'
 import { kindLabel, parseContent, parsePage, studioMessage, type Kind } from '@/lib/studio/model'
@@ -43,7 +44,7 @@ export default async function StudioTemplateEditor({ params, searchParams }: { p
       <StudioNav tr={tr} current="/studio/templates" />
       <Flash done={sp.done === 'template_created' ? tr('Copia de la plantilla creada para tu empresa.', 'Template copy created for your company.') : null} error={studioMessage(sp.error, locale)} />
       <StudioEditor mode="template" id={t.id} title={t.name} kind={t.kind} content={parsed.ok ? parsed.content : { v: 1, blocks: [] }} page={parsePage(t.page)}
-        brand={ctx.brand} accentFallback={ctx.accentFallback} data={data} locale={locale} currency={ctx.currency} images={images} assets={assets} canUpload={access.edit} catalog={catalog} action={saveTemplateState} />
+        brand={ctx.brand} accentFallback={ctx.accentFallback} data={data} locale={locale} currency={ctx.currency} images={images} assets={assets} canUpload={access.edit} catalog={catalog} families={(await studioFontsReady(supabase)) ? [...FAMILIES] : ['sans', 'serif']} action={saveTemplateState} />
     </div>
   )
 }

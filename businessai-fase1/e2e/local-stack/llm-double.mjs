@@ -20,6 +20,7 @@ import { createServer } from 'node:http'
 
 export function startLlmDouble({ port, apiKey }) {
   const log = []
+  let edits = 0   // S5: each proposed draft edit uses a different style (an edit that changes nothing is refused)
   const usage = { input_tokens: 120, output_tokens: 40, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
   const text = (t) => ({ type: 'text', text: t, citations: null })
   const tool = (name, input) => ({ type: 'tool_use', id: `toolu_double_${log.length}_${name}`, name, input })
@@ -82,6 +83,19 @@ export function startLlmDouble({ port, apiKey }) {
         return respond(res, body, [text(es ? `Corregido: saldo [[${ref}.sum_balance]].` : `Corrected: balance [[${ref}.sum_balance]].`)], 'end_turn')
       }
       if (results.length) {
+        // S5: after reading a draft, propose edits of it (format its first words, add a paragraph, change the typeface)
+        const read = results.map((r) => /<untrusted_data tool="read_studio_document" ref="T\d+">\n([\s\S]*)\n<\/untrusted_data>/.exec(String(typeof r.content === 'string' ? r.content : (r.content ?? []).map((c) => c.text).join(''))))
+          .find(Boolean)
+        const docId = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/.exec(question)?.[0]
+        if (read && docId && /edita|edit /.test(question)) {
+          const d = JSON.parse(read[1]).data
+          const para = d.blocks.find((b) => b.type === 'paragraph' && b.text)
+          const words = para ? para.text.split(/\s+/).slice(0, 2).join(' ') : null
+          return respond(res, body, [tool('propose_studio_edit', { document_id: docId, ops: [
+            ...(para && words ? [{ op: 'format_words', block: para.number, words, style: edits++ === 0 ? { color: '#C0392B', underline: true } : { highlight: '#FFF59D' } }] : []),
+            { op: 'append_paragraph', text: es ? 'Quedamos atentos a su respuesta.' : 'We look forward to your reply.' },
+            { op: 'set_page_font', font: 'playfair' }] })], 'tool_use')
+        }
         if (/inventa|corrige/.test(question)) return respond(res, body, [text(es ? 'El saldo pendiente es 999999.99 dólares.' : 'The open balance is 999999.99 dollars.')], 'end_turn')
         return respond(res, body, [text(answerFrom(results, es))], 'end_turn', slow)
       }
@@ -89,6 +103,7 @@ export function startLlmDouble({ port, apiKey }) {
       if (/rechaza|refuse/.test(q)) return respond(res, body, [], 'refusal')
       // S4 scenarios (before the generic rules below)
       const id = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/.exec(q)?.[0]
+      if (/edita|edit /.test(q) && id) return respond(res, body, [tool('read_studio_document', { document_id: id })], 'tool_use')
       if (/carta de cobro|collection letter/.test(q) && id) return respond(res, body, [tool('propose_collection_letter', { invoice_id: id })], 'tool_use')
       if (/comprobante|voucher/.test(q) && id) return respond(res, body, [tool('propose_payment_voucher', { bill_id: id })], 'tool_use')
       if (/prioriz|recomiend|recommend|prioriti/.test(q)) return respond(res, body, [tool('get_recommendations', {})], 'tool_use')
