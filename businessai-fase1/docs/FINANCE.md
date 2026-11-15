@@ -182,8 +182,10 @@ gasto registrado en el libro = total aprobado.
   `NEXT_PUBLIC_SUPABASE_URL` sea el sustituto local) lo hace el propio navegador.
 * Un límite de aprobación para **miembros** solo tiene efecto con la
   autoaprobación activada: un miembro solo ve sus propios gastos y nadie aprueba
-  lo que registró. Comprobado en la prueba de flujos; pendiente de decidir si
-  los miembros deben poder aprobar gastos de otros.
+  lo que registró. Comprobado en la prueba de flujos. **Decisión del
+  propietario (2026-11-15): se mantiene así.** Los miembros no ven ni aprueban
+  gastos de otros; aprueban el propietario, los administradores y quien tenga
+  el permiso y el límite. No se amplía la RLS.
 * Disponible en Basic, Pro y Premium sin límites por plan.
 
 ---

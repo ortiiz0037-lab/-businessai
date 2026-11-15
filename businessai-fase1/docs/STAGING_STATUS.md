@@ -115,3 +115,21 @@ Errores corregidos gracias a esta prueba:
 3. Después de migrar: etiqueta `staging:test` (humo, facturación test, RLS, capturas) y `staging:demo` (empresa demo ficticia).
 4. **Asistente** (opcional): `ANTHROPIC_API_KEY` y `ASSISTANT_SERVER_KEYS` **solo** en el destino `preview`, con la clave de servidor registrada en staging (`docs/INTELLIGENCE.md`).
 5. **Para ver la Preview en iPhone:** abra la URL fija, inicie sesión en Vercel con su cuenta y luego en BusinessAI con su **usuario de staging**, no el de producción.
+
+## 7. Pendiente de estabilización (documentado; no bloquea el desarrollo)
+
+1. **Rollback de 0033 — columnas sin comprobación:** `labor_jurisdictions.verified_on`
+   / `verification_status` (proteger), `workforce_settings.overnight_attribution`
+   (ya protegida indirectamente por `labor_rule_versions`; añadir comprobación
+   explícita), `work_shifts.updated_at` / `updated_by` (el historial queda en
+   `workforce_events`; propuesta: documentar sin bloquear).
+2. **Etiqueta `staging:verify`:** volver a ejecutar en Staging, sin migrar, las
+   comprobaciones de migraciones y `verify-0036.sh` (incluye la suite 102
+   corregida, que aún no se ejecutó en Staging). Requiere autorizar el cambio
+   del workflow y, aparte, su ejecución.
+3. **Barrido de zonas horarias:** ejecutar `npm run test:db` con el servidor en
+   `Pacific/Kiritimati` y `Etc/GMT+12` para detectar pruebas que dependan de la
+   fecha UTC (como la de CRM corregida en `801d633`).
+4. **Borradores retenidos para Staging:** 0036 (aplicada en Staging el
+   2026-11-15, run #38) y 0037 (Studio por sucursal, no aplicada): cada uno
+   necesita autorización.
