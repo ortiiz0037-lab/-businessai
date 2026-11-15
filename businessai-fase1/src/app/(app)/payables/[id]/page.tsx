@@ -86,7 +86,8 @@ export default async function BillPage({ params, searchParams }: { params: Promi
       <Flash done={p.done ? done[p.done] : null} error={payablesMessage(p.error, locale)} />
 
       <div className="grid gap-6 lg:grid-cols-[3fr_2fr]">
-        <div className="space-y-6">
+        {/* min-w-0: a grid item may not grow to the lines table's width (the table scrolls inside its own box on a phone) */}
+        <div className="min-w-0 space-y-6">
           <section className="card overflow-hidden">
             <dl className="grid gap-4 border-b border-line p-5 text-sm sm:grid-cols-3">
               <div><dt className="text-muted">{tr('Fecha', 'Date')}</dt><dd className="text-fg">{f.date(bill.bill_date)}</dd></div>
@@ -136,7 +137,9 @@ export default async function BillPage({ params, searchParams }: { params: Promi
               ))}
             </ul>
             {payable && open > 0n && (
-              <form action={payBill} className="grid gap-3 border-t border-line pt-4 sm:grid-cols-2">
+              // key: a new balance (payment, voided payment) remounts the form, so the proposed amount and the
+              // idempotency key are fresh (an uncontrolled input keeps its old value on a same-route refresh)
+              <form key={`pay-${bill.paid_cents}-${bill.status}`} action={payBill} className="grid gap-3 border-t border-line pt-4 sm:grid-cols-2">
                 <input type="hidden" name="id" value={id} /><input type="hidden" name="idempotency_key" value={randomUUID()} />
                 <label className="text-sm"><span className="field-label">{tr('Importe', 'Amount')}</span>
                   <input name="amount" required inputMode="decimal" defaultValue={centsToInput(open)} className="field text-right tabular-nums" /></label>
@@ -180,7 +183,7 @@ export default async function BillPage({ params, searchParams }: { params: Promi
           </section>
         </div>
 
-        <aside className="space-y-6">
+        <aside className="min-w-0 space-y-6">
           <section className="card space-y-3 p-5" aria-labelledby="actions-title">
             <h2 id="actions-title" className="font-display text-lg font-semibold text-fg">{tr('Acciones', 'Actions')}</h2>
             {canEdit && (

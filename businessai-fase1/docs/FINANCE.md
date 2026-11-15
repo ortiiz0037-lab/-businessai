@@ -94,8 +94,9 @@ catálogo de cuentas, periodos e historial.
   importe el historial con el mes abierto.
 * El módulo no tiene límite por plan (Basic/Pro/Premium lo tienen igual): es la
   base de los asientos de facturas.
-* La interfaz se probó con tipos, lint, compilación y E2E público; no hay
-  pruebas de navegador con sesión iniciada contra una base de datos real.
+* Pantallas y flujos probados en navegador con sesión contra una pila local
+  (`e2e/finance.auth.e2e.mjs` y `e2e/finance-flows.auth.e2e.mjs`, ver «Prueba
+  en navegador con sesión»); no contra Supabase Auth real.
 
 ---
 
@@ -174,9 +175,15 @@ gasto registrado en el libro = total aprobado.
 * Un gasto se paga desde Efectivo o cuentas de activo propias (Banco…); no hay
   conciliación bancaria todavía (entrega 6).
 * Los recurrentes no se generan solos (no hay programador configurado).
-* La subida de adjuntos y las pantallas no se probaron en un navegador con
-  sesión contra un Supabase real; el aislamiento de storage se probó con las
-  políticas en la base de datos local.
+* Adjuntos probados con sesión contra la pila local (subida a storage privado,
+  registro, descarga con enlace firmado de corta duración, otra empresa sin
+  acceso); no contra un Supabase real. Por defecto la prueba sube con la API de
+  Storage y la sesión del usuario; con `E2E_BROWSER_STORAGE=1` (y un build cuyo
+  `NEXT_PUBLIC_SUPABASE_URL` sea el sustituto local) lo hace el propio navegador.
+* Un límite de aprobación para **miembros** solo tiene efecto con la
+  autoaprobación activada: un miembro solo ve sus propios gastos y nadie aprueba
+  lo que registró. Comprobado en la prueba de flujos; pendiente de decidir si
+  los miembros deben poder aprobar gastos de otros.
 * Disponible en Basic, Pro y Premium sin límites por plan.
 
 ---
@@ -567,7 +574,38 @@ PGRST_BIN=/ruta/postgrest PG_SOCKET=/ruta/socket PG_PORT=5432 npm run test:e2e:f
   HTTP ≥ 400 en el navegador, y la app solo usó endpoints de Auth que el
   sustituto implementa.
 
+**Flujos completos (`e2e/finance-flows.auth.e2e.mjs`, `npm run test:e2e:finance-flows`)**
+
+Misma pila local (`startStack`), base desechable. Cada paso se confirma en la base
+(lectura con el rol de servicio). 97 verificaciones:
+* Entrega 3: proveedor nuevo y su página; gasto borrador → edición → adjunto
+  (storage privado, enlace firmado, otra empresa sin acceso) → enviar → el
+  admin no puede autoaprobar → el propietario lo devuelve con motivo →
+  reenviar → aprobar (un asiento) → programar → pago parcial → anular el pago
+  (reversión) → pago completo; anular un borrador; eliminar un borrador;
+  reglas de aprobación (límite de miembros en centavos, autoaprobación) y
+  categoría nueva; plantilla recurrente y generación sin duplicar el periodo.
+* Entrega 4: ajustes de recordatorios; actualizar seguimiento (recordatorio de
+  30 días); marcar contactado; promesa → cancelarla con motivo → otra promesa
+  cumplida por un pago; estado «en disputa»; notas en factura y cliente;
+  estado de cuenta del cliente; informe del periodo; anular un pago del cliente.
+* Entrega 5: cuenta bancaria, importación, página de la cuenta, emparejamiento
+  exacto, asiento de comisión desde la línea, deshacer y volver a emparejar,
+  conciliación del mes → cerrar → reabrir con motivo; un miembro no la ve.
+* Entrega 2: cuenta nueva y archivada; reversión de un asiento manual (el
+  original se conserva, una sola reversión); cerrar el mes anterior, que
+  rechaza asientos (`PERIOD_CLOSED`), y reabrirlo con motivo.
+* Las 14 páginas de detalle en inglés (sin textos en español) y en iPhone 13
+  sin desplazamiento horizontal.
+
 **Errores encontrados y corregidos**
+* Gasto (`/payables/[id]`): después de anular un pago, el campo «Importe»
+  seguía proponiendo el saldo anterior (un campo no controlado conserva su valor
+  al refrescar la misma ruta). El formulario de pago ahora se vuelve a montar
+  cuando cambia el saldo.
+* Gasto en iPhone: la tabla de líneas ensanchaba la columna de la cuadrícula
+  (48 px de desplazamiento horizontal). La columna lleva `min-w-0` y la tabla se
+  desplaza dentro de su propia caja.
 * Los botones *Excel* / *CSV* de las páginas de finanzas eran `<Link>` de
   Next hacia una ruta de descarga (`/finance/export`): Next intentaba
   precargarla como página (404) y navegaba con un POST que la ruta rechaza
