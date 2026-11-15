@@ -858,7 +858,8 @@ psqlq -d l30c -c "delete from public.companies where id = 'e2000000-0000-4000-80
 fingerprint l30c "$WORK/fp24_after.txt"
 if diff -u "$WORK/fp24_before.txt" "$WORK/fp24_after.txt" > "$WORK/fp24.diff"; then check ok ok "after the 0024 rollback the catalog is identical to 0023 (source constraint and line trigger restored)"
 else head -20 "$WORK/fp24.diff"; check different ok "after the 0024 rollback the catalog is identical to 0023 (source constraint and line trigger restored)"; fi
-check "$(count l30c "select count(*) from public.permissions where key like 'payables.%'")/$(count l30c "select count(*) from storage.buckets where id = 'Finance-attachments'")" 0/0 "the rollback removes the payables permissions and the empty bucket"
+check "$(count l30c "select count(*) from public.permissions where key like 'payables.%'")/$(count l30c "select coalesce((select (not public)::text from storage.buckets where id = 'Finance-attachments'), 'absent') || '/' || (select count(*) from pg_policies where tablename = 'objects' and policyname like 'ba_finance_attachments_%')")" "0/true/0" \
+  "the rollback removes the payables permissions; the empty bucket is KEPT, private and without policies (no direct bucket delete)"
 if psqlq -d l30a -f "$HERE/../../rollback/0024_rollback.sql" >"$WORK/l30a.out" 2>&1; then check ran refused "0024 rollback with bills"; else
   grep -q "vendors, bills or recurring expenses exist" "$WORK/l30a.out" && check refused refused "0024 rollback refuses while vendors or bills exist (nothing changed)"; fi
 check "$(count l30a "select (to_regclass('public.bills') is not null)::text || '/' || (select count(*) > 0 from public.bills)::text")" "true/true" "after the refusal the payables are intact"
@@ -969,7 +970,8 @@ if psqlq -d l34c -f "$HERE/../../rollback/0028_rollback.sql" >"$WORK/l34c.out" 2
 fingerprint l34c "$WORK/fp28_after.txt"
 if diff -u "$WORK/fp28_before.txt" "$WORK/fp28_after.txt" > "$WORK/fp28.diff"; then check ok ok "after the 0028 rollback the catalog is identical to 0027"
 else head -20 "$WORK/fp28.diff"; check different ok "after the 0028 rollback the catalog is identical to 0027"; fi
-check "$(count l34c "select (select count(*) from storage.buckets where id = 'Studio-assets')::text || '/' || (select count(*) from public.permissions where key like 'studio.%')")" "0/0" "the 0028 rollback removes the bucket and the studio permissions"
+check "$(count l34c "select coalesce((select (not public)::text from storage.buckets where id = 'Studio-assets'), 'absent') || '/' || (select count(*) from pg_policies where tablename = 'objects' and policyname like 'ba_studio_assets_%') || '/' || (select count(*) from public.permissions where key like 'studio.%')")" "true/0/0" \
+  "the 0028 rollback removes the studio permissions; the bucket is KEPT, private and without policies"
 if psqlq -d l34r -f "$HERE/../../rollback/0028_rollback.sql" >"$WORK/l34r.out" 2>&1; then check ran refused "0028 rollback with studio documents"; else
   grep -q "studio documents, templates, brand settings, images or history exist" "$WORK/l34r.out" && check refused refused "0028 rollback refuses while studio documents exist (nothing changed)"; fi
 check "$(count l34r "select (select count(*) > 0 from public.studio_documents)::text || '/' || (to_regprocedure('public.studio_finalize(uuid,integer,jsonb)') is not null)::text")" "true/true" "after the refusal 0028 and its documents are intact"
@@ -1073,6 +1075,8 @@ check "$(hr_race_decide l39r)" "1|approved/0|SHIFT_CHANGE_NOT_PENDING" "approve 
 check "$(hr_race_leave l39r)" "1|1|LEAVE_OVERLAP" "two overlapping leave requests at once: one request"
 stg_db l39c; for m in "$P14" "$P15" "$P16" "$P17" "$P18" "$P19" "$P20" "$P21" "$P22" "$P23" "$P24" "$P25" "$P26" "$P27" "$P28" "$P29" "$P30" "$P31" "$P32" "$P33"; do psqlq -d l39c -f "$MIG/$m.sql" >/dev/null; done
 if psqlq -d l39c -f "$HERE/../../rollback/0033_rollback.sql" >"$WORK/l39c.out" 2>&1; then check ok ok "0033 rollback runs without HR data"; else head -3 "$WORK/l39c.out"; check failed ok "0033 rollback runs without HR data"; fi
+check "$(count l39c "select coalesce((select (not public)::text from storage.buckets where id = 'HR-documents'), 'absent') || '/' || (select count(*) from pg_policies where tablename = 'objects' and policyname like 'ba_hr_documents_%')")" "true/0" \
+  "the 0033 rollback KEEPS the HR-documents bucket, private and without policies"
 fingerprint l39c "$WORK/fp33_after.txt"
 if diff -u "$WORK/fp33_before.txt" "$WORK/fp33_after.txt" > "$WORK/fp33.diff"; then check ok ok "after the 0033 rollback the catalog is identical to 0032"
 else head -20 "$WORK/fp33.diff"; check different ok "after the 0033 rollback the catalog is identical to 0032"; fi
@@ -1169,6 +1173,57 @@ if psqlq -d l42c -f "$HERE/../../rollback/0036_rollback.sql" >"$WORK/l42c.out" 2
 fingerprint l42c "$WORK/fp36_after.txt"
 if diff -u "$WORK/fp36_before.txt" "$WORK/fp36_after.txt" > "$WORK/fp36.diff"; then check ok ok "after the 0036 rollback the catalog is identical to 0035"
 else head -20 "$WORK/fp36.diff"; check different ok "after the 0036 rollback the catalog is identical to 0035"; fi
+
+echo "== Scenario 43: rollbacks 0024 / 0028 / 0033 on the hosted Storage protection — buckets kept, no direct delete, re-apply, guards"
+UPTO24=("$P14" "$P15" "$P16" "$P17" "$P18" "$P19" "$P20" "$P21" "$P22" "$P23" "$P24")
+UPTO28=("${UPTO24[@]}" "$P25" "$P26" "$P27" "$P28")
+UPTO33=("${UPTO28[@]}" "$P29" "$P30" "$P31" "$P32" "$P33")
+hosted_db() { local db="$1"; shift; stg_db "$db"; psqlq -d "$db" -f "$HERE/00_supabase_storage_protect.sql" >/dev/null; for m in "$@"; do psqlq -d "$db" -f "$MIG/$m.sql" >/dev/null; done; }
+rb() { psqlq -d "$1" -f "$HERE/../../rollback/$2_rollback.sql" >"$WORK/$1.rb" 2>&1; }       # $1 db, $2 0024|0028|0033
+bucket_state() { count "$1" "select coalesce((select (not public)::text from storage.buckets where id = '$2'), 'absent') || '/' || (select count(*) from pg_policies where tablename = 'objects' and policyname like '$3') || '/' || (select count(*) from storage.objects where bucket_id = '$2')"; }
+for spec in "0024:Finance-attachments:ba_finance_attachments_%:UPTO24:$P24:bills" "0028:Studio-assets:ba_studio_assets_%:UPTO28:$P28:studio_documents" "0033:HR-documents:ba_hr_documents_%:UPTO33:$P33:shift_patterns"; do
+  IFS=: read -r n bucket pol upto mig tbl <<<"$spec"; declare -n mlist="$upto"
+  db="l43_$n"; hosted_db "$db" "${mlist[@]}"
+  # the platform refuses a direct bucket delete here (what the old rollbacks did)
+  e="$(psqlq -d "$db" -c "begin; delete from storage.buckets where id = '$bucket'; rollback;" 2>&1 || true)"
+  check "$(grep -c 'Direct deletion from storage tables is not allowed' <<<"$e")" 1 "$n: on the hosted protection a direct DELETE on storage.buckets is refused (why the old rollback could not run)"
+  if rb "$db" "$n"; then check ok ok "$n rollback completes on the hosted Storage protection"; else head -3 "$WORK/$db.rb"; check failed ok "$n rollback completes on the hosted Storage protection"; fi
+  check "$(bucket_state "$db" "$bucket" "$pol")/$(count "$db" "select (to_regclass('public.$tbl') is null)::text")" "true/0/0/true" "$n rollback: module removed; bucket $bucket KEPT private, empty, without policies"
+  psqlq -d "$db" -f "$MIG/$mig.sql" >/dev/null && check ok ok "$n re-applies after its rollback (the kept bucket is reused)"
+  check "$(bucket_state "$db" "$bucket" "$pol")/$(count "$db" "select (to_regclass('public.$tbl') is not null)::text")" "true/$( [ "$n" = 0028 ] && echo 2 || echo 3 )/0/true" "$n re-applied: tables and the bucket's policies are back, bucket still private"
+  # refusals: a file in the bucket; a public bucket (each leaves everything as it was)
+  db="l43_${n}f"; hosted_db "$db" "${mlist[@]}"
+  psqlq -d "$db" -c "insert into storage.objects (bucket_id, name) values ('$bucket', 'e2000000-0000-4000-8000-000000000001/x/file.pdf')" >/dev/null
+  if rb "$db" "$n"; then check ran refused "$n rollback with a file"; else grep -q "BA$n rollback: .*file" "$WORK/$db.rb" && check refused refused "$n rollback refuses while files exist in $bucket"; fi
+  check "$(count "$db" "select count(*) from storage.objects where bucket_id = '$bucket'")/$(count "$db" "select (to_regclass('public.$tbl') is not null)::text")" "1/true" "$n: after the refusal the file and the module are intact"
+  db="l43_${n}p"; hosted_db "$db" "${mlist[@]}"
+  psqlq -d "$db" -c "update storage.buckets set public = true where id = '$bucket'" >/dev/null
+  if rb "$db" "$n"; then check ran refused "$n rollback with a public bucket"; else grep -q "BA$n rollback: bucket $bucket is public" "$WORK/$db.rb" && check refused refused "$n rollback refuses while $bucket is public"; fi
+  check "$(count "$db" "select (to_regclass('public.$tbl') is not null)::text")" "true" "$n: after the refusal the module is intact"
+  unset -n mlist
+done
+# 0024: the company's own configuration and history are never dropped silently
+p43() { local db="l43_24$1"; hosted_db "$db" "${UPTO24[@]}"
+  psqlq -d "$db" -c "insert into auth.users (id) values ('e1000000-0000-4000-8000-0000000000fd');
+    insert into public.companies (id, name, created_by) values ('e2000000-0000-4000-8000-0000000000fd', 'Config', 'e1000000-0000-4000-8000-0000000000fd');
+    select public.payables_ensure('e2000000-0000-4000-8000-0000000000fd');" >/dev/null
+  [ -n "$2" ] && psqlq -d "$db" -c "$2" >/dev/null
+  echo "$db"; }
+db="$(p43 init "")"
+if rb "$db" 0024; then check ok ok "0024 rollback: a module that was only initialised (5 default categories, default limits, init history) is removed"; else head -3 "$WORK/$db.rb"; check failed ok "0024 rollback with only the initialisation"; fi
+for c in "custom:insert into public.expense_categories (company_id, name, account_id) select 'e2000000-0000-4000-8000-0000000000fd', 'Gasolina', account_id from public.expense_categories limit 1:custom, renamed or archived expense categories" \
+         "renamed:update public.expense_categories set name = 'Alquiler local' where name = 'Alquiler':custom, renamed or archived expense categories" \
+         "archived:update public.expense_categories set status = 'archived' where name = 'Alquiler':custom, renamed or archived expense categories" \
+         "limit:update public.approval_limits set max_cents = 50000 where role = 'admin':approval limits were customised" \
+         "member:insert into public.approval_limits (company_id, role, max_cents) values ('e2000000-0000-4000-8000-0000000000fd', 'member', 10000):approval limits were customised" \
+         "self:update public.payables_settings set allow_self_approval = true:payables settings were customised" \
+         "history:insert into public.vendors (company_id, name) values ('e2000000-0000-4000-8000-0000000000fd', 'Proveedor borrado'); delete from public.vendors where name = 'Proveedor borrado':payables history exists beyond the initialisation" \
+         "settings:insert into public.payables_events (company_id, entity, entity_id, action) values ('e2000000-0000-4000-8000-0000000000fd', 'payables_settings', 'x', 'updated'):payables history exists beyond the initialisation"; do
+  IFS=: read -r k sql msg <<<"$c"; db="$(p43 "$k" "$sql")"
+  if rb "$db" 0024; then check ran refused "0024 rollback with $k"; else grep -q "BA0024 rollback: $msg" "$WORK/$db.rb" && check refused refused "0024 rollback refuses ($k): $msg"; fi
+  check "$(count "$db" "select (to_regclass('public.payables_events') is not null)::text || '/' || ((select count(*) from public.expense_categories) >= 5)::text || '/' || ((select count(*) from public.payables_events) >= 6)::text || '/' || (select count(*) from storage.buckets where id = 'Finance-attachments')")" "true/true/true/1" \
+    "0024 ($k): after the refusal the categories, history and bucket are intact"
+done
 
 echo "== Scenario 9: a busy table makes 0005 fail fast (lock_timeout) with zero changes"
 base s9

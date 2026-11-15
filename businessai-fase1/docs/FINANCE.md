@@ -115,6 +115,18 @@ documentos fuente; todo efecto contable es un asiento publicado con
 | Gasto aprobado anulado (sin pagos) | Reversión del asiento de aprobación |
 | Borrador, pendiente, devuelto, anulado antes de aprobar | Nada |
 
+
+**Rollback (`supabase/rollback/0024_rollback.sql`):** se niega, sin cambiar nada,
+mientras haya proveedores, facturas, gastos recurrentes, asientos de cuentas por
+pagar o adjuntos; y también mientras exista configuración propia de la empresa
+que no se recuperaría al volver a aplicar 0024: categorías que no sean las 5
+predeterminadas (o una predeterminada renombrada o archivada), límites de
+aprobación o ajustes distintos de los predeterminados, o historial más allá del
+que escribe la inicialización (por ejemplo, un proveedor creado y luego borrado,
+o ajustes guardados). El bucket `Finance-attachments` se conserva privado, vacío
+y sin políticas (Supabase alojado no permite borrarlo por SQL). Pruebas:
+escenarios 30 y 43 de `npm run test:db`.
+
 ## Estados
 
 `borrador → pendiente de aprobación → aprobado ⇄ programado → parcialmente

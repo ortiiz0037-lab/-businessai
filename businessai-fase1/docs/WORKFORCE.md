@@ -103,10 +103,15 @@ Por eso la suite `102_workforce_hr` no toma ese error como prueba de permisos:
 `npm run test:db` ejecuta la suite con y sin él, y una mutación (política de
 borrado permisiva, solo en una base de prueba) demuestra que la suite la detecta.
 
-**Pendiente detectado (no corregido):** los rollbacks `0024`, `0028` y `0033`
-hacen `delete from storage.buckets`; en Supabase alojado el mismo trigger
-(`protect_buckets_delete`) los rechazaría. No se han ejecutado en ningún entorno
-remoto; revisarlos antes de necesitarlos.
+**Rollbacks 0024, 0028 y 0033 (corregido):** antes hacían `delete from
+storage.buckets`, que en Supabase alojado rechaza el mismo trigger
+(`protect_buckets_delete`): el rollback abortaba entero sin cambiar nada (era
+inutilizable, no peligroso). Ahora **conservan el bucket** privado, vacío y sin
+políticas (ningún usuario puede usarlo); se niegan si hay archivos o si el bucket
+es público. Volver a aplicar la migración reutiliza el bucket. Eliminar el
+bucket, si se quiere, es un paso aparte del propietario con la API de Storage
+(`deleteBucket`, con el bucket vacío). El rollback de 0033 se ejecuta solo después
+de revertir 0034, 0035 y 0036. Pruebas: escenario 43 de `npm run test:db`.
 
 ## Modo PIN para tabletas compartidas (0021)
 

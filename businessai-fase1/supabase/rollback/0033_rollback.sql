@@ -4,7 +4,9 @@
 -- exceptions / proposals / versions, suspended or archived employees, direct
 -- supervisors, non-default type or classification, the new leave types,
 -- handled-alert actions or files in HR-documents. Emergency use only.
--- Restores the 0020 / 0022 functions that 0033 replaced, verbatim.
+-- Restores the 0020 / 0022 functions that 0033 replaced, verbatim. Run it only
+-- after rolling back 0034, 0035 and 0036 (reverse order). The HR-documents
+-- bucket is kept, private and without policies (see below).
 begin;
 set local lock_timeout = '5s';
 do $$ begin
@@ -30,12 +32,19 @@ do $$ begin
   if exists (select 1 from storage.objects where bucket_id = 'HR-documents') then
     raise exception 'BA0033 rollback: files exist in HR-documents; nothing was changed.';
   end if;
+  if exists (select 1 from storage.buckets where id = 'HR-documents' and public) then
+    raise exception 'BA0033 rollback: bucket HR-documents is public; nothing was changed.';
+  end if;
 end $$;
 
 drop policy if exists ba_hr_documents_select on storage.objects;
 drop policy if exists ba_hr_documents_insert on storage.objects;
 drop policy if exists ba_hr_documents_delete on storage.objects;
-delete from storage.buckets where id = 'HR-documents';
+-- The HR-documents bucket is KEPT: private (checked above), empty (checked above) and, with the
+-- policies dropped, unusable by any user. Hosted Supabase refuses every direct DELETE on
+-- storage.buckets (trigger protect_buckets_delete, supabase/storage migration
+-- 0055-prevent-direct-deletes); a bucket is removed only through the Storage API
+-- (deleteBucket, once empty), as a separate owner step. Re-applying 0033 reuses it as is.
 
 drop policy if exists ba_employees_select on public.employees;
 create policy ba_employees_select on public.employees for select to authenticated

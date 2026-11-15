@@ -2,7 +2,8 @@
 -- Refuses, changing nothing, while any studio document, company template,
 -- brand setting, uploaded image (row or file in Studio-assets) or studio
 -- history exists. Business documents, clients, payments and company
--- profiles are not touched (0028 only reads them).
+-- profiles are not touched (0028 only reads them). The Studio-assets bucket
+-- is kept, private and without policies (see below).
 begin;
 set local lock_timeout = '5s';
 do $$ begin
@@ -15,10 +16,17 @@ do $$ begin
   if exists (select 1 from storage.objects where bucket_id = 'Studio-assets') then
     raise exception 'BA0028 rollback: files exist in Studio-assets; nothing was changed.';
   end if;
+  if exists (select 1 from storage.buckets where id = 'Studio-assets' and public) then
+    raise exception 'BA0028 rollback: bucket Studio-assets is public; nothing was changed.';
+  end if;
 end $$;
 drop policy if exists ba_studio_assets_select on storage.objects;
 drop policy if exists ba_studio_assets_insert on storage.objects;
-delete from storage.buckets where id = 'Studio-assets';
+-- The Studio-assets bucket is KEPT: private (checked above), empty (checked above) and, with the
+-- policies dropped, unusable by any user. Hosted Supabase refuses every direct DELETE on
+-- storage.buckets (trigger protect_buckets_delete, supabase/storage migration
+-- 0055-prevent-direct-deletes); a bucket is removed only through the Storage API
+-- (deleteBucket, once empty), as a separate owner step. Re-applying 0028 reuses it as is.
 drop function if exists public.studio_register_asset(uuid, text, text, text, integer, integer, integer, text);
 drop function if exists public.studio_save_brand(uuid, jsonb);
 drop function if exists public.studio_archive_template(uuid);

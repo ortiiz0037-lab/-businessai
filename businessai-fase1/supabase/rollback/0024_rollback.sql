@@ -1,9 +1,14 @@
 -- Rollback of 0024 (expenses, vendors, bills, payables). Emergency use only.
 -- Refuses, changing nothing, while any vendor, bill, vendor payment,
 -- attachment or recurring template exists: they are financial records and
--- the ledger holds their entries. A module that was only initialised
--- (settings, limits, default categories) is removed, and the 0023 pieces
--- that 0024 changed are restored exactly (source constraint, line trigger).
+-- the ledger holds their entries. It also refuses while the company's own
+-- configuration or its history exists: categories other than the 5 defaults
+-- (or a default renamed / archived), approval limits or settings other than
+-- the defaults, and any history beyond what initialisation writes (e.g. a
+-- vendor created and deleted, saved settings). Re-applying 0024 would not
+-- bring those back. A module that was only initialised is removed, and the
+-- 0023 pieces that 0024 changed are restored exactly (source constraint,
+-- line trigger). The Finance-attachments bucket is kept (see below).
 begin;
 set local lock_timeout = '5s';
 do $$ begin
@@ -18,11 +23,40 @@ do $$ begin
   if exists (select 1 from storage.objects where bucket_id = 'Finance-attachments') then
     raise exception 'BA0024 rollback: attachment files exist; nothing was changed.';
   end if;
+  if exists (select 1 from storage.buckets where id = 'Finance-attachments' and public) then
+    raise exception 'BA0024 rollback: bucket Finance-attachments is public; nothing was changed.';
+  end if;
+  if to_regclass('public.payables_events') is not null then
+    -- the 5 default categories of payables_ensure (name, English name, account code), active
+    if exists (select 1 from public.expense_categories c left join public.ledger_accounts a on a.id = c.account_id
+               where c.status <> 'active' or (c.name, coalesce(c.name_en, ''), coalesce(a.code, '')) not in (
+                 ('Materiales y costo de ventas', 'Materials and cost of sales', '5000'), ('Gastos generales', 'General expenses', '6000'),
+                 ('Alquiler', 'Rent', '6200'), ('Servicios públicos', 'Utilities', '6300'), ('Equipo (activo)', 'Equipment (asset)', '1500'))) then
+      raise exception 'BA0024 rollback: custom, renamed or archived expense categories exist; nothing was changed.';
+    end if;
+    if exists (select 1 from public.approval_limits where not (role = 'admin' and max_cents is null)) then
+      raise exception 'BA0024 rollback: approval limits were customised; nothing was changed.';
+    end if;
+    if exists (select 1 from public.payables_settings where allow_self_approval) then
+      raise exception 'BA0024 rollback: payables settings were customised; nothing was changed.';
+    end if;
+    -- only what payables_ensure writes: 'initialized' and the 'created' rows of the default categories
+    if exists (select 1 from public.payables_events e
+               where not ((e.entity = 'payables' and e.action = 'initialized')
+                       or (e.entity = 'expense_categories' and e.action = 'created' and e.details ->> 'name' in
+                             ('Materiales y costo de ventas', 'Gastos generales', 'Alquiler', 'Servicios públicos', 'Equipo (activo)')))) then
+      raise exception 'BA0024 rollback: payables history exists beyond the initialisation; nothing was changed.';
+    end if;
+  end if;
 end $$;
 drop policy if exists ba_finance_attachments_select on storage.objects;
 drop policy if exists ba_finance_attachments_insert on storage.objects;
 drop policy if exists ba_finance_attachments_delete on storage.objects;
-delete from storage.buckets where id = 'Finance-attachments';
+-- The Finance-attachments bucket is KEPT: private (checked above), empty (checked above) and, with the
+-- policies dropped, unusable by any user. Hosted Supabase refuses every direct DELETE on
+-- storage.buckets (trigger protect_buckets_delete, supabase/storage migration
+-- 0055-prevent-direct-deletes); a bucket is removed only through the Storage API
+-- (deleteBucket, once empty), as a separate owner step. Re-applying 0024 reuses it as is.
 drop function if exists public.payables_integrity(uuid);
 drop function if exists public.payables_report(uuid, date, date, text);
 drop function if exists public.recurring_generate(uuid);

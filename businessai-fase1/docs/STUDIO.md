@@ -5,7 +5,9 @@ ningún entorno** (ni Staging ni Production). Lleva la marca `STAGING-GATE`.
 Rollback: `supabase/rollback/0028_rollback.sql`. Se niega a ejecutarse si hay
 documentos, plantillas, identidad, imágenes (filas o archivos) o historial.
 Ejecutado sin datos, deja el catálogo idéntico a 0027 (comprobado comparando
-la huella del esquema).
+la huella del esquema). El bucket `Studio-assets` se conserva privado, vacío y
+sin políticas: Supabase alojado no permite borrarlo por SQL; si se quiere
+eliminar, se hace aparte con la API de Storage.
 
 ## Auditoría previa y decisiones
 
