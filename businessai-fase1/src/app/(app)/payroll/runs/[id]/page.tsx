@@ -161,7 +161,7 @@ export default async function PayrollRunPage({ params, searchParams }: { params:
           {run.status === 'approved' && can.approve && (
             <form action={recordPayment} className="grid gap-2 sm:grid-cols-[auto_minmax(0,1fr)_auto]">
               <input type="hidden" name="id" value={id} />
-              <input name="paid_on" type="date" required defaultValue={run.pay_date} aria-label={tr('Fecha del pago', 'Payment date')} className="field" />
+              <input name="paid_on" type="date" required defaultValue={payDefault(run.pay_date)} max={todayPR()} aria-label={tr('Fecha del pago', 'Payment date')} className="field" />
               <input name="reference" maxLength={100} placeholder={tr('Referencia (ej. depósito)', 'Reference (e.g. deposit)')} aria-label={tr('Referencia', 'Reference')} className="field" />
               <button type="submit" className="btn-primary btn-sm">{tr('Registrar pago', 'Record payment')}</button>
             </form>
@@ -199,3 +199,8 @@ export default async function PayrollRunPage({ params, searchParams }: { params:
     </div>
   )
 }
+
+/** Today in Puerto Rico (the database refuses payment dates after it). */
+function todayPR() { return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Puerto_Rico' }).format(new Date()) }
+/** The scheduled pay date, unless it is still in the future: a payment is recorded on or before today. */
+function payDefault(payDate: string) { const t = todayPR(); return payDate > t ? t : payDate }
