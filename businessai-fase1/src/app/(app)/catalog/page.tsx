@@ -9,7 +9,7 @@ import { saveCatalogItem } from '@/app/actions/catalog'
 export const dynamic = 'force-dynamic'
 
 /** Catalog of products and services: search, filters and a new item. */
-export default async function CatalogPage({ searchParams }: { searchParams: Promise<{ q?: string; kind?: string; status?: string; error?: string }> }) {
+export default async function CatalogPage({ searchParams }: { searchParams: Promise<{ q?: string; kind?: string; status?: string; error?: string; code?: string }> }) {
   const p = await searchParams
   const { locale, tr, money, supabase, companyId, access } = await catalogPage()
   if (!access.available || !access.view) {
@@ -39,7 +39,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Prom
         <details className="card p-5" open={items.length === 0 && !q && status === 'active'}>
           <summary className="cursor-pointer font-semibold text-accent">{tr('Nuevo artículo', 'New item')}</summary>
           <form action={saveCatalogItem} className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4" data-testid="catalog-new">
-            <label className="text-sm"><span className="field-label">{tr('Código', 'Code')}</span><input name="code" required maxLength={40} pattern="[A-Za-z0-9][A-Za-z0-9._\/\-]{0,39}" className="field" placeholder="MAT-001" /></label>
+            <label className="text-sm"><span className="field-label">{tr('Código', 'Code')}</span><input name="code" required maxLength={40} pattern="[A-Za-z0-9][A-Za-z0-9._\/\-]{0,39}" className="field" placeholder="MAT-001" defaultValue={/^[A-Za-z0-9][A-Za-z0-9._/-]{0,39}$/.test(p.code ?? '') ? p.code : undefined} /></label>
             <label className="text-sm sm:col-span-1 lg:col-span-2"><span className="field-label">{tr('Nombre', 'Name')}</span><input name="name" required maxLength={160} className="field" /></label>
             <label className="text-sm"><span className="field-label">{tr('Tipo', 'Kind')}</span>
               <select name="kind" className="field" defaultValue="product"><option value="product">{kindName('product', locale)}</option><option value="service">{kindName('service', locale)}</option></select></label>

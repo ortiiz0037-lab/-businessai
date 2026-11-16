@@ -79,7 +79,10 @@ Otra empresa no ve nada (RLS). `verify_0014a.sql` conoce los dos permisos.
 (son datos del negocio). Las líneas de documentos que copiaron un artículo
 conservan su copia.
 
-## Siguiente paso (inventario)
+## Inventario (S7, migración 0043)
 
-Existencias por sucursal, movimientos (entradas, salidas, ajustes) y costo,
-solo para productos con «controlará inventario»; cuentas contables por artículo.
+El catálogo es la base del inventario: costo de adquisición con historial, **variantes** (talla,
+color, modelo, con SKU propio) y **códigos de barras** y alternativos (UPC / EAN validados por
+dígito de control) se gestionan en la ficha del artículo. Un código identifica un solo producto
+de la empresa. Existencias, movimientos, compras, transferencias, conteos y reposición: ver
+`docs/INVENTORY.md`. Los documentos que ya usaron un artículo conservan su copia.

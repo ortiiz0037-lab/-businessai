@@ -10,7 +10,7 @@
 -- writes. It works whatever is applied: tables that may not exist are only
 -- looked up by name (to_regclass / to_regprocedure), never queried.
 --
--- One row per migration (0001–0004 together, then 0005 … 0042):
+-- One row per migration (0001–0004 together, then 0005 … 0043):
 --   status   applied | not applied | PARTIAL — review | n/a
 --   evidence what was measured (counts, flags) — compare it with the
 --            "applied when" column.
@@ -164,6 +164,9 @@ e as (
     -- 0042
     to_regclass('public.bank_connections') is not null as t_bank_connections,
     to_regclass('public.receipt_captures') is not null as t_receipt_captures,
+    -- 0043
+    to_regclass('public.inventory_movements') is not null as t_inventory_movements,
+    to_regclass('public.purchase_orders') is not null as t_purchase_orders,
     -- staging bookkeeping (absent in Production)
     to_regclass('ba_meta.applied_migrations') is not null as t_record,
     to_regclass('ba_meta.environment') is not null        as t_marker
@@ -395,7 +398,12 @@ r(ord, migration, applied_when, status, evidence) as (
     format('bank_connections=%s receipt_captures=%s', t_bank_connections, t_receipt_captures)
   from e
   union all
-  select 38, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
+  select 38, '0043_inventory', 'inventory_movements and purchase_orders exist',
+    case when t_inventory_movements and t_purchase_orders then 'applied' when not (t_inventory_movements or t_purchase_orders) then 'not applied' else 'PARTIAL — review' end,
+    format('inventory_movements=%s purchase_orders=%s', t_inventory_movements, t_purchase_orders)
+  from e
+  union all
+  select 39, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
     case when t_record or t_marker then 'present (staging?)' else 'absent' end,
     format('ba_meta.applied_migrations=%s ba_meta.environment=%s', t_record, t_marker)
   from e

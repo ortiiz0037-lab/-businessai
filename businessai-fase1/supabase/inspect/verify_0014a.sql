@@ -62,8 +62,9 @@ has29 as (select to_regclass('public.assistant_actions') is not null as yes),
 has34 as (select to_regclass('public.payroll_runs') is not null as yes),
 has35 as (select to_regclass('public.crm_opportunities') is not null as yes),
 has39 as (select to_regclass('public.catalog_items') is not null as yes),
+has43 as (select to_regclass('public.inventory_movements') is not null as yes),
 expected_count as (select 18 + (select yes::int from has15) + 2 * (select yes::int from has18) + (select yes::int from has19)
-                          + (select yes::int from has20) + 5 * (select yes::int from has23) + 6 * (select yes::int from has24) + 3 * (select yes::int from has25) + 5 * (select yes::int from has26) + 2 * (select yes::int from has27) + 5 * (select yes::int from has28) + 2 * (select yes::int from has29) + 3 * (select yes::int from has34) + 5 * (select yes::int from has35) + 2 * (select yes::int from has39) as n),
+                          + (select yes::int from has20) + 5 * (select yes::int from has23) + 6 * (select yes::int from has24) + 3 * (select yes::int from has25) + 5 * (select yes::int from has26) + 2 * (select yes::int from has27) + 5 * (select yes::int from has28) + 2 * (select yes::int from has29) + 3 * (select yes::int from has34) + 5 * (select yes::int from has35) + 2 * (select yes::int from has39) + 3 * (select yes::int from has43) as n),
 member_lacks(key) as (values ('billing.manage'), ('clients.delete'), ('company.branding.manage'),
                              ('company.settings.manage'), ('documents.delete'), ('documents.void'),
                              ('members.invite'), ('members.manage'), ('clients.archive'), ('workforce.manage'),
@@ -76,7 +77,7 @@ member_lacks(key) as (values ('billing.manage'), ('clients.delete'), ('company.b
                              ('assistant.audit'),
                              ('payroll.view'), ('payroll.manage'), ('payroll.approve'),
                              ('crm.view_all'), ('crm.configure'), ('branches.manage'),
-                             ('catalog.manage')),
+                             ('catalog.manage'), ('inventory.approve')),
 admin_lacks(key) as (select 'billing.manage' from has15 where yes
                      union all select 'members.manage' from has18 where yes
                      union all select 'accounting.reopen' from has23 where yes

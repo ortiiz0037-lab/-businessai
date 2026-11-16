@@ -35,6 +35,11 @@ base de datos. Nunca incluye claves de servicio, de Stripe ni del proveedor de I
 - **Esqueleto de la fase 1** (`mobile/`): plantilla `capacitor.config.json` (solo HTTPS,
   navegación limitada al dominio de la app) y los pasos de creación; sin dependencias
   instaladas.
+- **Inventario en móvil (S7)**: escáner con la cámara del iPhone / iPad (ZXing en Safari,
+  `BarcodeDetector` donde exista) y con lectores Bluetooth en modo teclado emparejados con el
+  dispositivo; recepción, conteos y transferencias escaneando; probado en iPhone 13 e iPad Mini
+  (sin cámara física en las pruebas). En la app nativa se podrá usar el escáner nativo
+  (AVFoundation / ML Kit) a través del mismo contrato de «código leído».
 - **Recibos con la cámara (S6)**: `/bank/receipts` abre la cámara trasera del iPhone / iPad
   (`capture="environment"`), reduce las fotos grandes a JPEG y las sube a almacenamiento
   privado; probado en iPhone 13 e iPad Mini. Plaid Link en el contenedor nativo

@@ -7,6 +7,8 @@ import { documentTypeName } from '@/components/ui/status'
 import { catalogPage } from '@/lib/catalog-page'
 import { CATALOG_COLUMNS, catalogMessage, kindName, type CatalogItem } from '@/lib/catalog'
 import { saveCatalogItem, setCatalogStatus } from '@/app/actions/catalog'
+import { CatalogInventoryPanel } from '@/components/inventory/catalog-panel'
+import { inventoryMessage } from '@/lib/inventory/labels'
 
 export const dynamic = 'force-dynamic'
 
@@ -32,6 +34,8 @@ export default async function CatalogItemPage({ params, searchParams }: { params
   const done: Record<string, string> = {
     created: tr('Artículo creado.', 'Item created.'), saved: tr('Cambios guardados.', 'Changes saved.'),
     archived: tr('Artículo archivado: ya no se ofrece en documentos nuevos.', 'Item archived: no longer offered in new documents.'), restored: tr('Artículo restaurado.', 'Item restored.'),
+    cost: tr('Costo guardado (queda en el historial).', 'Cost saved (kept in the history).'), variant: tr('Variantes actualizadas.', 'Variants updated.'),
+    barcode: tr('Código añadido.', 'Code added.'), barcode_removed: tr('Código quitado.', 'Code removed.'),
   }
   const action: Record<string, string> = { created: tr('Creado', 'Created'), updated: tr('Editado', 'Edited'), archived: tr('Archivado', 'Archived'), restored: tr('Restaurado', 'Restored') }
   return (
@@ -39,7 +43,7 @@ export default async function CatalogItemPage({ params, searchParams }: { params
       <Link href="/catalog" className="text-sm font-semibold text-muted hover:text-fg">{tr('← Catálogo', '← Catalog')}</Link>
       <PageHeader eyebrow={`${kindName(item.kind, locale)} · ${item.code}`} title={item.name}
         description={archived ? tr('Archivado: los documentos que lo usaron conservan su copia.', 'Archived: documents that used it keep their copy.') : `${money(item.price_cents)} / ${item.unit}`} />
-      <Flash done={p.done ? done[p.done] : null} error={catalogMessage(p.error, locale)} />
+      <Flash done={p.done ? done[p.done] : null} error={/^(barcode_|inventory_)/.test(p.error ?? '') ? inventoryMessage(p.error, locale) : catalogMessage(p.error, locale)} />
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="min-w-0 space-y-6 lg:col-span-2">
           {access.manage && !archived ? (
@@ -63,6 +67,7 @@ export default async function CatalogItemPage({ params, searchParams }: { params
               <div className="sm:col-span-2"><dt className="text-muted">{tr('Descripción', 'Description')}</dt><dd className="text-fg">{item.description || '—'}</dd></div>
             </dl>
           )}
+          <CatalogInventoryPanel supabase={supabase} itemId={item.id} kind={item.kind} tr={tr} manage={access.manage && !archived} money={money} locale={locale} />
           <section className="card space-y-3 p-5" aria-labelledby="used-title" data-testid="catalog-used">
             <h2 id="used-title" className="font-display text-lg font-semibold text-fg">{tr('Dónde se usó', 'Where it was used')}</h2>
             {docs.length === 0

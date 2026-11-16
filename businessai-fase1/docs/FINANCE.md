@@ -262,6 +262,10 @@ la cobranza.
 
 ---
 
+> **S7 (migración 0043):** las órdenes de compra de inventario se vinculan a la factura del
+> proveedor de Gastos (una factura, una orden) sin crear gastos ni pagos. La valoración del
+> inventario (promedio / FIFO) es informativa y **no** se contabiliza; ver `docs/INVENTORY.md` §4.
+
 # Entrega 5 — Conciliación bancaria (migración 0026)
 
 > **S6 (migración 0042):** conexiones bancarias con el proveedor, sincronización,
