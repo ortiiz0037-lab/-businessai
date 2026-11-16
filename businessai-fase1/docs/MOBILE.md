@@ -35,6 +35,10 @@ base de datos. Nunca incluye claves de servicio, de Stripe ni del proveedor de I
 - **Esqueleto de la fase 1** (`mobile/`): plantilla `capacitor.config.json` (solo HTTPS,
   navegación limitada al dominio de la app) y los pasos de creación; sin dependencias
   instaladas.
+- **Recibos con la cámara (S6)**: `/bank/receipts` abre la cámara trasera del iPhone / iPad
+  (`capture="environment"`), reduce las fotos grandes a JPEG y las sube a almacenamiento
+  privado; probado en iPhone 13 e iPad Mini. Plaid Link en el contenedor nativo
+  necesitará el SDK de Plaid o la redirección OAuth (fase 1).
 - **Document Studio en móvil (S5)**: barra de formato fija con botones táctiles, tablas
   con desplazamiento propio y comparación de versiones probadas en iPhone 13 e iPad Mini.
 

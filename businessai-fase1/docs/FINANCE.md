@@ -264,6 +264,10 @@ la cobranza.
 
 # Entrega 5 — Conciliación bancaria (migración 0026)
 
+> **S6 (migración 0042):** conexiones bancarias con el proveedor, sincronización,
+> aplicación de depósitos a facturas con sugerencias confirmadas por una persona,
+> pagos manuales con sucursal y evidencia, y captura de recibos. Ver `docs/BANKING.md`.
+
 **Estado:** borrador local, **no aplicada en ningún entorno**. Marca `STAGING-GATE`.
 
 ## Auditoría previa y decisión de arquitectura

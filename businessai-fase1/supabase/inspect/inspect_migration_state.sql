@@ -10,7 +10,7 @@
 -- writes. It works whatever is applied: tables that may not exist are only
 -- looked up by name (to_regclass / to_regprocedure), never queried.
 --
--- One row per migration (0001–0004 together, then 0005 … 0041):
+-- One row per migration (0001–0004 together, then 0005 … 0042):
 --   status   applied | not applied | PARTIAL — review | n/a
 --   evidence what was measured (counts, flags) — compare it with the
 --            "applied when" column.
@@ -161,6 +161,9 @@ e as (
     -- 0041
     exists (select 1 from pg_constraint where conname = 'studio_brand_body_font_check' and pg_get_constraintdef(oid) like '%playfair%') as c_studio_fonts,
     exists (select 1 from pg_constraint where conname = 'assistant_actions_kind_check' and pg_get_constraintdef(oid) like '%studio_edit%') as k_studio_edit,
+    -- 0042
+    to_regclass('public.bank_connections') is not null as t_bank_connections,
+    to_regclass('public.receipt_captures') is not null as t_receipt_captures,
     -- staging bookkeeping (absent in Production)
     to_regclass('ba_meta.applied_migrations') is not null as t_record,
     to_regclass('ba_meta.environment') is not null        as t_marker
@@ -387,7 +390,12 @@ r(ord, migration, applied_when, status, evidence) as (
     format('studio_brand typefaces=%s studio_edit=%s', c_studio_fonts, k_studio_edit)
   from e
   union all
-  select 37, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
+  select 37, '0042_banking', 'bank_connections and receipt_captures exist',
+    case when t_bank_connections and t_receipt_captures then 'applied' when not (t_bank_connections or t_receipt_captures) then 'not applied' else 'PARTIAL — review' end,
+    format('bank_connections=%s receipt_captures=%s', t_bank_connections, t_receipt_captures)
+  from e
+  union all
+  select 38, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
     case when t_record or t_marker then 'present (staging?)' else 'absent' end,
     format('ba_meta.applied_migrations=%s ba_meta.environment=%s', t_record, t_marker)
   from e

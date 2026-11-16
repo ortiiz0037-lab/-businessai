@@ -13,6 +13,7 @@ import { getLocale } from '@/lib/i18n/server'
 import { translator, type Tr } from '@/lib/i18n/t'
 import { createReceipt, deleteDraft, registerPayment, setDocumentStatus, voidDocument } from '@/app/actions/documents'
 import { DepositAccountField } from '@/components/deposit-account-field'
+import { PaymentExtrasFields } from '@/components/payment-extras-field'
 import { lifecycleAvailable, newIdempotencyKey } from '@/lib/documents/capabilities'
 import { SubmitButton } from '@/components/submit-button'
 import { QuoteConversion } from '@/components/quote-conversion'
@@ -442,6 +443,7 @@ export default async function DocumentDetailPage({
                     <input name="reference" maxLength={120} className="field mt-2" placeholder={tr('Nº de cheque, confirmación…', 'Check no., confirmation…')} />
                   </label>
                   <DepositAccountField supabase={supabase} companyId={companyId} tr={tr} />
+                  <PaymentExtrasFields supabase={supabase} companyId={companyId} tr={tr} />
                 </div>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <label className="flex items-center gap-2 text-sm text-slate-300">

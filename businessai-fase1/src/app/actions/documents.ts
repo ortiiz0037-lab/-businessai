@@ -66,6 +66,8 @@ async function loadContext(supabase: SupabaseClient, user: User, id: string) {
 function errorCode(error: { code?: string; message?: string } | null): string {
   if (!error) return 'save'
   if (error.code === '42501') return 'forbidden'
+  if (/\bBRANCH_INVALID\b/.test(error.message ?? '')) return 'branch_invalid'
+  if (/\bEVIDENCE_INVALID\b/.test(error.message ?? '')) return 'evidence_invalid'
   return lifecycleErrorCode(error) ?? billingErrorCode(error) ?? 'save'
 }
 
@@ -220,6 +222,10 @@ export async function registerPayment(formData: FormData) {
       // 0026: deposited into a bank account (the database checks it is an asset account of the company)
       ...(UUID_RE.test(text(formData, 'deposit_account_id')) ? { deposit_account_id: text(formData, 'deposit_account_id') } : {}),
       ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
+      // 0042: branch, notes and evidence (the database checks they belong to the company)
+      ...(UUID_RE.test(text(formData, 'branch_id')) ? { branch_id: text(formData, 'branch_id') } : {}),
+      ...(UUID_RE.test(text(formData, 'evidence_capture_id')) ? { evidence_capture_id: text(formData, 'evidence_capture_id') } : {}),
+      ...(text(formData, 'notes') ? { notes: text(formData, 'notes').slice(0, 500) } : {}),
     })
     .select(columns)
     .single()

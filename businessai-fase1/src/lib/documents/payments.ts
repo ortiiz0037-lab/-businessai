@@ -1,13 +1,19 @@
 /** Payment form: methods, validation and the stored payment date. */
 
-export const PAYMENT_METHODS = ['cash', 'check', 'card', 'transfer', 'ath_movil', 'other'] as const
-export type PaymentMethod = (typeof PAYMENT_METHODS)[number]
+/** S6: the methods offered when recording a payment. */
+export const PAYMENT_METHODS = ['cash', 'check', 'ath_movil', 'bank_transfer', 'credit_card', 'debit_card', 'other'] as const
+/** Older records may say 'card' or 'transfer': still valid and labelled, no longer offered. */
+const LEGACY_METHODS = ['card', 'transfer'] as const
+export type PaymentMethod = (typeof PAYMENT_METHODS)[number] | (typeof LEGACY_METHODS)[number]
 
 const LABELS: Record<string, { es: string; en: string }> = {
   cash: { es: 'Efectivo', en: 'Cash' },
   check: { es: 'Cheque', en: 'Check' },
   card: { es: 'Tarjeta', en: 'Card' },
   transfer: { es: 'Transferencia', en: 'Bank transfer' },
+  bank_transfer: { es: 'Transferencia bancaria', en: 'Bank transfer' },
+  credit_card: { es: 'Tarjeta de crédito', en: 'Credit card' },
+  debit_card: { es: 'Tarjeta de débito', en: 'Debit card' },
   ath_movil: { es: 'ATH Móvil', en: 'ATH Móvil' },
   other: { es: 'Otro', en: 'Other' },
   manual: { es: 'Registro manual', en: 'Manual entry' },
@@ -42,7 +48,7 @@ export function parsePaymentInput(
   const amount = Math.round(Number(raw) * 100) / 100
   if (!(amount > 0)) return { ok: false, error: 'amount' }
   if (amount > Math.round(balance * 100) / 100) return { ok: false, error: 'over_balance' }
-  if (!(PAYMENT_METHODS as readonly string[]).includes(input.method)) return { ok: false, error: 'method' }
+  if (![...PAYMENT_METHODS, ...LEGACY_METHODS].includes(input.method as PaymentMethod)) return { ok: false, error: 'method' }
   const date = input.date.trim()
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00Z`)) || date > today || date < '2000-01-01') {
     return { ok: false, error: 'date' }
@@ -70,6 +76,8 @@ export const PAYMENT_ERROR_MESSAGE: Record<string, string> = {
   not_found: 'No encontramos esa factura en tu empresa.',
   forbidden: 'Tu rol no permite registrar pagos.',
   save: 'No se pudo registrar el pago. Inténtalo nuevamente.',
+  branch_invalid: 'La sucursal no es válida o está archivada.',
+  evidence_invalid: 'La evidencia no pertenece a esta empresa o fue descartada.',
 }
 
 export const PAYMENT_ERROR_MESSAGE_EN: Record<string, string> = {
@@ -86,6 +94,8 @@ export const PAYMENT_ERROR_MESSAGE_EN: Record<string, string> = {
   not_found: 'We could not find that invoice in your company.',
   forbidden: 'Your role cannot record payments.',
   save: 'The payment could not be recorded. Please try again.',
+  branch_invalid: 'The branch is not valid or is archived.',
+  evidence_invalid: 'The evidence does not belong to this company or was discarded.',
 }
 
 /**

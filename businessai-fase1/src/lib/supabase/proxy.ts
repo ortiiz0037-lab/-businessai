@@ -8,7 +8,7 @@ const PUBLIC_EXACT = ['/', '/manifest.webmanifest']
 
 // Rutas llamadas por servicios externos sin sesión de usuario. Cada una se
 // autentica por su cuenta (Stripe: verificación de la firma `stripe-signature`).
-const MACHINE_ROUTES = ['/api/stripe/webhook']
+const MACHINE_ROUTES = ['/api/stripe/webhook', '/api/banking/webhooks/plaid']
 
 // `?lang=es|en` on any page (e.g. coming from the public site) is remembered
 // for the app in the same cookie the language selector writes.

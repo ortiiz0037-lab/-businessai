@@ -6,6 +6,9 @@ export function BankNav({ tr, current }: { tr: Tr; current: string }) {
   const items = [
     ['/bank', tr('Resumen', 'Overview')],
     ['/bank/accounts', tr('Cuentas', 'Accounts')],
+    ['/bank/connections', tr('Conexiones', 'Connections')],
+    ['/bank/deposits', tr('Depósitos y pagos', 'Deposits and payments')],
+    ['/bank/receipts', tr('Recibos', 'Receipts')],
     ['/bank/import', tr('Importar estado', 'Import statement')],
     ['/bank/reconciliations', tr('Conciliaciones', 'Reconciliations')],
     ['/bank/reports', tr('Informes', 'Reports')],

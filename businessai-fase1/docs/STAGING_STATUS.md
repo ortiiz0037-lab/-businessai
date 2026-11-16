@@ -134,5 +134,6 @@ Errores corregidos gracias a esta prueba:
    2026-11-15, run #38), 0037 (Studio por sucursal, no aplicada), 0038
    (Studio · cobros y pagos, no aplicada; necesita 0037), 0039 (catálogo de
    productos y servicios, no aplicada), 0040 (asistente S4, no aplicada; necesita
-   0038) y 0041 (Document Studio avanzado, no aplicada; necesita 0040): cada uno
-   necesita autorización.
+   0038), 0041 (Document Studio avanzado, no aplicada; necesita 0040) y 0042
+   (banca, pagos y recibos, no aplicada; necesita 0035 y 0030; añade el bucket
+   privado `Banking-evidence`): cada uno necesita autorización.

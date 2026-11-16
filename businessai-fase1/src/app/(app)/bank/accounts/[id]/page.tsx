@@ -9,6 +9,8 @@ import { bankMessage, reasonLabel, type BankAccount, type BankLine, type Suggest
 import { isoDay } from '@/lib/finance/ledger'
 import { sumCents } from '@/lib/finance/money'
 import { autoMatch } from '@/app/actions/bank'
+import { AccountBranchForm } from '@/components/banking/account-branch-form'
+import { bankingMessage } from '@/lib/banking/messages'
 
 export const dynamic = 'force-dynamic'
 const STATUSES = ['unmatched', 'matched', 'excluded']
@@ -41,6 +43,7 @@ export default async function BankAccountLinesPage({ params, searchParams }: { p
     already_imported: tr('Ese archivo ya se había importado en esta cuenta: no se añadió nada.', 'That file was already imported into this account: nothing was added.'),
     auto_matched: tr(`Emparejamiento automático: ${sp.n ?? 0} coincidencias exactas confirmadas. Las ambiguas quedan para revisión.`, `Auto-match: ${sp.n ?? 0} exact matches confirmed. Ambiguous ones are left for review.`),
   }
+  done.branch_set = tr('Sucursal asignada.', 'Branch assigned.')
   const qs = (s: string) => new URLSearchParams({ ...(s ? { status: s } : {}), from, to }).toString()
   return (
     <div className="space-y-6">
@@ -49,7 +52,8 @@ export default async function BankAccountLinesPage({ params, searchParams }: { p
           <form action={autoMatch}><input type="hidden" name="bank_account_id" value={id} /><SubmitButton className="w-full sm:w-auto">{tr('Emparejar exactos', 'Match exact ones')}</SubmitButton></form>
           <Link href={`/bank/import?account=${id}`} className="btn-secondary">{tr('Importar', 'Import')}</Link></> : undefined} />
       <BankNav tr={tr} current="/bank/accounts" />
-      <Flash done={sp.done ? done[sp.done] : null} error={bankMessage(sp.error, locale)} />
+      <Flash done={sp.done ? done[sp.done] : null} error={sp.error === 'branch_invalid' ? bankingMessage(sp.error, locale) : bankMessage(sp.error, locale)} />
+      {access.manage && <AccountBranchForm supabase={supabase} companyId={companyId} accountId={id} tr={tr} />}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
         <StatCard icon="alert" tone="warning" label={tr('Pendientes en el periodo', 'Pending in period')} value={String(pending.length)} hint={money(sumCents(pending.map((l) => l.amount_cents)))} />
         <StatCard icon="check" tone="success" label={tr('Emparejados', 'Matched')} value={String(lines.filter((l) => l.status === 'matched').length)} />
