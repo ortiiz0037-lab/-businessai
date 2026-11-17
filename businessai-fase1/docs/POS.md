@@ -1,5 +1,12 @@
 # Punto de venta e integraciones de cajas (S8)
 
+> **S9:** la venta POS se verificó en la cadena completa de la plataforma (`supabase/tests/local/126_platform_flows.test.sql`):
+> producto con código de barras → inventario inicial → venta escaneada (descuenta una vez, también al reenviarla) →
+> devolución con su movimiento `customer_return` → asientos cuadrados; mercancía comprada y recibida vendida en el POS.
+> Las rutas de máquina (`/api/pos/webhooks/*`, `/api/pos/bridge`, `/api/pos/recover`) rechazan entregas sin firma,
+> token o secreto en la prueba pública de navegador. La prueba autenticada del navegador sigue sin ejecutarse
+> (sin PostgREST en este entorno).
+
 **Estado:** implementado y probado **en local** (base de datos de prueba y pruebas unitarias con
 dobles controlados). La migración `0044_pos.sql` es un **borrador** (`STAGING-GATE: approval
 required`): no está aplicada en Staging ni en Production. **Ninguna integración externa se ha

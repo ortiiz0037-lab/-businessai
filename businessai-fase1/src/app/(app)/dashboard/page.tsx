@@ -10,6 +10,7 @@ import { APP } from '@/lib/i18n/app'
 import { getLocale } from '@/lib/i18n/server'
 import { EmptyState } from '@/components/ui/page'
 import { DashboardView } from '@/components/dashboard/dashboard-view'
+import { OnboardingChecklist } from '@/components/dashboard/onboarding-checklist'
 
 export const dynamic = 'force-dynamic'
 
@@ -68,6 +69,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
           {locale === 'en' ? 'Your password was updated.' : 'Tu contraseña se actualizó.'}
         </p>
       )}
+      <OnboardingChecklist supabase={supabase} user={user} companyId={active.companyId} locale={locale} />
       <DashboardView locale={locale} m={metrics} companyName={active.companyName} firstName={firstName}
         billing={data.billing} usage={data.usage} />
     </>

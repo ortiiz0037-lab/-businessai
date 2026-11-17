@@ -103,6 +103,7 @@ ORDER=(
   0042_banking
   0043_inventory
   0044_pos
+  0045_platform_stabilization
 )
 EXPECTED_VERIFY="10,0,2,0,f,0,2,3,t,t,t,"
 

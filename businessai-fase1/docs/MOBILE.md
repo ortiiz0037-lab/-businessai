@@ -102,12 +102,26 @@ migración nueva y cuentas de Apple y Google: **no implementado**.
 
 | Requisito | Estado |
 |---|---|
-| Textos de permisos: micrófono (`NSMicrophoneUsageDescription`), reconocimiento de voz (`NSSpeechRecognitionUsageDescription`), cámara para adjuntos; Android `RECORD_AUDIO`, `CAMERA` | Por redactar al crear los proyectos nativos |
+| Textos de permisos: micrófono, reconocimiento de voz, cámara (escáner y recibos), fotos; Android `RECORD_AUDIO`, `CAMERA` | **Redactados** en `mobile/permissions.md` (S9); se copian al crear los proyectos nativos |
 | Iconos PNG (1024 × 1024 sin transparencia para iOS; adaptativos para Android) y pantallas de inicio | **Pendiente** (hoy solo hay SVG) |
-| Eliminación de la cuenta desde la app (App Store 5.1.1(v)) | **Pendiente**: no existe aún un flujo de eliminación de cuenta de usuario |
+| Eliminación de la cuenta desde la app (App Store 5.1.1(v), Google Play) | **Hecho (S9, 0045)**: «Mi cuenta» (`/settings/account`) inicia la solicitud (cancelable mientras esté pendiente); un operador la completa con `scripts/ops/complete-account-deletions.mjs` (clave de servicio solo en su equipo) en ≤ 30 días. Los registros financieros de las empresas se conservan (obligación legal); el único propietario de una empresa debe transferirla o cerrarla antes. Probado en `126_platform_flows.test.sql` §H |
 | Etiquetas de privacidad / Data safety (datos financieros, de contacto, audio no almacenado) | Por completar con el inventario de datos |
 | Contenido generado por IA: el asistente lo indica, cita sus fuentes y no actúa sin confirmación | Hecho |
 | Suscripciones: hoy se pagan con Stripe en la web. Apple puede exigir compra dentro de la app (3.1.1) o permitir el modelo de cuenta empresarial | **Decisión del propietario** antes de publicar |
+
+### Estado S9
+
+| Elemento | Estado |
+|---|---|
+| Configuración Capacitor (`mobile/capacitor.config.json`) | Plantilla revisada: solo HTTPS, navegación limitada al dominio, sin depuración Android, splash `#070b14`. **Falta el dominio autorizado** |
+| Proyectos iOS / Android | **No creados** (requiere autorización, cuentas de desarrollador y Xcode / Android Studio: no disponibles en este entorno) |
+| Iconos y splash | **Pendiente**: solo `public/icon.svg`; faltan PNG 1024 px y adaptativos (no se generan aquí para no inventar arte final) |
+| Enlaces universales / App Links | Plantillas en `mobile/well-known/` (`apple-app-site-association`, `assetlinks.json`) con `TEAM_ID` y huella del certificado por completar; no se publican hasta tener los valores reales |
+| Cámara y escáner | En la web: ZXing / BarcodeDetector y lectores HID (S7/S8); no probados con cámara física |
+| Notificaciones | No implementadas (fase 2) |
+| Eliminación de cuenta | Hecha (ver arriba) |
+| Suscripciones en tiendas | **Decisión del propietario** (Stripe web vs. compra dentro de la app 3.1.1 / Google Play Billing) |
+| Publicación | **No publicada** en App Store ni Google Play |
 
 ## 8. Plan de fases
 

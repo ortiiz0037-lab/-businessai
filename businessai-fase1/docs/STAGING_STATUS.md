@@ -141,3 +141,48 @@ Errores corregidos gracias a esta prueba:
    añade cuatro permisos, matriz 153; no requiere ningún bucket ni variable para
    aplicarse): cada uno necesita autorización. Ninguna variable `POS_*` /
    `SQUARE_*` está configurada en Vercel.
+
+## 8. Plan ordenado de migraciones 0037–0045 (S9) — NADA aplicado
+
+Estado verificado en la rama: Staging tiene 0001–0036 (0036 aplicada el 2026-11-15, run #38);
+**0037–0045 son borradores retenidos** (`STAGING-GATE`), sin aplicar en Staging ni en Production.
+Production no tiene ninguna migración posterior a la base inspeccionada (ver `supabase/RUNBOOK.md`).
+
+| Orden | Migración | Depende de | Objetos nuevos | Permisos (matriz) | Bucket | Rollback | Con datos |
+|---|---|---|---|---|---|---|---|
+| 1 | 0037_studio_branches | 0028, 0035 | `studio_documents.branch_id`, `studio_set_branch` | — | — | se niega si algún documento tiene sucursal | aditiva |
+| 2 | 0038_studio_finance | 0037 | tipos de carta / comprobante, vínculos a Gastos | — | — | se niega si hay cartas, comprobantes o vínculos | aditiva |
+| 3 | 0039_catalog | 0024, 0035 | `catalog_items`, `catalog_events` | +5 (135) | — | se niega si hay artículos | aditiva |
+| 4 | 0040_assistant_finance | 0035, 0038 | tipos de propuesta del asistente | — | — | se niega si existen esas propuestas | aditiva |
+| 5 | 0041_studio_advanced | 0040 | tipografías y edición asistida | — | — | se niega si se usan | aditiva |
+| 6 | 0042_banking | 0024, 0026, 0030, 0035 | conexiones, sincronizaciones, depósitos, recibos | — | **Banking-evidence** (privado, 3 políticas) | se niega con datos o archivos | aditiva; `payments` gana columnas nullable |
+| 7 | 0043_inventory | 0024, 0035, 0039 | inventario completo | +8 (143) | — | se niega con datos | aditiva; `catalog_items.cost_cents` nullable |
+| 8 | 0044_pos | 0023, 0030, 0035, 0042, 0043 | punto de venta e integraciones | +10 (153) | — | se niega con datos | amplía dos restricciones de origen (sin borrar valores existentes) |
+| 9 | 0045_platform_stabilization | 0003, 0015 | instantánea al emitir, solicitudes de eliminación de cuenta, revocación de permisos sobrantes | — | — | sin datos pendientes; las instantáneas escritas se conservan | no reescribe documentos existentes |
+
+Recuento de la matriz `role_permissions`: 130 (hasta 0036) → 135 (0039) → 143 (0043) → 153 (0044); 0045 no añade permisos. `verify_0014a.sql`
+calcula el esperado según lo aplicado.
+
+**Compatibilidad entre versiones:** cada migración es aditiva y la aplicación detecta lo que falta
+(probado con `staging-shape`: las pantallas de un módulo sin su migración muestran «no está activado»
+en lugar de fallar). Desplegar el código de S9 sobre Staging con 0001–0036 es seguro: los módulos
+0037+ quedan desactivados hasta aplicar su migración.
+
+**Prueba local del plan completo:** `npm run test:db` aplica 0001…0045 en orden sobre una base vacía
+(escenario 52), ejecuta 29 suites de módulos actuales juntas, la suite de flujos integrales y el
+rollback de 0045 con huella idéntica. Cada borrador además tiene su escenario propio (45–52) con
+aplicación doble (idempotencia), rollback con huella idéntica y rechazo del rollback con datos.
+
+### Procedimiento para una futura prueba controlada en Staging (requiere autorización aparte)
+
+1. **Autorización explícita** del propietario que nombre las migraciones exactas (`APPROVED_DRAFTS=0037_studio_branches,…`).
+2. Copia de seguridad / punto de restauración de Staging (panel de Supabase) y anotar el run.
+3. `staging:check` (solo lectura): `inspect_migration_state.sql` debe mostrar 0001–0036 aplicadas y 0037–0045 «not applied».
+4. Ensayo local idéntico: `npm run staging:rehearse` y `npm run test:db` en verde con el mismo commit.
+5. Aplicar **de una en una** en el orden de la tabla con el workflow `staging.yml` (entrada `approved_drafts`), nunca a mano.
+6. Tras cada una: `verify_0014a.sql` = OK, recuento de la matriz esperado, `inspect_migration_state` = applied,
+   y la suite de su módulo en transacción revertida (como `verify-0036.sh`).
+7. Para 0042: comprobar que el bucket `Banking-evidence` es privado y tiene 3 políticas.
+8. Configurar variables solo después (nombres en `docs/POS.md` §9, `docs/BANKING.md`), nunca antes de la migración.
+9. Prueba de humo en la Preview con usuarios de prueba de Staging: crear empresa, factura, venta POS, conteo.
+10. Si una verificación falla: detener; el rollback de esa migración es una decisión aparte (no automática).

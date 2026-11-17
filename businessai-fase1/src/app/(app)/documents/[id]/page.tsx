@@ -258,8 +258,11 @@ export default async function DocumentDetailPage({
       : Promise.resolve({ data: [] as PaymentRow[] }),
   ])
 
-  const clientData = client as ClientRow | null
-  const companyData = company as CompanyRow | null
+  // Issued documents show the client and issuer as they were when issued (0045 snapshot);
+  // drafts and documents issued before 0045 show the current data.
+  const issued = (meta.issued ?? null) as { client?: Partial<ClientRow> | null; company?: Partial<CompanyRow> | null } | null
+  const clientData = (issued?.client ? { ...(client as ClientRow | null ?? {}), ...issued.client } : client) as ClientRow | null
+  const companyData = (issued?.company ? { ...(company as CompanyRow | null ?? {}), ...issued.company } : company) as CompanyRow | null
   const payments = (paymentRows ?? []) as PaymentRow[]
 
   // Receipts already issued for these payments.

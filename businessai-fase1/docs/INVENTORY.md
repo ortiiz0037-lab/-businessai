@@ -1,5 +1,9 @@
 # Inventario, escáneres de código de barras y reposición inteligente (S7)
 
+> **S9:** compra → aprobación → recepción → existencias → venta POS de lo recibido → factura del proveedor vinculada
+> una sola vez → aprobada y pagada desde el banco (asientos `bill` y `bill_payment`), y el cheque conciliado: probado en
+> `126_platform_flows.test.sql` §C–D. Alcance por sucursal verificado de nuevo (existencias, órdenes, cajas).
+
 **Estado:** implementado y probado **en local** (base de datos de prueba, navegador con la pila
 local). La migración `0043_inventory.sql` es un **borrador** (`STAGING-GATE: approval required`):
 no está aplicada en Staging ni en Production.

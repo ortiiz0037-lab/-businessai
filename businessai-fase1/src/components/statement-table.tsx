@@ -15,7 +15,8 @@ export function StatementTable({ tr, lines, money, curLabel, baseLabel, ledgerFr
   const hasBase = baseLabel !== null
   return (
     <div className="card overflow-hidden">
-      <table className="w-full text-sm">
+      <div className="overflow-x-auto">
+      <table className="w-full min-w-[320px] text-sm">
         <thead>
           <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-muted">
             <th scope="col" className="px-4 py-2.5">{tr('Concepto', 'Line')}</th>
@@ -49,6 +50,7 @@ export function StatementTable({ tr, lines, money, curLabel, baseLabel, ledgerFr
           })}
         </tbody>
       </table>
+      </div>
     </div>
   )
 }

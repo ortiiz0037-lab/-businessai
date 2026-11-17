@@ -638,3 +638,17 @@ Misma pila local (`startStack`), base desechable. Cada paso se confirma en la ba
 ## Nómina (0034)
 
 La nómina publica en este mismo libro mayor (fuentes `payroll`, `payroll_payment`, `payroll_void`, `payroll_payment_void`): gasto 6100 contra salarios por pagar 2200 y deducciones por pagar 2210; el pago registrado salda 2200 contra 1010. Ver [PAYROLL.md](PAYROLL.md).
+
+
+## S9 · Verificación integral de Finanzas (migración 0045)
+
+- **Factura emitida con sus datos históricos**: además de líneas e importes (ya inmutables desde 0015), el
+  cliente y el emisor se guardan al emitir (`documents.metadata.issued`, 0045). Renombrar al cliente o cambiar
+  el perfil de la empresa ya no altera facturas pasadas. Las facturas emitidas antes de 0045 siguen mostrando
+  los datos actuales (no se reescriben).
+- **Pago → Cuentas por cobrar → banco → conciliación**: depósito importado aplicado a la factura (pago,
+  factura pagada, línea bancaria emparejada); un depósito conciliado no se aplica dos veces.
+- **Gastos**: factura del proveedor guardada dos veces con la misma clave = una sola; aprobada → un asiento;
+  pagada dos veces con la misma clave = un pago; el cheque se concilia con su línea del libro.
+- **Informes del libro mayor**: todos los asientos de la empresa cuadran (balanza = 0) y Cuentas por cobrar en el
+  libro coincide con la factura abierta. Probado en `126_platform_flows.test.sql` §A, C, D, F.

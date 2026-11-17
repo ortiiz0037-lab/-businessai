@@ -66,7 +66,8 @@ const PROTECTED = ['/dashboard', '/documents', '/documents/new', '/payments', '/
   '/receivables', '/receivables/aging', '/receivables/reports', '/receivables/settings',
   '/bank', '/bank/accounts', '/bank/import', '/bank/reconciliations', '/bank/reports', '/bank/export?kind=lines',
   '/finance', '/finance/income-statement', '/finance/balance-sheet', '/finance/cash-flow', '/finance/budgets', '/finance/projections', '/finance/export?report=income&format=csv',
-  '/studio', '/studio/new', '/studio/templates', '/studio/brand', '/studio/00000000-0000-4000-8000-000000000000/pdf', '/studio/image?key=logo', '/assistant', '/assistant?c=00000000-0000-4000-8000-000000000000', '/assistant/insights']
+  '/studio', '/studio/new', '/studio/templates', '/studio/brand', '/studio/00000000-0000-4000-8000-000000000000/pdf', '/studio/image?key=logo', '/assistant', '/assistant?c=00000000-0000-4000-8000-000000000000', '/assistant/insights',
+  '/pos', '/pos/register', '/pos/sales', '/pos/shifts', '/pos/reports', '/pos/integrations', '/pos/settings', '/settings/account']
 
 try {
   await waitForServer()
@@ -109,6 +110,19 @@ try {
   check(await page.locator('meta[name="referrer"][content="no-referrer"]').count() === 1, 'the employee link page sends no referrer')
   const csv = await fetch(`${BASE}/api/workforce/report?from=2026-01-01&to=2026-01-07`, { redirect: 'manual' })
   check(csv.status === 401 || csv.status === 307 || csv.status === 302, `the CSV export refuses anonymous requests (${csv.status})`)
+  // POS machine routes (S8): without the provider's signature / the bridge token / the cron secret nothing is accepted
+  for (const prov of ['square', 'clover', 'shopify', 'lightspeed_x']) {
+    const r = await fetch(`${BASE}/api/pos/webhooks/${prov}`, { method: 'POST', body: '{"type":"order.updated"}', headers: { 'content-type': 'application/json' } })
+    check(r.status === 503 || r.status === 401, `the ${prov} webhook refuses an unsigned delivery (${r.status})`)
+  }
+  const unknownProv = await fetch(`${BASE}/api/pos/webhooks/acme`, { method: 'POST', body: '{}', redirect: 'manual' })
+  check([307, 404].includes(unknownProv.status), `an unknown POS provider is not a machine route: sent to sign-in (${unknownProv.status})`)
+  const bridge = await fetch(`${BASE}/api/pos/bridge`, { method: 'POST', body: '{"sales":[]}', headers: { authorization: 'Bearer bapos_' + '0'.repeat(64) } })
+  check(bridge.status === 503 || bridge.status === 401, `the POS bridge refuses an unknown token (${bridge.status})`)
+  const recover = await fetch(`${BASE}/api/pos/recover`, { method: 'POST' })
+  check(recover.status === 401, `the POS recovery job needs its secret (${recover.status})`)
+  const sq = await fetch(`${BASE}/api/pos/oauth/square/start`, { redirect: 'manual' })
+  check([302, 303, 307].includes(sq.status) && !String(sq.headers.get('location')).includes('squareup'), `Square OAuth is not offered while it is not configured (${sq.status} → ${sq.headers.get('location')})`)
   // Shared tablet: public, but without an activation it shows no form and no data.
   await page.goto(`${BASE}/kiosk?lang=es`)
   check(await page.getByText('Tableta no activada').count() > 0 && await page.locator('input[name="pin"]').count() === 0,

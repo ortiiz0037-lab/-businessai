@@ -1,5 +1,20 @@
 # Asistente BusinessAI (Entrega 8)
 
+## S9. Verificación de la plataforma (prevalece sobre el texto de abajo)
+
+- **Sin proveedor no hay respuestas**: sin `ANTHROPIC_API_KEY` (y la clave de servidor `ASSISTANT_SERVER_KEYS`)
+  el asistente queda cerrado y lo dice; no se simula ninguna respuesta (`src/lib/assistant/config.ts`, `copy.ts`).
+- **Credenciales**: solo en el servidor; nunca en el navegador ni en los registros (prueba pública
+  «no secret keys in the public HTML» en `e2e/public.e2e.mjs`).
+- **Permisos, límites, consumo y confirmaciones**: verificados sobre la pila completa 0001–0045 con las
+  suites 98 (motor: firmas del servidor, presupuestos, acciones idempotentes), 100 (insights),
+  101 (resumen bancario con permisos) y 116 (propuestas de Studio que requieren confirmación) — todas en
+  verde en el escenario 52. La suite 96 (etapa 0029) se ejecuta en su propio escenario: falla sobre la
+  pila completa porque 0030 cerró `assistant_consume` a los usuarios (cambio intencional), no por un error.
+- **Costos**: no se hizo ninguna llamada pagada al proveedor en S9. Modelos registrados actuales
+  (`src/lib/intelligence/registry.ts`). El costo real depende del uso y del plan del proveedor.
+- Estado: **implementado; pendiente de proveedor real** (clave de API).
+
 Asistente central integrado en toda la plataforma: botón flotante en cada pantalla
 de la aplicación, centro de conversaciones en `/assistant`, respuestas con datos
 reales y autorizados, propuestas de borradores con confirmación explícita, voz

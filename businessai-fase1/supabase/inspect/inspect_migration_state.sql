@@ -10,7 +10,7 @@
 -- writes. It works whatever is applied: tables that may not exist are only
 -- looked up by name (to_regclass / to_regprocedure), never queried.
 --
--- One row per migration (0001–0004 together, then 0005 … 0044):
+-- One row per migration (0001–0004 together, then 0005 … 0045):
 --   status   applied | not applied | PARTIAL — review | n/a
 --   evidence what was measured (counts, flags) — compare it with the
 --            "applied when" column.
@@ -170,6 +170,8 @@ e as (
     -- 0044
     to_regclass('public.pos_sales') is not null as t_pos_sales,
     to_regclass('public.pos_shifts') is not null as t_pos_shifts,
+    -- 0045
+    exists (select 1 from pg_trigger where tgname = 'ba_snapshot_document_issue') as t_doc_snapshot,
     -- staging bookkeeping (absent in Production)
     to_regclass('ba_meta.applied_migrations') is not null as t_record,
     to_regclass('ba_meta.environment') is not null        as t_marker
@@ -411,7 +413,11 @@ r(ord, migration, applied_when, status, evidence) as (
     format('pos_sales=%s pos_shifts=%s', t_pos_sales, t_pos_shifts)
   from e
   union all
-  select 40, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
+  select 40, '0045_platform_stabilization', 'trigger ba_snapshot_document_issue exists',
+    case when t_doc_snapshot then 'applied' else 'not applied' end, format('ba_snapshot_document_issue=%s', t_doc_snapshot)
+  from e
+  union all
+  select 41, 'staging bookkeeping (ba_meta)', 'only in Staging: Production should show false/false',
     case when t_record or t_marker then 'present (staging?)' else 'absent' end,
     format('ba_meta.applied_migrations=%s ba_meta.environment=%s', t_record, t_marker)
   from e

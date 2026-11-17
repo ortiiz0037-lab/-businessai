@@ -25,7 +25,7 @@ export function RuleProposals({ tr, locale, proposals, current, title, back, hig
             <li key={p.id} className={`rounded-xl border p-4 ${highlight === p.id ? 'border-electric/60 bg-brand/10' : 'border-line'}`}>
               <p className="font-semibold text-fg">{title(p)}</p>
               <p className="text-xs text-muted">{tr('Propuesto por', 'Proposed by')} {who(p.proposed_by)} · {date(p.proposed_at)}{p.note ? ` · “${p.note}”` : ''}</p>
-              <table className="mt-2 w-full text-sm">
+              <div className="overflow-x-auto"><table className="mt-2 w-full min-w-[300px] text-sm">
                 <thead><tr className="text-left text-xs text-muted"><th className="py-1">{tr('Regla', 'Rule')}</th><th>{tr('Actual', 'Current')}</th><th>{tr('Propuesto', 'Proposed')}</th></tr></thead>
                 <tbody>
                   {Object.entries(p.changes).map(([k, v]) => (
@@ -37,7 +37,7 @@ export function RuleProposals({ tr, locale, proposals, current, title, back, hig
                   ))}
                   {Object.keys(p.changes).length === 0 && <tr><td colSpan={3} className="py-1 text-muted">{tr('Quitar todas las excepciones (vuelve a heredar).', 'Remove every exception (inherit again).')}</td></tr>}
                 </tbody>
-              </table>
+              </table></div>
               <div className="mt-3 flex flex-wrap items-center gap-3">
                 <form action={applyRuleChange} className="flex flex-wrap items-center gap-2">
                   <input type="hidden" name="id" value={p.id} /><input type="hidden" name="back" value={back} />
