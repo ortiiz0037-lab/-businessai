@@ -201,8 +201,16 @@ Nada de esto se ha ejecutado en Staging.
    marca `staging` OK, `ba_meta.applied_migrations` = **34** (última `0036_workforce_access_check`), 154 tablas,
    989 filas (6 usuarios, 3 empresas); `staging-0036-20261117T201423Z.dump` 1 626 699 bytes, sha256
    `86fc51bc…aff87a`; `pg_restore --list` legible, 154 entradas de datos; restauración real con las **154 tablas
-   con el mismo número de filas** y registro 34. **No conservado** (falta el secreto de cifrado: acción del
-   propietario). Copia de la plataforma: no accesible sin un token de Supabase (acción del propietario).
+   con el mismo número de filas** y registro 34. No conservado (aún no existía el secreto de cifrado).
+   **Copia conservada (run 44177356133, 2026-11-17 21:13 UTC, commit `e9e512e`):** secreto presente (sin mostrar su
+   valor), 34 registradas, 154 tablas / 990 filas, restauración con las 154 tablas idénticas;
+   `staging-0036-20261117T211305Z.dump` 1 626 726 bytes, sha256 `f1a218e7…490134`; cifrado AES-256-CBC (PBKDF2
+   600 000) y descifrado con el mismo sha256; `staging-0036-20261117T211305Z.dump.enc` 1 626 752 bytes, sha256
+   `d20edf2c…1c061c`; artefacto `staging-backup-encrypted` (id 14369963433, 1 628 920 bytes, caduca el
+   2026-12-17). Descifrar: `openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -in <archivo>.enc -out staging.dump`;
+   restaurar: `pg_restore --no-owner --no-acl -d <base vacía> staging.dump`.
+   Copia de la plataforma Supabase: no consultable desde aquí (requiere un token de cuenta, que también daría
+   acceso a Production).
 4. `staging:check` (solo lectura, `DRY_RUN=1 STATUS=1 VERIFY_0014A=1`). Salida esperada **exacta**:
    `No pending migrations.` · `Held (draft not approved …): 0037_studio_branches … 0045_platform_stabilization` ·
    34 filas `✓` · `verify_after_migrations: 10,0,2,0,f,0,2,3,t,t,t,` · `verify_0014a: OK`.
