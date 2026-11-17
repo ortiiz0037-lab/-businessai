@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { fetchAllPages, complete } from '@/lib/supabase/paged'
 import { PageHeader, StatCard, EmptyState } from '@/components/ui/page'
 import { CrmNav, NoCrmAccess } from '@/components/crm-nav'
 import { crmPage, loadMembers, memberName } from '@/lib/crm/page'
@@ -25,7 +26,7 @@ export default async function CrmPage() {
       .eq('status', 'pending').not('due_at', 'is', null).lte('due_at', weekAhead).order('due_at').limit(40),
     supabase.from('crm_opportunities').select('id, name, amount_cents, status, updated_at, client_id').eq('company_id', companyId).is('archived_at', null)
       .order('updated_at', { ascending: false }).limit(6),
-    supabase.from('crm_opportunities').select('amount_cents').eq('company_id', companyId).eq('status', 'won').gte('closed_at', `${monthStart}T04:00:00Z`).is('archived_at', null),
+    fetchAllPages((a, b) => supabase.from('crm_opportunities').select('amount_cents').eq('company_id', companyId).eq('status', 'won').gte('closed_at', `${monthStart}T04:00:00Z`).is('archived_at', null).order('id').range(a, b)).then(complete),
     loadMembers(supabase, companyId, { id: user.id, email: user.email }),
   ])
   const rows = (sum ?? []) as Row[]

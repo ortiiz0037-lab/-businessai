@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { fetchAllPages } from '@/lib/supabase/paged'
+import { fetchAllPages, complete } from '@/lib/supabase/paged'
 import { PageHeader, StatCard, EmptyState } from '@/components/ui/page'
 import { SubmitButton } from '@/components/submit-button'
 import { Flash } from '@/components/accounting-nav'
@@ -19,9 +19,9 @@ export default async function ReceivablesPage({ searchParams }: { searchParams: 
   if (!access.view) return <NoReceivablesAccess tr={tr} unavailable={!access.available} />
   const monthStart = `${today.slice(0, 8)}01`
   const [{ data: balData, error }, { data: clientData }, { data: payData }, { data: promData }, { data: remData }] = await Promise.all([
-    fetchAllPages((a, b) => supabase.rpc('ar_invoice_balances', { target: companyId, as_of: null }).order('document_id').range(a, b)).then((r) => ({ data: r.rows, error: r.error })),
-    supabase.from('clients').select('id, name').eq('company_id', companyId),
-    supabase.from('payments').select('*').eq('company_id', companyId).gte('paid_at', `${monthStart}T00:00:00-04:00`),
+    fetchAllPages((a, b) => supabase.rpc('ar_invoice_balances', { target: companyId, as_of: null }).order('document_id').range(a, b)).then(complete),
+    fetchAllPages((a, b) => supabase.from('clients').select('id, name').eq('company_id', companyId).order('id').range(a, b), { max: 100000 }).then(complete),
+    fetchAllPages((a, b) => supabase.from('payments').select('*').eq('company_id', companyId).gte('paid_at', `${monthStart}T00:00:00-04:00`).order('id').range(a, b)).then(complete),
     supabase.from('payment_promises').select('*').eq('company_id', companyId).eq('status', 'pending').order('promised_date'),
     supabase.from('collection_reminders').select('*').eq('company_id', companyId).in('status', ['pending', 'failed', 'no_email']).order('scheduled_for'),
   ])

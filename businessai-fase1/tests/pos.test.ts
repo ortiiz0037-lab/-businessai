@@ -15,12 +15,12 @@ import { squareAdapter, normalizeSquareOrder, normalizeSquareReturn, squareAutho
 import { shopifyAdapter, normalizeShopifyOrder, shopifyGqlToRest } from '@/lib/pos/adapters/shopify'
 import { cloverAdapter, normalizeCloverOrder } from '@/lib/pos/adapters/clover'
 import { lightspeedAdapter, normalizeLightspeedReturn, normalizeLightspeedSale } from '@/lib/pos/adapters/lightspeed'
-import { methodFromLabel } from '@/lib/pos/adapters/common'
+import { methodFromLabel, providerFetch } from '@/lib/pos/adapters/common'
 import { parseCsvRows, parseRegisterCsv, prDateToIso } from '@/lib/pos/csv'
 import { PosSigner } from '@/lib/pos/signer'
 import { readPosConfig } from '@/lib/pos/config'
 import { decryptPosToken, encryptPosToken } from '@/lib/pos/crypto'
-import { handlePosWebhook, recoverDue } from '@/lib/pos/sync'
+import { handlePosWebhook, laterIso, recoverDue } from '@/lib/pos/sync'
 import { posErrorCode, posMessage } from '@/lib/pos/labels'
 import { PROVIDERS } from '@/lib/pos/providers'
 
@@ -448,5 +448,71 @@ describe('Shopify historical reads through GraphQL (fake API + fake database)', 
     expect((bodies[0].variables as { q: string }).q).toBe("updated_at:>='2026-11-16T00:00:00Z' source_name:pos")
     const batches = calls.filter((c) => c.fn === 'pos_ingest_batch').map((c) => JSON.parse(String(c.args.payload)))
     expect(batches.flatMap((b) => b.sales.map((s: { external_id: string }) => s.external_id))).toEqual(['5001', '5002']); expect(batches.at(-1).cursor).toBe('2026-11-16T15:00:00Z')
+  })
+})
+
+describe('POS polling details (S9.2)', () => {
+  it('cursor: instants are compared as time, not text', () => {
+    expect(laterIso('2026-11-17T01:00:00Z', '2026-11-17T01:00:00.123Z')).toBe('2026-11-17T01:00:00.123Z')   // as text it would look older
+    expect(laterIso('2026-11-17T01:00:00.500Z', '2026-11-17T01:00:00Z')).toBe('2026-11-17T01:00:00.500Z')
+    expect(laterIso('2026-11-17T01:00:00Z', '2026-11-16T23:00:00-04:00')).toBe('2026-11-16T23:00:00-04:00')  // 03:00Z is later
+    expect(laterIso('2026-11-17T01:00:00Z', 'garbage')).toBe('2026-11-17T01:00:00Z')
+  })
+  it('rate limits: 429 waits Retry-After and retries; gives up after the retries; other errors pass through', async () => {
+    const waits: number[] = []
+    let n = 0
+    const f: typeof fetch = async () => (++n < 3 ? new Response('', { status: 429, headers: { 'retry-after': '2' } }) : new Response('{}', { status: 200 }))
+    const r = await providerFetch(f, 'http://x', {}, { sleep: async (ms) => { waits.push(ms) } })
+    expect(r.status).toBe(200); expect(waits).toEqual([2000, 2000])
+    let m = 0
+    const always: typeof fetch = async () => { m++; return new Response('', { status: 503 }) }
+    expect((await providerFetch(always, 'http://x', {}, { sleep: async () => {} })).status).toBe(503); expect(m).toBe(3)
+    let k = 0
+    const unauthorized: typeof fetch = async () => { k++; return new Response('', { status: 401 }) }
+    expect((await providerFetch(unauthorized, 'http://x', {}, { sleep: async () => {} })).status).toBe(401); expect(k).toBe(1)
+    const capped: number[] = []
+    await providerFetch(async () => new Response('', { status: 429, headers: { 'retry-after': '3600' } }), 'http://x', {}, { retries: 1, sleep: async (ms) => { capped.push(ms) } })
+    expect(capped).toEqual([10000])
+  })
+})
+
+describe('POS recovery: interrupted sync and who may run the job (S9.2)', () => {
+  it('a failure while saving page 2 keeps the cursor of page 1: the next run resumes there (nothing lost, nothing doubled)', async () => {
+    const POS_SERVER_KEYS = `k1:${Buffer.alloc(32, 1).toString('base64')}`, POS_TOKEN_KEYS = `t1:${Buffer.alloc(32, 2).toString('base64')}`
+    const cfg = readPosConfig({ APP_ENV: 'development', POS_SERVER_KEYS, POS_TOKEN_KEYS, SQUARE_APPLICATION_ID: 'id', SQUARE_APPLICATION_SECRET: 's', SQUARE_BASE_URL: 'http://127.0.0.1:9' })
+    const cipher = encryptPosToken('tok', [{ id: 't1', key: Buffer.alloc(32, 2) }]).ciphertext
+    let ingests = 0
+    const saved: string[] = []
+    const db = { rpc: async (fn: string, args: Record<string, unknown>) => {
+      if (fn === 'pos_sync_due') return { data: [], error: null }
+      if (fn === 'pos_integrations_active') return { data: args.provider === 'square' ? [{ integration_id: 'int-1', cursor: '2026-11-16T00:00:00Z', locations: ['LOC-SJ'] }] : [], error: null }
+      if (fn === 'pos_integration_context') return { data: { company_id: 'co', provider: 'square', status: 'active', external_account_id: 'M1', token_ciphertext: cipher, settings: {} }, error: null }
+      if (fn === 'pos_ingest_batch') { ingests++; if (ingests === 2) return { data: null, error: { message: 'connection lost' } }; saved.push(JSON.parse(String(args.payload)).cursor); return { data: {}, error: null } }
+      return { data: null, error: null }
+    } }
+    const f: typeof fetch = async (_u, init) => {
+      const b = JSON.parse(String(init?.body))
+      return b.cursor ? new Response(JSON.stringify({ orders: [sqOrder({ id: 'ORD-3', updated_at: '2026-11-17T02:00:00Z' })] }), { status: 200 })
+        : new Response(JSON.stringify({ orders: [sqOrder({ id: 'ORD-2', updated_at: '2026-11-17T01:00:00Z' })], cursor: 'p2' }), { status: 200 })
+    }
+    const r = await recoverDue(db as never, cfg, f)
+    expect(r.ok).toBe(true)
+    expect(saved).toEqual(['2026-11-17T01:00:00Z'])   // only page 1 committed its cursor; page 2 is read again next time
+  })
+  it('/api/pos/recover: refused without the secret, with a wrong one, or when the server has no secret ≥ 32 characters', async () => {
+    const { POST } = await import('@/app/api/pos/recover/route')
+    const call = (auth?: string) => POST(new Request('http://x/api/pos/recover', { method: 'POST', headers: auth ? { authorization: auth } : {} }))
+    const saved = process.env.POS_CRON_SECRET, url = process.env.NEXT_PUBLIC_SUPABASE_URL, key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'http://127.0.0.1:9'; process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = 'test-anon'
+    try {
+      process.env.POS_CRON_SECRET = 'short'
+      expect((await call('Bearer short')).status).toBe(401)
+      process.env.POS_CRON_SECRET = 's'.repeat(40)
+      expect((await call()).status).toBe(401)
+      expect((await call(`Bearer ${'s'.repeat(39)}x`)).status).toBe(401)
+      expect((await call(`Bearer ${'s'.repeat(40)}`)).status).toBe(503)   // accepted, then 503: no POS server keys in this test
+    } finally {
+      for (const [k, v] of [['POS_CRON_SECRET', saved], ['NEXT_PUBLIC_SUPABASE_URL', url], ['NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY', key]] as const) { if (v === undefined) delete process.env[k]; else process.env[k] = v }
+    }
   })
 })

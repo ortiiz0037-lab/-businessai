@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { fetchAllPages } from '@/lib/supabase/paged'
+import { fetchAllPages, complete } from '@/lib/supabase/paged'
 import { PageHeader, EmptyState } from '@/components/ui/page'
 import { Flash } from '@/components/accounting-nav'
 import { StateChip } from '@/components/bank-nav'
@@ -20,8 +20,8 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
   const branch = branches.find((b) => b.id === sp.branch)?.id ?? null
   const [products, { data: lv }, { data: rp }] = await Promise.all([
     trackedProducts(supabase, companyId),
-    fetchAllPages((a, b) => supabase.rpc('inventory_levels', { target: companyId, branch }).order('branch_id').order('item_id').order('variant_key').range(a, b)).then((r) => ({ data: r.rows, error: r.error })),
-    fetchAllPages((a, b) => supabase.rpc('inventory_replenishment_data', { target: companyId, branch }).order('branch_id').order('item_id').order('variant_key').range(a, b)).then((r) => ({ data: r.rows, error: r.error })),
+    fetchAllPages((a, b) => supabase.rpc('inventory_levels', { target: companyId, branch }).order('branch_id').order('item_id').order('variant_key').range(a, b)).then(complete),
+    fetchAllPages((a, b) => supabase.rpc('inventory_replenishment_data', { target: companyId, branch }).order('branch_id').order('item_id').order('variant_key').range(a, b)).then(complete),
   ])
   const lowKeys = new Set(((rp ?? []) as Record<string, unknown>[]).map((r) => suggest(normalizeRow(r))).filter((s) => s.needed).map((s) => `${s.row.branch_id}|${s.row.item_id}|${s.row.variant_key}`))
   const q = (sp.q ?? '').trim().toLowerCase()

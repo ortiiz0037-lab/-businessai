@@ -158,7 +158,7 @@ Production no tiene ninguna migración posterior a la base inspeccionada (ver `s
 | 6 | 0042_banking | 0024, 0026, 0030, 0035 | conexiones, sincronizaciones, depósitos, recibos | — | **Banking-evidence** (privado, 3 políticas) | se niega con datos o archivos | aditiva; `payments` gana columnas nullable |
 | 7 | 0043_inventory | 0024, 0035, 0039 | inventario completo | +8 (143) | — | se niega con datos | aditiva; `catalog_items.cost_cents` nullable |
 | 8 | 0044_pos | 0023, 0030, 0035, 0042, 0043 | punto de venta e integraciones | +10 (153) | — | se niega con datos | amplía dos restricciones de origen (sin borrar valores existentes) |
-| 9 | 0045_platform_stabilization | 0003, 0015 | instantánea al emitir, solicitudes de eliminación de cuenta, revocación de permisos sobrantes | — | — | sin datos pendientes; las instantáneas escritas se conservan | no reescribe documentos existentes |
+| 9 | 0045_platform_stabilization | 0003, 0015 (y 0044 para sus funciones POS) | instantánea al emitir, solicitudes de eliminación de cuenta, revocación de permisos sobrantes, retira las FK `payments.created_by` / `companies.created_by` (eliminar usuarios sin perder registros), renovación de tokens y lista de integraciones POS | — | — | se niega con solicitudes pendientes o usuarios ya eliminados; las instantáneas escritas se conservan | no reescribe filas existentes |
 
 Recuento de la matriz `role_permissions`: 130 (hasta 0036) → 135 (0039) → 143 (0043) → 153 (0044); 0045 no añade permisos. `verify_0014a.sql`
 calcula el esperado según lo aplicado.
@@ -186,3 +186,11 @@ aplicación doble (idempotencia), rollback con huella idéntica y rechazo del ro
 8. Configurar variables solo después (nombres en `docs/POS.md` §9, `docs/BANKING.md`), nunca antes de la migración.
 9. Prueba de humo en la Preview con usuarios de prueba de Staging: crear empresa, factura, venta POS, conteo.
 10. Si una verificación falla: detener; el rollback de esa migración es una decisión aparte (no automática).
+
+### Antes de la prueba en Staging (S9.2)
+
+- Secuencia verificada automáticamente (`tests/migrations-sequence.test.ts`): números únicos, orden, rollback,
+  borrador, documentación y arnés para cada migración; última 0045, siguiente libre 0046.
+- Pruebas de navegador con sesión: correr `.github/workflows/e2e-auth.yml` (16 suites) en un pull request
+  **antes** de pedir la autorización de Staging; hoy no se han ejecutado tras S8 / S9.
+- Variables nuevas solo de prueba local (dobles): `SHOPIFY_BASE_URL`, `LIGHTSPEED_BASE_URL` (rechazadas en producción).

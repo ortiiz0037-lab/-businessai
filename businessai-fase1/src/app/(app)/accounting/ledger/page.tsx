@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { fetchAllPages } from '@/lib/supabase/paged'
+import { fetchAllPages, complete } from '@/lib/supabase/paged'
 import { PageHeader, EmptyState } from '@/components/ui/page'
 import { AccountingNav, NoAccountingAccess } from '@/components/accounting-nav'
 import { accountingPage } from '@/lib/finance/page'
@@ -21,7 +21,7 @@ export default async function AccountLedgerPage({ searchParams }: { searchParams
   const accounts = (data ?? []) as LedgerAccount[]
   const account = accounts.find((a) => a.id === p.account) ?? null
   const { data: act } = account
-    ? await fetchAllPages((a, b) => supabase.rpc('ledger_account_activity', { account: account.id, from_date: from, to_date: to }).order('entry_id').range(a, b)).then((r) => ({ data: r.rows, error: r.error }))
+    ? await fetchAllPages((a, b) => supabase.rpc('ledger_account_activity', { account: account.id, from_date: from, to_date: to }).range(a, b)).then(complete)
     : { data: [] }
   const rows = (act ?? []) as Activity[]
   const opening = rows.find((r) => r.source === 'opening')

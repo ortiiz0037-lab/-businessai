@@ -36,8 +36,9 @@ export async function paidByDocument(supabase: unknown, documentIds: string[]): 
   const paid = new Map<string, number>()
   for (let i = 0; i < documentIds.length; i += 100) {
     const ids = documentIds.slice(i, i + 100)
-    const { rows } = await fetchAllPages((from, to) =>
+    const { rows, truncated } = await fetchAllPages((from, to) =>
       client.from('payments').select('id, document_id, amount').in('document_id', ids).order('id').range(from, to))
+    if (truncated) throw new TruncatedResultError()
     for (const p of rows as { document_id: string; amount: number | string }[]) {
       paid.set(p.document_id, (paid.get(p.document_id) ?? 0) + Number(p.amount ?? 0))
     }
@@ -48,3 +49,29 @@ export async function paidByDocument(supabase: unknown, documentIds: string[]): 
 
 /** splits ids for `.in()` filters (keeps the request URL short) */
 export const chunks = <T,>(list: T[], n = 100): T[][] => Array.from({ length: Math.ceil(list.length / n) }, (_, i) => list.slice(i * n, i * n + n))
+
+export class TruncatedResultError extends Error {
+  constructor() { super('RESULT_TRUNCATED: the result exceeds the safety cap; a partial total is never shown as complete') }
+}
+/**
+ * For totals and exports: the rows as `{ data, error }`, or THROW when the safety cap cut the result
+ * (the page's error boundary shows it) — an incomplete figure is never presented as complete.
+ */
+export function complete<T>(r: { rows: T[]; error: { message: string } | null; truncated: boolean }) {
+  if (r.truncated) throw new TruncatedResultError()
+  return { data: r.rows, error: r.error }
+}
+
+/**
+ * Every row whose column is IN `ids`: ids in chunks of 100 (a long `in.(…)` list exceeds the URL limit
+ * of the API) and each chunk read in pages. Throws when a chunk exceeds the safety cap (see `complete`).
+ */
+export async function allIn<T>(ids: string[], page: (chunk: string[], from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>) {
+  const data: T[] = []
+  for (const c of chunks([...new Set(ids)], 100)) {
+    const r = complete(await fetchAllPages<T>((a, b) => page(c, a, b)))
+    if (r.error) return { data, error: r.error }
+    data.push(...r.data)
+  }
+  return { data, error: null as { message: string } | null }
+}

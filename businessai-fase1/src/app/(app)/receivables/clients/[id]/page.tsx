@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { fetchAllPages } from '@/lib/supabase/paged'
+import { fetchAllPages, complete, allIn } from '@/lib/supabase/paged'
 import { notFound } from 'next/navigation'
 import { PageHeader, StatCard } from '@/components/ui/page'
 import { SubmitButton } from '@/components/submit-button'
@@ -22,8 +22,8 @@ export default async function ClientReceivablesPage({ params, searchParams }: { 
   const { data: client } = await supabase.from('clients').select('id, name, email, phone').eq('id', id).eq('company_id', companyId).maybeSingle()
   if (!client) notFound()
   const [{ data: balData }, { data: agingData }, { data: notes }, { data: promData }, { data: evData }, name] = await Promise.all([
-    fetchAllPages((a, b) => supabase.rpc('ar_invoice_balances', { target: companyId, as_of: null }).order('document_id').range(a, b)).then((r) => ({ data: r.rows, error: r.error })),
-    fetchAllPages((a, b) => supabase.rpc('ar_aging', { target: companyId, as_of: null }).order('client_id').range(a, b)).then((r) => ({ data: r.rows, error: r.error })),
+    fetchAllPages((a, b) => supabase.rpc('ar_invoice_balances', { target: companyId, as_of: null }).order('document_id').range(a, b)).then(complete),
+    fetchAllPages((a, b) => supabase.rpc('ar_aging', { target: companyId, as_of: null }).order('overdue_cents', { ascending: false }).order('total_cents', { ascending: false }).order('client_id').range(a, b)).then(complete),
     supabase.from('collection_notes').select('*').eq('client_id', id).order('created_at', { ascending: false }).limit(50),
     supabase.from('payment_promises').select('*').eq('client_id', id).order('created_at', { ascending: false }).limit(50),
     supabase.from('receivables_events').select('*').eq('client_id', id).order('id', { ascending: false }).limit(50),
@@ -32,7 +32,8 @@ export default async function ClientReceivablesPage({ params, searchParams }: { 
   const invoices = ((balData ?? []) as InvoiceBalance[]).filter((b) => b.client_id === id).sort((a, b) => b.issue_date.localeCompare(a.issue_date))
   const aging = ((agingData ?? []) as AgingRow[]).find((a) => a.client_id === id)
   const { data: payData } = invoices.length
-    ? await supabase.from('payments').select('*').in('document_id', invoices.map((i) => i.document_id)).order('paid_at', { ascending: false })
+    ? await allIn<Record<string, unknown>>(invoices.map((i) => i.document_id), (c, a, b) => supabase.from('payments').select('*').in('document_id', c).order('id').range(a, b))
+        .then((r) => ({ ...r, data: r.data.sort((x, y) => String(y.paid_at ?? '').localeCompare(String(x.paid_at ?? ''))) }))
     : { data: [] }
   const payments = (payData ?? []) as { id: string; document_id: string; amount: number | string; payment_method: string | null; paid_at: string; voided_at?: string | null; void_reason?: string | null }[]
   const number = new Map(invoices.map((i) => [i.document_id, i.document_number]))

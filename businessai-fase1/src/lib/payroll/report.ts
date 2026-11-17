@@ -3,6 +3,7 @@
  * period (approved / paid runs) and per employee over a date range. Reversed,
  * discarded and draft runs are never counted. Amounts are integer cents.
  */
+import { allIn } from '@/lib/supabase/paged'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { toCsv } from '@/lib/workforce/hours'
 import { hoursLabel } from '@/lib/payroll/core'
@@ -19,7 +20,7 @@ export async function payrollSummary(supabase: SupabaseClient, companyId: string
   const runs = (runData ?? []) as RunRow[]
   const ids = runs.map((r) => r.id)
   const { data: lineData } = ids.length
-    ? await supabase.from('payroll_lines').select('run_id, employee_id, employee_name, employee_number, regular_minutes, overtime_minutes, leave_paid_minutes, gross_cents, deductions_cents, net_cents').in('run_id', ids)
+    ? await allIn(ids, (c, a, b) => supabase.from('payroll_lines').select('run_id, employee_id, employee_name, employee_number, regular_minutes, overtime_minutes, leave_paid_minutes, gross_cents, deductions_cents, net_cents').in('run_id', c).order('id').range(a, b))
     : { data: [] }
   const by = new Map<string, EmployeeTotals>()
   for (const l of (lineData ?? []) as { employee_id: string; employee_name: string; employee_number: string | null; regular_minutes: number; overtime_minutes: number; leave_paid_minutes: number; gross_cents: string; deductions_cents: string; net_cents: string }[]) {

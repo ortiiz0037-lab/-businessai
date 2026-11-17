@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { allIn } from '@/lib/supabase/paged'
 import { notFound } from 'next/navigation'
 import { PageHeader, StatCard } from '@/components/ui/page'
 import { SubmitButton } from '@/components/submit-button'
@@ -23,7 +24,8 @@ export default async function VendorPage({ params, searchParams }: { params: Pro
   const { data: billData } = await supabase.from('bills').select('*').eq('vendor_id', vendorId).order('bill_date', { ascending: false }).limit(200)
   const bills = (billData ?? []) as Bill[]
   const { data: payData } = access.view && bills.length
-    ? await supabase.from('bill_payments').select('id, bill_id, paid_on, amount_cents, method, reference, voided_at').in('bill_id', bills.map((b) => b.id)).order('paid_on', { ascending: false })
+    ? await allIn<{ paid_on: string }>(bills.map((b) => b.id), (c, a, b) => supabase.from('bill_payments').select('id, bill_id, paid_on, amount_cents, method, reference, voided_at').in('bill_id', c).order('id').range(a, b))
+        .then((r) => ({ ...r, data: r.data.sort((x, y) => String(y.paid_on).localeCompare(String(x.paid_on))) }))
     : { data: [] }
   const payments = (payData ?? []) as { id: string; bill_id: string; paid_on: string; amount_cents: number; method: string | null; reference: string | null; voided_at: string | null }[]
   const live = bills.filter((b) => !['draft', 'pending_approval', 'voided'].includes(b.status))

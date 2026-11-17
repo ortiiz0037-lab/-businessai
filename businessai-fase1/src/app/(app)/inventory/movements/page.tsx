@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { fetchAllPages, complete } from '@/lib/supabase/paged'
 import { PageHeader, EmptyState } from '@/components/ui/page'
 import { SubmitButton } from '@/components/submit-button'
 import { Flash } from '@/components/accounting-nav'
@@ -27,7 +28,7 @@ export default async function MovementsPage({ searchParams }: { searchParams: Pr
   if (iso(sp.to)) q = q.lte('occurred_at', `${iso(sp.to)}T23:59:59-04:00`)
   const [products, { data }, { data: corrected }, { data: members }] = await Promise.all([
     trackedProducts(supabase, companyId), q.order('id', { ascending: false }).limit(300),
-    supabase.from('inventory_movements').select('corrects_id').eq('company_id', companyId).not('corrects_id', 'is', null),
+    fetchAllPages((a, b) => supabase.from('inventory_movements').select('corrects_id').eq('company_id', companyId).not('corrects_id', 'is', null).order('id').range(a, b), { max: 200000 }).then(complete),
     supabase.rpc('company_members', { target: companyId }),
   ])
   const rows = (data ?? []) as Mv[]

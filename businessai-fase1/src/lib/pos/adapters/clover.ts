@@ -9,7 +9,7 @@
  * Verified against the local test double only (no Clover account was used).
  */
 import type { NormalizedLine, NormalizedPayment, NormalizedRefund, NormalizedSale, WebhookEvent } from '@/lib/pos/types'
-import { arr, brand, last4, methodFromLabel, obj, safeEqual, str, type PosAdapter } from '@/lib/pos/adapters/common'
+import { arr, brand, last4, methodFromLabel, obj, safeEqual, str, type PosAdapter, providerFetch } from '@/lib/pos/adapters/common'
 import { allocate, fromThousandths, lineGross } from '@/lib/pos/money'
 
 const int = (v: unknown): bigint => (typeof v === 'number' && Number.isSafeInteger(v) ? BigInt(v) : 0n)
@@ -84,14 +84,14 @@ export class CloverClient {
     u.searchParams.append('filter', `modifiedTime>=${Math.max(0, Math.floor(sinceMs))}`)
     u.searchParams.set('expand', 'lineItems,payments,payments.tender,payments.cardTransaction,refunds,employee,device')
     u.searchParams.set('orderBy', 'modifiedTime ASC'); u.searchParams.set('limit', String(limit)); u.searchParams.set('offset', String(offset))
-    const res = await this.fetcher(u.toString(), { headers: { authorization: `Bearer ${this.token}` }, signal: AbortSignal.timeout(30000) }).catch(() => null)
+    const res = await providerFetch(this.fetcher, u.toString(), { headers: { authorization: `Bearer ${this.token}` }, signal: AbortSignal.timeout(30000) }).catch(() => null)
     if (!res?.ok) throw new Error(`CLOVER_${res?.status ?? 'UNREACHABLE'}`)
     const j = (await res.json()) as { elements?: unknown[] }
     return j.elements ?? []
   }
   async order(merchantId: string, orderId: string): Promise<unknown> {
     const u = `${this.baseURL}/v3/merchants/${encodeURIComponent(merchantId)}/orders/${encodeURIComponent(orderId)}?expand=lineItems,payments,payments.tender,payments.cardTransaction,refunds,employee,device`
-    const res = await this.fetcher(u, { headers: { authorization: `Bearer ${this.token}` }, signal: AbortSignal.timeout(30000) }).catch(() => null)
+    const res = await providerFetch(this.fetcher, u, { headers: { authorization: `Bearer ${this.token}` }, signal: AbortSignal.timeout(30000) }).catch(() => null)
     if (!res?.ok) throw new Error(`CLOVER_${res?.status ?? 'UNREACHABLE'}`)
     return res.json()
   }

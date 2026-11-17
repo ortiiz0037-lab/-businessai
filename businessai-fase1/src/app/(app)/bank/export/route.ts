@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { fetchAllPages as selectAll } from '@/lib/supabase/paged'
+import { complete, fetchAllPages as selectAll } from '@/lib/supabase/paged'
 import { createClient } from '@/lib/supabase/server'
 import { getActiveMembership } from '@/lib/active-company'
 import { toCsv } from '@/lib/finance/bank'
@@ -11,6 +11,9 @@ const cents = (c: number | null | undefined) => {
   const n = BigInt(c); const a = n < 0n ? -n : n
   return `${n < 0n ? '-' : ''}${a / 100n}.${(a % 100n).toString().padStart(2, '0')}`
 }
+
+/** a partial export is never offered as complete: a read error or a truncated result fails the request */
+const strict = <T,>(r: { rows: T[]; error: { message: string } | null; truncated: boolean }) => { const c = complete(r); if (c.error) throw new Error('bank export read failed'); return c.data }
 
 /** CSV exports of banking data, read with the user's own session (RLS: bank.view). */
 export async function GET(req: Request) {
@@ -35,12 +38,12 @@ export async function GET(req: Request) {
     if (to && DAY.test(to)) q = q.lte('txn_date', to)
     if (kind === 'unmatched') q = q.eq('status', 'unmatched')
     return q }
-    const { rows: data } = await selectAll((a, b) => q0().order('txn_date').order('id').range(a, b), { max: 200000 })
+    const data = await selectAll((a, b) => q0().order('txn_date').order('id').range(a, b), { max: 200000 }).then(strict)
     rows = [['account', 'date', 'description', 'reference', 'amount', 'balance', 'status', 'reconciled'],
       ...((data ?? []) as { bank_account_id: string; txn_date: string; description: string; reference: string | null; amount_cents: number; balance_cents: number | null; status: string; reconciliation_id: string | null }[])
         .map((l) => [accName.get(l.bank_account_id) ?? '', l.txn_date, l.description, l.reference ?? '', cents(l.amount_cents), cents(l.balance_cents), l.status, l.reconciliation_id ? 'yes' : 'no'])]
   } else if (kind === 'reconciliations') {
-    const { rows: data } = await selectAll((a, b) => supabase.from('bank_reconciliations').select('id, bank_account_id, period_start, period_end, statement_opening_cents, statement_closing_cents, status, adjustment_reason, closed_at, reopened_at, reopen_reason').eq('company_id', co).order('period_end').order('id').range(a, b))
+    const data = await selectAll((a, b) => supabase.from('bank_reconciliations').select('id, bank_account_id, period_start, period_end, statement_opening_cents, statement_closing_cents, status, adjustment_reason, closed_at, reopened_at, reopen_reason').eq('company_id', co).order('period_end').order('id').range(a, b)).then(strict)
     const list = (data ?? []) as { id: string; bank_account_id: string; period_start: string; period_end: string; statement_opening_cents: number; statement_closing_cents: number; status: string; adjustment_reason: string | null; closed_at: string | null; reopened_at: string | null; reopen_reason: string | null }[]
     const sums = await Promise.all(list.map((r) => supabase.rpc('bank_reconciliation_summary', { rec: r.id })))
     rows = [['account', 'from', 'to', 'opening', 'closing', 'book_balance', 'uncleared_book', 'difference', 'unmatched_lines', 'status', 'adjustment', 'closed_at', 'reopened_at', 'reopen_reason'],
@@ -48,11 +51,11 @@ export async function GET(req: Request) {
         return [accName.get(r.bank_account_id) ?? '', r.period_start, r.period_end, cents(r.statement_opening_cents), cents(r.statement_closing_cents), cents(s?.ledger_balance_cents), cents(s?.uncleared_book_cents),
           cents(s?.difference_cents), s?.unmatched_bank_count ?? '', r.status, r.adjustment_reason ?? '', r.closed_at ?? '', r.reopened_at ?? '', r.reopen_reason ?? ''] })]
   } else if (kind === 'imports') {
-    const { rows: data } = await selectAll((a, b) => supabase.from('bank_imports').select('bank_account_id, file_name, file_sha256, row_count, imported_count, duplicate_count, first_date, last_date, status, revert_reason, created_at').eq('company_id', co).order('created_at').order('id').range(a, b))
+    const data = await selectAll((a, b) => supabase.from('bank_imports').select('bank_account_id, file_name, file_sha256, row_count, imported_count, duplicate_count, first_date, last_date, status, revert_reason, created_at').eq('company_id', co).order('created_at').order('id').range(a, b)).then(strict)
     rows = [['account', 'file', 'sha256', 'rows', 'imported', 'duplicates', 'first_date', 'last_date', 'status', 'revert_reason', 'imported_at'],
       ...((data ?? []) as Record<string, unknown>[]).map((x) => [accName.get(String(x.bank_account_id)) ?? '', x.file_name, x.file_sha256, x.row_count, x.imported_count, x.duplicate_count, x.first_date, x.last_date, x.status, x.revert_reason ?? '', x.created_at])]
   } else if (kind === 'events') {
-    const { rows: data } = await selectAll((a, b) => supabase.from('bank_events').select('bank_account_id, entity, action, details, created_at').eq('company_id', co).order('id').range(a, b), { max: 200000 })
+    const data = await selectAll((a, b) => supabase.from('bank_events').select('bank_account_id, entity, action, details, created_at').eq('company_id', co).order('id').range(a, b), { max: 200000 }).then(strict)
     rows = [['account', 'entity', 'action', 'details', 'at'],
       ...((data ?? []) as { bank_account_id: string | null; entity: string; action: string; details: unknown; created_at: string }[]).map((e) => [accName.get(e.bank_account_id ?? '') ?? '', e.entity, e.action, JSON.stringify(e.details), e.created_at])]
   } else {

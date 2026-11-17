@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import { fetchAllPages as selectAll } from '@/lib/supabase/paged'
+import { fetchAllPages as selectAll, complete } from '@/lib/supabase/paged'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import { getActiveMembership } from '@/lib/active-company'
@@ -50,8 +50,8 @@ export async function myBranches(supabase: SupabaseClient, companyId: string): P
 /** Tracked products with their variants (for pickers and labels). */
 export async function trackedProducts(supabase: SupabaseClient, companyId: string): Promise<ProductRef[]> {
   const [{ data: items }, { data: vars }] = await Promise.all([
-    selectAll((a, b) => supabase.from('catalog_items').select('id, code, name, unit, cost_cents, status').eq('company_id', companyId).eq('track_inventory', true).order('name').order('id').range(a, b)).then((r) => ({ data: r.rows, error: r.error })),
-    selectAll((a, b) => supabase.from('catalog_variants').select('id, item_id, sku, attributes, status').eq('company_id', companyId).order('sku').order('id').range(a, b)).then((r) => ({ data: r.rows, error: r.error })),
+    selectAll((a, b) => supabase.from('catalog_items').select('id, code, name, unit, cost_cents, status').eq('company_id', companyId).eq('track_inventory', true).order('name').order('id').range(a, b)).then(complete),
+    selectAll((a, b) => supabase.from('catalog_variants').select('id, item_id, sku, attributes, status').eq('company_id', companyId).order('sku').order('id').range(a, b)).then(complete),
   ])
   const byItem = new Map<string, ProductRef['variants']>()
   for (const v of (vars ?? []) as { id: string; item_id: string; sku: string; attributes: Record<string, string>; status: string }[]) {

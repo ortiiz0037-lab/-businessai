@@ -5,7 +5,7 @@
  * stock (available = on hand − reserved), approvals and idempotency, and posts stock and the ledger in
  * the same transaction. The browser never sends an amount the database trusts.
  */
-import { fetchAllPages } from '@/lib/supabase/paged'
+import { fetchAllPages, complete } from '@/lib/supabase/paged'
 import { createHash } from 'node:crypto'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
@@ -77,7 +77,7 @@ export async function posSearch(raw: string, branch: string | null): Promise<Pro
   const [{ data: taxes }, { data: deft }, levels] = await Promise.all([
     supabase.from('pos_item_taxes').select('item_id, pos_tax_rates(rate)').eq('company_id', companyId).in('item_id', rows.map((r) => r.item.id)),
     supabase.from('pos_tax_rates').select('rate').eq('company_id', companyId).eq('is_default', true).is('archived_at', null).maybeSingle(),
-    branch && UUID.test(branch) ? fetchAllPages((a, b) => supabase.rpc('inventory_levels', { target: companyId, branch }).order('branch_id').order('item_id').order('variant_key').range(a, b)).then((r) => ({ data: r.rows, error: r.error })) : Promise.resolve({ data: [] }),
+    branch && UUID.test(branch) ? fetchAllPages((a, b) => supabase.rpc('inventory_levels', { target: companyId, branch }).order('branch_id').order('item_id').order('variant_key').range(a, b)).then(complete) : Promise.resolve({ data: [] }),
   ])
   const itemTax = new Map(((taxes ?? []) as unknown as { item_id: string; pos_tax_rates: { rate: number } | null }[]).map((t) => [t.item_id, t.pos_tax_rates?.rate]))
   const avail = new Map(((levels.data ?? []) as { item_id: string; variant_key: string; available: number }[]).map((l) => [`${l.item_id}:${l.variant_key}`, l.available]))

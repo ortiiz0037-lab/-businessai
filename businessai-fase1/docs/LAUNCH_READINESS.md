@@ -38,12 +38,12 @@ autorización) y las integraciones con proveedores reales (credenciales).
 
 | Prueba | Resultado |
 |---|---|
-| `npm run test:db` (PostgreSQL 16 local, 52 escenarios: migraciones, rollbacks, RLS, carreras, flujos) | **679 aprobadas, 0 fallidas** (escenarios 51 y 52 incluidos) |
+| `npm run test:db` (PostgreSQL 16 local, 52 escenarios: migraciones, rollbacks, RLS, carreras, flujos, límites de página) | **680 aprobadas, 0 fallidas** (escenarios 51 y 52 incluidos; `127_pagination` 16 aserciones) |
 | Escenario 52: 29 suites de módulos actuales **juntas** sobre 0001–0045 | Todas en verde (CRM, Workforce, Nómina, Libro mayor, Gastos, Cobros, Banco, Estados, Studio, Catálogo, Asistente S4, Banca, Inventario, POS, planes, equipo…) |
 | `126_platform_flows.test.sql` (flujos A–H y barrido multiempresa) | En verde |
-| `vitest` (lógica de la app, incluido el render del POS, la paginación y la consulta periódica de proveedores) | 889 aprobadas |
+| `vitest` (lógica de la app, incluido el render del POS, la paginación y la consulta periódica de proveedores) | 907 aprobadas, 51 omitidas (pruebas que requieren servicios externos) |
 | `e2e/public.e2e.mjs` (navegador, sin sesión: protección de todas las rutas, rutas de máquina, idioma, iPhone / iPad en páginas públicas) | 156 aprobadas |
-| TypeScript, ESLint | Sin errores |
+| TypeScript, ESLint | Sin errores (ESLint: 6 avisos preexistentes, ninguno nuevo) |
 | `next build` (Next.js 16.4.5) | Correcto, sin aviso de seguridad |
 
 Flujos obligatorios: **A** (registro → empresa → primera factura), **B** (producto → venta POS → inventario),
@@ -53,7 +53,12 @@ movimiento bancario → conciliación) en `126_platform_flows.test.sql`; **E** (
 permisos y confirmaciones) en `98`, `100`, `101`, `116` sobre la pila completa.
 
 **No ejecutado y por qué:** las pruebas de navegador **con sesión** (`e2e/*.auth.e2e.mjs`, incluidas las de
-iPhone / iPad de cada módulo) necesitan PostgREST local; su descarga fue rechazada por la política del entorno.
+iPhone / iPad de cada módulo) necesitan PostgREST local. En este sandbox no está instalado y la política del
+entorno rechazó instalarlo (descarga de la versión publicada y Nix); no hay paquete apt, ni imagen ni demonio de
+Docker. **Entorno soportado preparado:** `.github/workflows/e2e-auth.yml` instala PostgreSQL 16 y PostgREST en el
+runner de GitHub (nada remoto, sin secretos) y ejecuta las 16 suites con sesión, incluida la nueva
+`e2e/pos.auth.e2e.mjs` (escrita en S9.2, **todavía no ejecutada**). Se activa al abrir un pull request o, una vez en
+la rama principal, a mano; la base de datos que construye (43 migraciones + datos de prueba) se verificó aquí.
 Se ejecutaron en entregas anteriores en otro entorno (ver cada documento de módulo); la del POS nunca.
 Tampoco: pruebas con hardware, cuentas reales de proveedores, ni nada en Staging / Production.
 
@@ -71,6 +76,13 @@ Tampoco: pruebas con hardware, cuentas reales de proveedores, ni nada en Staging
 | S9-9 | `fetchAllPages` decía «no truncado» cuando el límite de seguridad cortaba una página por la mitad | Corregido (compara con lo pedido); pruebas en `tests/paginate.test.ts` |
 | S9-10 | Square: sin renovación del token ni consulta periódica (los webhooks no garantizan la entrega); Clover igual | 0045 + `PosSync.renewSquare / pollSquare / pollClover`; probado con dobles |
 | S9-11 | Copias de seguridad de código versionadas (`page.tsx.before-*`, `page-completa.txt`) | Eliminadas (siguen en el historial de git) |
+| S9-12 | **Eliminar un usuario fallaba** para casi todos: `payments.created_by` (NO ACTION) y `companies.created_by` (RESTRICT) referenciaban `auth.users`, y `payment_guard` impide cambiar un pago | 0045 retira esas dos claves foráneas; la columna conserva el id (seudónimo) de quien registró el pago o creó la empresa. Probado: el usuario se elimina, pagos, documentos, asientos y la empresa se conservan (`126` §J); rollback restaura las claves solo si no hubo eliminaciones |
+| S9-13 | El libro mayor por cuenta se paginaba ordenado por `entry_id` (introducido en la ronda anterior): perdía el orden cronológico y el saldo corrido; aging y reportes de clientes perdían su orden | Se respeta el orden propio de cada función (+ desempate único donde no es total); probado en `127_pagination.test.sql` |
+| S9-14 | Un resultado truncado por el tope de seguridad podía mostrarse como total completo | `complete()` convierte el truncado en error visible (error boundary). La exportación CSV de Bancos importaba la guardia sin usarla: ahora un error de lectura o un resultado truncado hace fallar la descarga en vez de entregar un archivo incompleto |
+| S9-15 | Más lecturas cortadas en 1 000 filas: inicio de Bancos (todas las líneas), Cobros (clientes y pagos del mes), Gastos (facturas abiertas por suplidor, pagos, recurrentes), informe de nómina (líneas de todas las corridas), inventario (órdenes), movimientos, CRM; y listas `in(…)` de cientos de ids que exceden el largo de URL | Paginación completa y `allIn()` (lotes de 100 + páginas) |
+| S9-16 | POS: el cursor comparaba fechas ISO como texto (`…00.123Z` < `…00Z`) y podía retroceder | Comparación por instante (`laterIso`) |
+| S9-17 | POS: sin manejo de límites de uso (429 / 503) de los proveedores | `providerFetch`: espera `Retry-After` (tope 10 s), 2 reintentos; probado |
+| S9-18 | Sin guardia automática de la secuencia de migraciones | `tests/migrations-sequence.test.ts` (rollback, borrador, orden, documentación, arnés, número siguiente) |
 | S9-7 | La suite 96 del asistente se usaba como regresión de la pila completa aunque está atada a 0029 | Sustituida por suites vigentes (98, 100, 101, 116); 96 sigue en su escenario |
 
 ## 4. Seguridad multiempresa (verificada en `126_platform_flows.test.sql` §G)

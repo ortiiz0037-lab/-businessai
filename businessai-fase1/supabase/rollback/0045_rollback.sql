@@ -8,6 +8,17 @@ do $$ begin
     raise exception 'BA0045 rollback: account deletion requests are pending; nothing was changed.';
   end if;
 end $$;
+-- the foreign keys come back only if every recorder still exists (otherwise refuse: never delete records)
+do $$ begin
+  if exists (select 1 from public.payments p where p.created_by is not null and not exists (select 1 from auth.users u where u.id = p.created_by))
+     or exists (select 1 from public.companies c where not exists (select 1 from auth.users u where u.id = c.created_by)) then
+    raise exception 'BA0045 rollback: users were deleted after 0045; their records stay without the foreign key. Nothing was changed.';
+  end if;
+end $$;
+alter table public.payments drop constraint if exists payments_created_by_fkey;
+alter table public.payments add constraint payments_created_by_fkey foreign key (created_by) references auth.users(id);
+alter table public.companies drop constraint if exists companies_created_by_fkey;
+alter table public.companies add constraint companies_created_by_fkey foreign key (created_by) references auth.users(id) on delete restrict;
 drop function if exists public.pos_integrations_active(text, text, bigint, uuid, text);
 drop function if exists public.pos_integration_token_update(uuid, text, text, bigint, uuid, text);
 drop function if exists public.account_deletion_cancel();

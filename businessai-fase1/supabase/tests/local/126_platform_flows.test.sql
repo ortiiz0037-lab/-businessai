@@ -331,6 +331,25 @@ begin
   perform pf.ok((select count(*) from public.documents where company_id = pf.id('A')) = 2, 'H: a request deletes no business data');
 end $$;
 
+-- ------------------------------------------------------------- J. deleting a user keeps the financial records
+do $$
+declare co uuid; pays integer; docs integer; je integer; e text;
+begin
+  co := pf.val('member2', format('select public.create_company(%L)::text', 'Empresa que se cierra'))::uuid;
+  select count(*) into pays from public.payments where company_id = pf.id('A');
+  select count(*) into docs from public.documents where company_id = pf.id('A');
+  select count(*) into je from public.journal_entries where company_id = pf.id('A');
+  -- the admin recorded the deposit payment, the bill and its payment; member2 created a company
+  begin delete from auth.users where id in (pf.id('admin'), pf.id('member2')); e := ''; exception when others then e := sqlerrm; end;
+  perform pf.ok(e = '', 'J: users who recorded payments and created a company can be deleted (store requirement) ' || e);
+  perform pf.ok((select count(*) from public.payments where company_id = pf.id('A')) = pays and (select count(*) from public.documents where company_id = pf.id('A')) = docs
+                and (select count(*) from public.journal_entries where company_id = pf.id('A')) = je and exists (select 1 from public.companies where id = co),
+    'J: payments, documents, ledger entries and the company they created are all kept');
+  perform pf.ok(exists (select 1 from public.payments where company_id = pf.id('A') and created_by = pf.id('admin'))
+                and not exists (select 1 from public.memberships where user_id in (pf.id('admin'), pf.id('member2'))),
+    'J: the records keep who recorded them (pseudonymous id); the deleted users lose every membership');
+end $$;
+
 -- ------------------------------------------------------------- I. POS token renewal and polling list (server-signed, 0045)
 create function pf.mac(msg text) returns text language sql volatile as $$
   select encode(ba_private.hmac_sha256(decode('c2VydmVyLWtleS1mb3ItdGhlLXBmLXRlc3RzLTAxMjM0NTY3ODk=', 'base64'), convert_to(msg, 'UTF8')), 'hex') $$;

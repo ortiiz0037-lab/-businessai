@@ -1,5 +1,5 @@
 import { PageHeader, StatCard } from '@/components/ui/page'
-import { fetchAllPages } from '@/lib/supabase/paged'
+import { fetchAllPages, complete } from '@/lib/supabase/paged'
 import { StateChip } from '@/components/bank-nav'
 import { InventoryNav, NoInventoryAccess } from '@/components/inventory/nav'
 import { inventoryPage, myBranches, productLabel, trackedProducts } from '@/lib/inventory/page'
@@ -20,7 +20,7 @@ export default async function InventoryReports({ searchParams }: { searchParams:
   const from = iso(sp.from) ?? `${today.slice(0, 7)}-01`, to = iso(sp.to) ?? today
   const [branches, products, { data: lv }, { data: layers }, { data: mv }, { data: settings }, { data: verify }, { data: counts }] = await Promise.all([
     myBranches(supabase, companyId), trackedProducts(supabase, companyId),
-    fetchAllPages((a, b) => supabase.rpc('inventory_levels', { target: companyId, branch: null }).order('branch_id').order('item_id').order('variant_key').range(a, b)).then((r) => ({ data: r.rows, error: r.error })),
+    fetchAllPages((a, b) => supabase.rpc('inventory_levels', { target: companyId, branch: null }).order('branch_id').order('item_id').order('variant_key').range(a, b)).then(complete),
     access.approve ? supabase.from('inventory_cost_layers').select('branch_id, item_id, variant_key, qty_remaining, unit_cost_cents').eq('company_id', companyId).gt('qty_remaining', 0).limit(20000) : Promise.resolve({ data: [] }),
     supabase.from('inventory_movements').select('kind, quantity, fifo_cost_cents, avg_cost_cents').eq('company_id', companyId).gte('occurred_at', `${from}T00:00:00-04:00`).lte('occurred_at', `${to}T23:59:59-04:00`).limit(50000),
     supabase.from('inventory_settings').select('valuation_method, allow_negative').eq('company_id', companyId).maybeSingle(),

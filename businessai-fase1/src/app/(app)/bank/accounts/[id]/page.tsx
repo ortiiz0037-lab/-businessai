@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { fetchAllPages } from '@/lib/supabase/paged'
+import { fetchAllPages, complete } from '@/lib/supabase/paged'
 import { notFound } from 'next/navigation'
 import { PageHeader, StatCard } from '@/components/ui/page'
 import { SubmitButton } from '@/components/submit-button'
@@ -33,7 +33,7 @@ export default async function BankAccountLinesPage({ params, searchParams }: { p
   const [{ data: lineData }, { data: sugData }, { data: openBook }] = await Promise.all([
     q.order('txn_date', { ascending: false }).order('line_no').limit(500),
     supabase.rpc('bank_suggestions', { account: id }),
-    fetchAllPages((a, b) => supabase.rpc('bank_open_journal_lines', { account: id, from_date: null, to_date: null }).order('journal_line_id').range(a, b)).then((r) => ({ data: r.rows, error: r.error })),
+    fetchAllPages((a, b) => supabase.rpc('bank_open_journal_lines', { account: id, from_date: null, to_date: null }).order('entry_date').order('entry_number').order('journal_line_id').range(a, b)).then(complete),
   ])
   const lines = (lineData ?? []) as BankLine[]
   const best = new Map<string, Suggestion>()

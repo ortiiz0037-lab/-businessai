@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { fetchAllPages, complete } from '@/lib/supabase/paged'
 import { PageHeader, EmptyState } from '@/components/ui/page'
 import { SubmitButton } from '@/components/submit-button'
 import { Flash } from '@/components/accounting-nav'
@@ -16,7 +17,7 @@ export default async function VendorsPage({ searchParams }: { searchParams: Prom
   if (!access.create && !access.view) return <NoPayablesAccess tr={tr} unavailable={!access.available} />
   const [{ data }, { data: open }] = await Promise.all([
     supabase.from('vendors').select('*').eq('company_id', companyId).order('status').order('name'),
-    access.view ? supabase.from('bills').select('vendor_id, total_cents, paid_cents').eq('company_id', companyId).in('status', ['approved', 'scheduled', 'partially_paid']) : Promise.resolve({ data: [] }),
+    access.view ? fetchAllPages((a, b) => supabase.from('bills').select('vendor_id, total_cents, paid_cents').eq('company_id', companyId).in('status', ['approved', 'scheduled', 'partially_paid']).order('id').range(a, b)).then(complete) : Promise.resolve({ data: [] }),
   ])
   const vendors = (data ?? []) as Vendor[]
   const owed = new Map<string, bigint>()

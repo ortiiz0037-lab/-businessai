@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { fetchAllPages } from '@/lib/supabase/paged'
+import { fetchAllPages, complete } from '@/lib/supabase/paged'
 import { notFound } from 'next/navigation'
 import { randomUUID } from 'node:crypto'
 import { PageHeader } from '@/components/ui/page'
@@ -38,7 +38,7 @@ export default async function InventoryItemPage({ params, searchParams }: { para
   const vkey = variant?.id ?? ZERO_KEY
   const branches = await myBranches(supabase, companyId)
   const [{ data: lv }, { data: settings }, { data: mv }, { data: res }, { data: vendors }] = await Promise.all([
-    fetchAllPages((a, b) => supabase.rpc('inventory_levels', { target: companyId, branch: null }).order('branch_id').order('item_id').order('variant_key').range(a, b)).then((r) => ({ data: r.rows, error: r.error })),
+    fetchAllPages((a, b) => supabase.rpc('inventory_levels', { target: companyId, branch: null }).order('branch_id').order('item_id').order('variant_key').range(a, b)).then(complete),
     supabase.from('inventory_item_settings').select('*').eq('item_id', id).eq('variant_key', vkey),
     supabase.from('inventory_movements').select('id, kind, quantity, branch_id, unit_cost_cents, reason, source_type, source_id, document_id, corrects_id, occurred_at, created_by')
       .eq('item_id', id).filter('variant_id', variant ? 'eq' : 'is', variant ? variant.id : null).order('id', { ascending: false }).limit(200),

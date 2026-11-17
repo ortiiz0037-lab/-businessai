@@ -23,6 +23,14 @@ import { lightspeedAdapter, lightspeedBase, LightspeedClient, normalizeLightspee
 import type { HeaderBag, PosAdapter } from '@/lib/pos/adapters/common'
 import type { NormalizedSale, WebhookEvent } from '@/lib/pos/types'
 
+/** the later of two instants (ISO text is not comparable as text: '…00.123Z' < '…00Z' alphabetically) */
+export function laterIso(current: string, candidate: string | null | undefined): string {
+  if (!candidate) return current
+  const a = Date.parse(current), b = Date.parse(candidate)
+  if (Number.isNaN(b)) return current
+  return Number.isNaN(a) || b > a ? candidate : current   // the provider's own text (keeps its precision)
+}
+
 export const ADAPTERS: Record<string, PosAdapter> = { square: squareAdapter, shopify: shopifyAdapter, clover: cloverAdapter, lightspeed_x: lightspeedAdapter }
 export type WebhookResult = { status: number; body: { ok: boolean; error?: string; events?: number } }
 const MAX_BODY = 512 * 1024
@@ -95,7 +103,7 @@ export class PosSync {
     for (let i = 0; i < maxPages; i++) {
       const r: { orders?: unknown[]; cursor?: string } = await this.withSquare(integration, ctx, (c) => c.searchOrders(locations, since, page))
       const sales = (r.orders ?? []).map((o) => normalizeSquareOrder(o)).filter((x): x is NormalizedSale => !!x)
-      for (const o of r.orders ?? []) { const u = (o as { updated_at?: string }).updated_at; if (u && u > latest) latest = u }
+      for (const o of r.orders ?? []) latest = laterIso(latest, (o as { updated_at?: string }).updated_at)
       if (sales.length) { await this.ingestWithCursor(integration, sales, latest); sent += sales.length }
       if (!r.cursor) break
       page = r.cursor
@@ -150,7 +158,7 @@ export class PosSync {
     for (let i = 0; i < maxPages; i++) {
       const page = await client.ordersSince(since, after)
       const rest = page.orders.map(shopifyGqlToRest)
-      for (const o of rest) { const u = o.updated_at as string | undefined; if (u && u > latest) latest = u }
+      for (const o of rest) latest = laterIso(latest, o.updated_at as string | undefined)
       const sales = rest.map((o) => normalizeShopifyOrder(o)).filter((x): x is NormalizedSale => !!x)
       if (sales.length) { await this.ingestWithCursor(integration, sales, latest); sent += sales.length }
       if (!page.next) break

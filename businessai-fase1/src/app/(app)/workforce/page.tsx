@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { fetchAllPages as selectAll } from '@/lib/supabase/paged'
+import { fetchAllPages as selectAll, complete } from '@/lib/supabase/paged'
 import { PageHeader, EmptyState } from '@/components/ui/page'
 import { SubmitButton } from '@/components/submit-button'
 import { AutoRefresh } from '@/components/auto-refresh'
@@ -27,7 +27,7 @@ export default async function WorkforceLivePage({ searchParams }: { searchParams
   const [{ data: empData }, { data: nowData }, { data: punchData }, { data: shiftData }, { data: leaveData }, { count: pendingCorr }, { count: pendingLeave }] = await Promise.all([
     supabase.from('employees').select('id, first_name, last_name, department_id, position').eq('company_id', companyId).eq('status', 'active').order('first_name').limit(200),
     supabase.rpc('workforce_now', { target: companyId }),
-    selectAll((a, b) => supabase.from('time_punches').select('employee_id, kind, at').eq('company_id', companyId).is('voided_at', null).gte('at', dayStart).order('at').order('id').range(a, b)).then((r) => ({ data: r.rows, error: r.error })),
+    selectAll((a, b) => supabase.from('time_punches').select('employee_id, kind, at').eq('company_id', companyId).is('voided_at', null).gte('at', dayStart).order('at').order('id').range(a, b)).then(complete),
     supabase.from('work_shifts').select('employee_id, starts_at, ends_at, break_minutes').eq('company_id', companyId).gte('ends_at', dayStart).lte('starts_at', new Date(Date.parse(`${today}T23:59:59Z`) + 86_400_000).toISOString()),
     supabase.from('leave_requests').select('employee_id, leave_type, starts_on, ends_on, partial_minutes').eq('company_id', companyId).eq('status', 'approved').lte('starts_on', today).gte('ends_on', today),
     supabase.from('punch_corrections').select('id', { count: 'exact', head: true }).eq('company_id', companyId).eq('status', 'pending'),

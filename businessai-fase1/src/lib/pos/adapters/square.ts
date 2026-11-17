@@ -12,7 +12,7 @@
  * Verified against the local test double only (no Square account was used).
  */
 import type { NormalizedLine, NormalizedPayment, NormalizedRefund, NormalizedSale, WebhookEvent } from '@/lib/pos/types'
-import { arr, brand, hmacB64, last4, methodFromLabel, msOf, obj, safeEqual, str, type PosAdapter } from '@/lib/pos/adapters/common'
+import { arr, brand, hmacB64, last4, methodFromLabel, msOf, obj, safeEqual, str, type PosAdapter, providerFetch } from '@/lib/pos/adapters/common'
 import { qtyText } from '@/lib/pos/money'
 
 export const SQUARE_VERSION = '2025-01-23'
@@ -104,7 +104,7 @@ export class SquareClient {
   private async call<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
     let res: Response
     try {
-      res = await this.fetcher(`${this.baseURL}${path}`, { method: init.method ?? 'GET', signal: AbortSignal.timeout(30000),
+      res = await providerFetch(this.fetcher, `${this.baseURL}${path}`, { method: init.method ?? 'GET', signal: AbortSignal.timeout(30000),
         headers: { authorization: `Bearer ${this.token}`, 'square-version': SQUARE_VERSION, 'content-type': 'application/json' },
         body: init.body === undefined ? undefined : JSON.stringify(init.body) })
     } catch { throw new SquareError('PROVIDER_UNREACHABLE', 0) }

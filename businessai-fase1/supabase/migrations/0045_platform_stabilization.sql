@@ -99,6 +99,10 @@ do $$ begin
   end if;
 end $$;
 
+-- ===================================================================== user deletion keeps financial records
+alter table public.payments drop constraint if exists payments_created_by_fkey;
+alter table public.companies drop constraint if exists companies_created_by_fkey;
+
 -- ===================================================================== account deletion requests
 create table if not exists public.account_deletion_requests (
   user_id uuid primary key references auth.users(id) on delete cascade,
@@ -146,6 +150,9 @@ do $$ begin
   if to_regclass('public.document_deletion_audit') is not null and (has_table_privilege('anon', 'public.document_deletion_audit', 'INSERT')
      or has_table_privilege('authenticated', 'public.document_deletion_audit', 'DELETE')) then
     raise exception 'BA0045 self-check failed: deletion audit still writable';
+  end if;
+  if exists (select 1 from pg_constraint where conname in ('payments_created_by_fkey', 'companies_created_by_fkey')) then
+    raise exception 'BA0045 self-check failed: user deletion still blocked by a foreign key';
   end if;
   if not exists (select 1 from pg_trigger where tgname = 'ba_snapshot_document_issue') then
     raise exception 'BA0045 self-check failed: snapshot trigger missing';

@@ -13,7 +13,7 @@
  *   - never issues, sends, pays or deletes. The only write is a PROPOSAL
  *     tied to the server's open turn, confirmed later by the user.
  */
-import { fetchAllPages } from '@/lib/supabase/paged'
+import { fetchAllPages, complete } from '@/lib/supabase/paged'
 import { z } from 'zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Locale } from '@/lib/i18n/app'
@@ -660,7 +660,7 @@ const aging = def({
   minTier: 'P2',
   allowed: (a) => a.perms['receivables.view'],
   async run(ctx, input) {
-    const { data, error } = await fetchAllPages((a, b) => ctx.supabase.rpc('ar_aging', { target: ctx.companyId, as_of: ctx.today }).order('client_id').range(a, b)).then((r) => ({ data: r.rows, error: r.error })); dbFail(error)
+    const { data, error } = await fetchAllPages((a, b) => ctx.supabase.rpc('ar_aging', { target: ctx.companyId, as_of: ctx.today }).order('overdue_cents', { ascending: false }).order('total_cents', { ascending: false }).order('client_id').range(a, b)).then(complete); dbFail(error)
     const all = (data ?? []) as { client_id: string; client_name: string; b0_30: number | string; b31_60: number | string; b61_90: number | string; b90_plus: number | string; total_cents: number | string; overdue_cents: number | string; invoices: number; oldest_days: number }[]
     const rows = input.only_overdue ? all.filter((r) => toCents(r.overdue_cents) > 0n) : all
     const sum = (k: keyof (typeof all)[number]) => money(all.reduce((n, r) => n + toCents(r[k] as string), 0n))
@@ -702,7 +702,7 @@ const recommendations = def({
     await Promise.all([
       (async () => {
         if (!perms['receivables.view']) return denied.push('receivables')
-        const { data, error } = await fetchAllPages((a, b) => supabase.rpc('ar_aging', { target: companyId, as_of: today }).order('client_id').range(a, b)).then((r) => ({ data: r.rows, error: r.error })); if (error) return
+        const { data, error } = await fetchAllPages((a, b) => supabase.rpc('ar_aging', { target: companyId, as_of: today }).order('overdue_cents', { ascending: false }).order('total_cents', { ascending: false }).order('client_id').range(a, b)).then(complete); if (error) return
         const rows = ((data ?? []) as { client_id: string; client_name: string; overdue_cents: number | string; b61_90: number | string; b90_plus: number | string; oldest_days: number }[]).filter((r) => toCents(r.overdue_cents) > 0n)
         if (!rows.length) return
         const old = rows.filter((r) => toCents(r.b61_90) + toCents(r.b90_plus) > 0n)

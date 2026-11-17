@@ -187,6 +187,15 @@ integraciones no se ofrecen. Ninguna se ha configurado en Vercel.
 
 URL de webhooks: `/api/pos/webhooks/{square|clover|shopify|lightspeed_x}`.
 
+## 9b. Recuperación y límites (S9.2)
+
+- Límites de uso de los proveedores: 429 / 503 → espera `Retry-After` (tope 10 s) y hasta 2 reintentos.
+- Cursores por instante, no por texto; cada página guarda su cursor: una sincronización interrumpida retoma
+  desde la última página guardada y repite como mucho esa frontera (sin duplicar: idempotencia por venta y pago).
+- `/api/pos/recover` exige `POS_CRON_SECRET` (≥ 32 caracteres, comparación en tiempo constante): probado con
+  la ruta real (sin secreto, secreto incorrecto o corto → 401).
+- Prueba de navegador del POS: `e2e/pos.auth.e2e.mjs` (escrita, no ejecutada aquí; corre en `e2e-auth.yml`).
+
 ## 10. Limitaciones conocidas
 
 - Integraciones externas no verificadas con cuentas reales; disponibilidad en Puerto Rico de Square,

@@ -1,5 +1,5 @@
 import { PageHeader } from '@/components/ui/page'
-import { fetchAllPages as selectAll } from '@/lib/supabase/paged'
+import { fetchAllPages as selectAll, complete } from '@/lib/supabase/paged'
 import { NoPosAccess, PosNav, Flash } from '@/components/pos/nav'
 import { assignRegister, savePosSettings, saveRegister, saveTaxRate, setItemTax } from '@/app/actions/pos'
 import { posBranches, posPage } from '@/lib/pos/page'
@@ -20,7 +20,7 @@ export default async function PosSettings({ searchParams }: { searchParams: Prom
     supabase.from('pos_registers').select('id, code, name, branch_id, kind, archived_at').eq('company_id', companyId).order('code'),
     supabase.from('pos_register_users').select('register_id, user_id').eq('company_id', companyId),
     supabase.rpc('company_members', { target: companyId }),
-    selectAll((a, b) => supabase.from('catalog_items').select('id, code, name').eq('company_id', companyId).eq('status', 'active').order('name').order('id').range(a, b)).then((r) => ({ data: r.rows, error: r.error })),
+    selectAll((a, b) => supabase.from('catalog_items').select('id, code, name').eq('company_id', companyId).eq('status', 'active').order('name').order('id').range(a, b)).then(complete),
     supabase.from('pos_item_taxes').select('item_id, tax_rate_id').eq('company_id', companyId),
   ])
   const c = (cfg ?? {}) as { max_discount_pct?: number; require_shift?: boolean; cash_tolerance_cents?: number; receipt_header?: string | null; receipt_footer?: string | null; allow_card_external?: boolean }

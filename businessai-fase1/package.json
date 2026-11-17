@@ -22,6 +22,7 @@
     "test:e2e:studio-advanced": "node e2e/studio-advanced.auth.e2e.mjs",
     "test:e2e:banking": "node e2e/banking.auth.e2e.mjs",
     "test:e2e:inventory": "node e2e/inventory.auth.e2e.mjs",
+    "test:e2e:pos": "node e2e/pos.auth.e2e.mjs",
     "test:e2e:assistant": "node e2e/assistant.auth.e2e.mjs",
     "bench": "node bench/run.mjs",
     "test:e2e:benchmark": "node bench/run.mjs --mode both",

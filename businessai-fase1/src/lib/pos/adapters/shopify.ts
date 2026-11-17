@@ -9,7 +9,7 @@
  * not implemented here (docs/POS.md). Verified against the local test double only.
  */
 import type { NormalizedLine, NormalizedPayment, NormalizedRefund, NormalizedSale, WebhookEvent } from '@/lib/pos/types'
-import { arr, hmacB64, methodFromLabel, msOf, obj, safeEqual, str, type PosAdapter } from '@/lib/pos/adapters/common'
+import { arr, hmacB64, methodFromLabel, msOf, obj, safeEqual, str, type PosAdapter, providerFetch } from '@/lib/pos/adapters/common'
 import { decimalToCents, qtyText } from '@/lib/pos/money'
 
 const c = (v: unknown) => decimalToCents(typeof v === 'number' || typeof v === 'string' ? v : null) ?? 0n
@@ -103,7 +103,7 @@ export class ShopifyClient {
   constructor(private readonly base: string, private readonly token: string, private readonly fetcher: typeof fetch = fetch) {}
   /** POS orders updated since `since` (ISO), one page of 50 */
   async ordersSince(since: string, after: string | null): Promise<{ orders: unknown[]; next: string | null }> {
-    const res = await this.fetcher(`${this.base}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, { method: 'POST', signal: AbortSignal.timeout(30000),
+    const res = await providerFetch(this.fetcher, `${this.base}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, { method: 'POST', signal: AbortSignal.timeout(30000),
       headers: { 'content-type': 'application/json', 'x-shopify-access-token': this.token },
       body: JSON.stringify({ query: ORDERS_QUERY, variables: { q: `updated_at:>='${since}' source_name:pos`, after } }) }).catch(() => null)
     if (!res?.ok) throw new Error(`SHOPIFY_${res?.status ?? 'UNREACHABLE'}`)

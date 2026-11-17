@@ -57,3 +57,21 @@ export const msOf = (iso: string | null | undefined): string | null => {
   const t = Date.parse(iso)
   return Number.isFinite(t) ? String(t) : null
 }
+
+/**
+ * A provider request that respects rate limits: on 429 / 503 it waits Retry-After (seconds or a date;
+ * capped at `maxWaitMs`, default 1 s growing ×4) and tries again, at most `retries` times. Any other
+ * answer is returned as it is. Never logs the request (it carries the access token).
+ */
+export async function providerFetch(fetcher: typeof fetch, url: string, init: RequestInit, opts: { retries?: number; maxWaitMs?: number; sleep?: (ms: number) => Promise<void> } = {}) {
+  const retries = opts.retries ?? 2, maxWait = opts.maxWaitMs ?? 10000, sleep = opts.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)))
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetcher(url, init)
+    if ((res.status !== 429 && res.status !== 503) || attempt >= retries) return res
+    const ra = res.headers.get('retry-after')
+    let wait = 1000 * 4 ** attempt
+    if (ra && /^\d+$/.test(ra)) wait = Number(ra) * 1000
+    else if (ra && !Number.isNaN(Date.parse(ra))) wait = Date.parse(ra) - Date.now()
+    await sleep(Math.max(0, Math.min(wait, maxWait)))
+  }
+}

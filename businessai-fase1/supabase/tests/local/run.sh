@@ -1397,6 +1397,8 @@ stg_db l52a; for m in "$P14" "$P15" "$P16" "$P17" "$P18" "$P19" "$P20" "$P21" "$
 psqlq -d l52a -f "$MIG/$P45.sql" >/dev/null && psqlq -d l52a -f "$MIG/$P45.sql" >/dev/null && check ok ok "0045 applies and re-applies cleanly"
 check "$(ro l52a "$VER")" OK "verify_0014a answers OK with 0045"
 run_suite l52a "$HERE/126_platform_flows.test.sql" 'ALL PLATFORM FLOW TESTS PASSED' "Platform flows (sign-up → company → issued invoice with its snapshot → ledger; product → POS sale → refund; purchase → receipt → POS → bill → bank; invoice → deposit → reconciliation; plan limits; statements from the ledger; multi-tenant sweep over every table; branch scope)"
+stg_db l52p; for m in "$P14" "$P15" "$P16" "$P17" "$P18" "$P19" "$P20" "$P21" "$P22" "$P23" "$P24" "$P25" "$P26" "$P27" "$P28" "$P29" "$P30" "$P31" "$P32" "$P33" "$P34" "$P35" "$P36" "$P37" "$P38" "$P39" "$P40" "$P41" "$P42" "$P43" "$P44" "$P45"; do psqlq -d l52p -f "$MIG/$m.sql" >/dev/null; done
+run_suite l52p "$HERE/127_pagination.test.sql" 'ALL PAGINATION TESTS PASSED' "Page boundaries (999 / 1 000 / 1 001 / 2 500 rows) of the paged reads: receivables, aging, ledger activity in its own order, inventory levels — no row lost or repeated, totals identical"
 # every current module suite on the complete stack (stage-bound suites are run in their own scenarios:
 # 73 / 74 count permissions at their stage, 96 is the 0029 assistant before 0030, 20 / 21 / 30 / 50 / 60 chain earlier files)
 for t in "10_rls_business:ALL RLS TESTS PASSED" "76_billing_hardening:ALL BILLING HARDENING TESTS PASSED" "77_plan_features:ALL PLAN FEATURE TESTS PASSED" "78_team:ALL TEAM TESTS PASSED" \

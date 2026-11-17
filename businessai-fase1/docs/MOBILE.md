@@ -121,6 +121,8 @@ migración nueva y cuentas de Apple y Google: **no implementado**.
 | Notificaciones | No implementadas (fase 2) |
 | Eliminación de cuenta | Hecha (ver arriba) |
 | Suscripciones en tiendas | **Decisión del propietario** (Stripe web vs. compra dentro de la app 3.1.1 / Google Play Billing) |
+| Pruebas de navegador en tamaños de iPhone 13 / iPad Mini de los módulos con sesión | Preparadas en `.github/workflows/e2e-auth.yml` (incluye las pantallas del POS y «Mi cuenta»); **no ejecutadas** en S9 (sin PostgREST en este entorno). Ningún dispositivo físico se ha probado |
+| Render inicial del POS | Probado sin navegador (render de React en el servidor, `tests/pos-register-render.test.ts`) |
 | Publicación | **No publicada** en App Store ni Google Play |
 
 ## 8. Plan de fases

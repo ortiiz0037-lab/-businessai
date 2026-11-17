@@ -1,4 +1,5 @@
 import { PageHeader } from '@/components/ui/page'
+import { fetchAllPages, complete } from '@/lib/supabase/paged'
 import { SubmitButton } from '@/components/submit-button'
 import { Flash } from '@/components/accounting-nav'
 import { NoPayablesAccess, PayablesNav } from '@/components/payables-nav'
@@ -20,7 +21,7 @@ export default async function RecurringPage({ searchParams }: { searchParams: Pr
     supabase.from('recurring_expenses').select('*').eq('company_id', companyId).order('status').order('next_date'),
     supabase.from('vendors').select('*').eq('company_id', companyId).order('name'),
     supabase.from('expense_categories').select('*').eq('company_id', companyId).order('name'),
-    supabase.from('bills').select('recurring_id').eq('company_id', companyId).not('recurring_id', 'is', null),
+    fetchAllPages((a, b) => supabase.from('bills').select('recurring_id').eq('company_id', companyId).not('recurring_id', 'is', null).order('id').range(a, b)).then(complete),
   ])
   const templates = (data ?? []) as Template[]
   const vendors = (v ?? []) as Vendor[]

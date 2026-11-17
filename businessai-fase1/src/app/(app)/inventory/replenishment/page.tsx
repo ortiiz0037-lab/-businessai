@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { fetchAllPages } from '@/lib/supabase/paged'
+import { fetchAllPages, complete } from '@/lib/supabase/paged'
 import { PageHeader, EmptyState } from '@/components/ui/page'
 import { SubmitButton } from '@/components/submit-button'
 import { Flash } from '@/components/accounting-nav'
@@ -23,7 +23,7 @@ export default async function ReplenishmentPage({ searchParams }: { searchParams
   const branches = await myBranches(supabase, companyId)
   const branch = branches.find((b) => b.id === sp.branch)?.id ?? null
   const [products, { data }, { data: vendors }] = await Promise.all([
-    trackedProducts(supabase, companyId), fetchAllPages((a, b) => supabase.rpc('inventory_replenishment_data', { target: companyId, branch }).order('branch_id').order('item_id').order('variant_key').range(a, b)).then((r) => ({ data: r.rows, error: r.error })),
+    trackedProducts(supabase, companyId), fetchAllPages((a, b) => supabase.rpc('inventory_replenishment_data', { target: companyId, branch }).order('branch_id').order('item_id').order('variant_key').range(a, b)).then(complete),
     supabase.from('vendors').select('id, name').eq('company_id', companyId).eq('status', 'active').order('name'),
   ])
   const all = ((data ?? []) as Record<string, unknown>[]).map((r) => suggest(normalizeRow(r)))

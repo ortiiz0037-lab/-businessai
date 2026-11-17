@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { fetchAllPages } from '@/lib/supabase/paged'
+import { fetchAllPages, complete } from '@/lib/supabase/paged'
 import PrintButton from '@/components/PrintButton'
 import { PageHeader } from '@/components/ui/page'
 import { NoReceivablesAccess, ReceivablesNav } from '@/components/receivables-nav'
@@ -18,7 +18,7 @@ export default async function AgingPage({ searchParams }: { searchParams: Promis
   const asOf = isoDay(sp.as_of) ?? today
   const onlyOverdue = sp.overdue === '1'
   const [{ data }, { data: ledger }] = await Promise.all([
-    fetchAllPages((a, b) => supabase.rpc('ar_aging', { target: companyId, as_of: asOf }).order('client_id').range(a, b)).then((r) => ({ data: r.rows, error: r.error })),
+    fetchAllPages((a, b) => supabase.rpc('ar_aging', { target: companyId, as_of: asOf }).order('overdue_cents', { ascending: false }).order('total_cents', { ascending: false }).order('client_id').range(a, b)).then(complete),
     asOf === today ? supabase.rpc('ledger_integrity', { target: companyId }) : Promise.resolve({ data: null }),
   ])
   const all = (data ?? []) as AgingRow[]

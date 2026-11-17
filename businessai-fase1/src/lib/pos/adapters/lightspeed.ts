@@ -11,7 +11,7 @@
  * Verified against the local test double only (no Lightspeed account was used).
  */
 import type { NormalizedLine, NormalizedPayment, NormalizedRefund, NormalizedSale, WebhookEvent } from '@/lib/pos/types'
-import { arr, hmacHex, methodFromLabel, msOf, obj, safeEqual, str, type PosAdapter } from '@/lib/pos/adapters/common'
+import { arr, hmacHex, methodFromLabel, msOf, obj, safeEqual, str, type PosAdapter, providerFetch } from '@/lib/pos/adapters/common'
 import { decimalToCents, qtyText } from '@/lib/pos/money'
 
 const c = (v: unknown) => decimalToCents(typeof v === 'number' || typeof v === 'string' ? v : null) ?? 0n
@@ -82,7 +82,7 @@ export const lightspeedAdapter: PosAdapter = {
 export class LightspeedClient {
   constructor(private readonly base: string, private readonly token: string, private readonly fetcher: typeof fetch = fetch) {}
   async salesAfter(after: number, pageSize = 200): Promise<{ sales: unknown[]; max: number | null }> {
-    const res = await this.fetcher(`${this.base}/api/2.0/sales?after=${Math.max(0, Math.floor(after))}&page_size=${pageSize}`,
+    const res = await providerFetch(this.fetcher, `${this.base}/api/2.0/sales?after=${Math.max(0, Math.floor(after))}&page_size=${pageSize}`,
       { headers: { authorization: `Bearer ${this.token}`, accept: 'application/json' }, signal: AbortSignal.timeout(30000) }).catch(() => null)
     if (!res?.ok) throw new Error(`LIGHTSPEED_${res?.status ?? 'UNREACHABLE'}`)
     const j = obj(await res.json())

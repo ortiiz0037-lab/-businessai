@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { fetchAllPages, complete } from '@/lib/supabase/paged'
 import { PageHeader, StatCard, EmptyState } from '@/components/ui/page'
 import { SubmitButton } from '@/components/submit-button'
 import { Flash } from '@/components/accounting-nav'
@@ -17,7 +18,7 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
   if (!access.view) return <NoBankAccess tr={tr} unavailable={!access.available} />
   const [{ data: acc }, { data: lines }, { data: recs }, { data: tb }] = await Promise.all([
     supabase.from('bank_accounts').select('*').eq('company_id', companyId).order('status').order('name'),
-    supabase.from('bank_lines').select('bank_account_id, status, amount_cents, txn_date').eq('company_id', companyId).neq('status', 'excluded'),
+    fetchAllPages((a, b) => supabase.from('bank_lines').select('bank_account_id, status, amount_cents, txn_date').eq('company_id', companyId).neq('status', 'excluded').order('id').range(a, b), { max: 200000 }).then(complete),
     supabase.from('bank_reconciliations').select('*').eq('company_id', companyId).order('period_end', { ascending: false }),
     supabase.rpc('ledger_trial_balance', { target: companyId }),
   ])
