@@ -41,7 +41,7 @@ autorización) y las integraciones con proveedores reales (credenciales).
 | `npm run test:db` (PostgreSQL 16 local, 52 escenarios: migraciones, rollbacks, RLS, carreras, flujos, límites de página) | **680 aprobadas, 0 fallidas** (escenarios 51 y 52 incluidos; `127_pagination` 16 aserciones) |
 | Escenario 52: 29 suites de módulos actuales **juntas** sobre 0001–0045 | Todas en verde (CRM, Workforce, Nómina, Libro mayor, Gastos, Cobros, Banco, Estados, Studio, Catálogo, Asistente S4, Banca, Inventario, POS, planes, equipo…) |
 | `126_platform_flows.test.sql` (flujos A–H y barrido multiempresa) | En verde |
-| `vitest` (lógica de la app, incluido el render del POS, la paginación y la consulta periódica de proveedores) | 907 aprobadas, 51 omitidas (pruebas que requieren servicios externos) |
+| `vitest` (lógica de la app, incluido el render del POS, la paginación y la consulta periódica de proveedores) | 910 aprobadas, 51 omitidas (pruebas que requieren servicios externos) |
 | `e2e/public.e2e.mjs` (navegador, sin sesión: protección de todas las rutas, rutas de máquina, idioma, iPhone / iPad en páginas públicas) | 156 aprobadas |
 | TypeScript, ESLint | Sin errores (ESLint: 6 avisos preexistentes, ninguno nuevo) |
 | `next build` (Next.js 16.4.5) | Correcto, sin aviso de seguridad |
