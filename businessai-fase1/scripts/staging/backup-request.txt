@@ -9,3 +9,4 @@
 2026-11-17 encrypted backup after 0041 expect_applied=39
 2026-11-17 encrypted backup after 0042 expect_applied=40
 2026-11-17 encrypted backup after 0043 expect_applied=41
+2026-11-17 encrypted backup after 0044 expect_applied=42
