@@ -197,6 +197,12 @@ Nada de esto se ha ejecutado en Staging.
    `auth` y `storage`, lectura del archivo, **restauración real** en un servidor desechable del runner con el
    mismo número de filas en cada tabla, y cifrado AES-256. El repositorio es **público**: el volcado solo se
    guarda cifrado (artefacto, 30 días) y solo si existe el secreto `STAGING_BACKUP_PASSPHRASE`.
+   **Evidencia (run 44167042736, 2026-11-17 20:14 UTC, commit `2d5e966`):** servidor PostgreSQL 17, guardas y
+   marca `staging` OK, `ba_meta.applied_migrations` = **34** (última `0036_workforce_access_check`), 154 tablas,
+   989 filas (6 usuarios, 3 empresas); `staging-0036-20261117T201423Z.dump` 1 626 699 bytes, sha256
+   `86fc51bc…aff87a`; `pg_restore --list` legible, 154 entradas de datos; restauración real con las **154 tablas
+   con el mismo número de filas** y registro 34. **No conservado** (falta el secreto de cifrado: acción del
+   propietario). Copia de la plataforma: no accesible sin un token de Supabase (acción del propietario).
 4. `staging:check` (solo lectura, `DRY_RUN=1 STATUS=1 VERIFY_0014A=1`). Salida esperada **exacta**:
    `No pending migrations.` · `Held (draft not approved …): 0037_studio_branches … 0045_platform_stabilization` ·
    34 filas `✓` · `verify_after_migrations: 10,0,2,0,f,0,2,3,t,t,t,` · `verify_0014a: OK`.
