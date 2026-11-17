@@ -14,13 +14,15 @@ on:
   push:
     paths: ['businessai-fase1/scripts/staging/backup-request.txt']
 
-concurrency: staging
+# Concurrency is on the job, not the workflow: every label starts all label workflows, and a
+# workflow-level group made a run whose job is skipped cancel the pending run that has work.
 
 permissions:
   contents: read
 
 jobs:
   backup:
+    concurrency: staging
     if: github.repository == 'ortiiz0037-lab/-businessai'
     runs-on: ubuntu-24.04
     timeout-minutes: 30

@@ -84,13 +84,15 @@ on:
         type: boolean
         default: true
 
-concurrency: staging
+# Concurrency is on the job, not the workflow: every label starts all label workflows, and a
+# workflow-level group made a run whose job is skipped cancel the pending run that has work.
 
 permissions:
   contents: read
 
 jobs:
   staging:
+    concurrency: staging
     # Label runs: only the exact label, and never from forks (no secrets there).
     if: >-
       github.event_name == 'workflow_dispatch' ||

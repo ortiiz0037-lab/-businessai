@@ -760,3 +760,13 @@ describe('staging-backup.yml: read-only, pinned, encrypted-only artifact', () =>
     expect(yml).toMatch(/Remove the plaintext working files\n\s+if: always\(\)/)
   })
 })
+
+describe('label workflows: a skipped job never cancels the run that has work', () => {
+  it('the staging concurrency group is on the job, never on the workflow', () => {
+    for (const f of ['staging.yml', 'staging-test.yml', 'staging-demo.yml', 'staging-backup.yml']) {
+      const yml = readFileSync(new URL(`../../.github/workflows/${f}`, import.meta.url), 'utf8')
+      expect(yml, f).not.toMatch(/^concurrency:/m)
+      expect(yml, f).toMatch(/\njobs:\n  [a-z]+:\n    concurrency: staging\n/)
+    }
+  })
+})

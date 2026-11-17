@@ -25,13 +25,15 @@ on:
     types: [labeled]
 
 # Same group as staging.yml: never runs at the same time as a staging setup.
-concurrency: staging
+# Concurrency is on the job, not the workflow: every label starts all label workflows, and a
+# workflow-level group made a run whose job is skipped cancel the pending run that has work.
 
 permissions:
   contents: read
 
 jobs:
   test:
+    concurrency: staging
     if: >-
       github.event.label.name == 'staging:test' &&
       github.event.pull_request.head.repo.full_name == github.repository
