@@ -192,5 +192,5 @@ aplicación doble (idempotencia), rollback con huella idéntica y rechazo del ro
 - Secuencia verificada automáticamente (`tests/migrations-sequence.test.ts`): números únicos, orden, rollback,
   borrador, documentación y arnés para cada migración; última 0045, siguiente libre 0046.
 - Pruebas de navegador con sesión: correr `.github/workflows/e2e-auth.yml` (16 suites) en un pull request
-  **antes** de pedir la autorización de Staging; hoy no se han ejecutado tras S8 / S9.
+  **antes** de pedir la autorización de Staging. Ejecución 2 (commit `12a4968`): 16 / 16 suites, 795 aprobadas, 0 fallidas.
 - Variables nuevas solo de prueba local (dobles): `SHOPIFY_BASE_URL`, `LIGHTSPEED_BASE_URL` (rechazadas en producción).

@@ -194,7 +194,10 @@ URL de webhooks: `/api/pos/webhooks/{square|clover|shopify|lightspeed_x}`.
   desde la última página guardada y repite como mucho esa frontera (sin duplicar: idempotencia por venta y pago).
 - `/api/pos/recover` exige `POS_CRON_SECRET` (≥ 32 caracteres, comparación en tiempo constante): probado con
   la ruta real (sin secreto, secreto incorrecto o corto → 401).
-- Prueba de navegador del POS: `e2e/pos.auth.e2e.mjs` (escrita, no ejecutada aquí; corre en `e2e-auth.yml`).
+- Prueba de navegador del POS: `e2e/pos.auth.e2e.mjs`, **38 / 38 en verde** en `e2e-auth.yml` (commit `12a4968`): caja creada desde
+  la pantalla, turno, escaneo, IVU 11.5 %, cambio, venta única con salida de inventario y asiento, recibo, reembolso
+  rechazado sin código y aceptado con código de supervisor (reabastece), diferencia de caja pendiente de revisión,
+  reportes, aislamiento entre empresas, inglés, iPhone 13 / iPad Mini. Contra la pila local, no contra proveedores reales.
 
 ## 10. Limitaciones conocidas
 

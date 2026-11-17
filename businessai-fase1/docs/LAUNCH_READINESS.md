@@ -52,14 +52,26 @@ movimiento bancario → conciliación) en `126_platform_flows.test.sql`; **E** (
 `80_workforce`, `102_workforce_hr` y `104_payroll` sobre la pila completa (escenario 52); **F** (asistente con
 permisos y confirmaciones) en `98`, `100`, `101`, `116` sobre la pila completa.
 
-**No ejecutado y por qué:** las pruebas de navegador **con sesión** (`e2e/*.auth.e2e.mjs`, incluidas las de
-iPhone / iPad de cada módulo) necesitan PostgREST local. En este sandbox no está instalado y la política del
-entorno rechazó instalarlo (descarga de la versión publicada y Nix); no hay paquete apt, ni imagen ni demonio de
-Docker. **Entorno soportado preparado:** `.github/workflows/e2e-auth.yml` instala PostgreSQL 16 y PostgREST en el
-runner de GitHub (nada remoto, sin secretos) y ejecuta las 16 suites con sesión, incluida la nueva
-`e2e/pos.auth.e2e.mjs` (escrita en S9.2, **todavía no ejecutada**). Se activa al abrir un pull request o, una vez en
-la rama principal, a mano; la base de datos que construye (43 migraciones + datos de prueba) se verificó aquí.
-Se ejecutaron en entregas anteriores en otro entorno (ver cada documento de módulo); la del POS nunca.
+**Pruebas de navegador con sesión (16 suites, `e2e/*.auth.e2e.mjs`):** no pueden correr en este sandbox (sin
+PostgREST; la política del entorno rechazó instalarlo). Se ejecutan en `.github/workflows/e2e-auth.yml`, que monta en el
+runner de GitHub una pila **solo local** (PostgreSQL 16 con las migraciones 0001–0045 y datos de prueba, PostgREST 12.2.3,
+sustituto local de Auth; sin secretos, sin Supabase / Stripe / Vercel). Ejecución 2 (commit `12a4968`, PR #1):
+**16 / 16 suites en verde, 795 verificaciones aprobadas, 0 fallidas**.
+
+| Suite | Resultado | Suite | Resultado |
+|---|---|---|---|
+| finance | 85 / 0 | finance-flows | 97 / 0 |
+| studio | 50 / 0 | studio-branches | 26 / 0 |
+| studio-finance | 29 / 0 | studio-advanced | 28 / 0 |
+| catalog | 35 / 0 | assistant | 80 / 0 |
+| assistant-s4 | 24 / 0 | banking | 56 / 0 |
+| inventory | 72 / 0 | **pos (nueva)** | **38 / 0** |
+| workforce | 53 / 0 | employee-link | 24 / 0 |
+| payroll | 41 / 0 | crm | 57 / 0 |
+
+La ejecución 1 falló en las 16 al iniciar sesión por un defecto del propio flujo de trabajo (compilaba con una URL de
+Supabase de relleno, que Next.js incrusta en la compilación); corregido en `12a4968`, sin cambios en la app ni en las pruebas.
+Las comprobaciones de iPhone 13 / iPad Mini son de tamaño de pantalla en Chromium, **no** de dispositivos físicos.
 Tampoco: pruebas con hardware, cuentas reales de proveedores, ni nada en Staging / Production.
 
 ## 3. Problemas corregidos en S9
