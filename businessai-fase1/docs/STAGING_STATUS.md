@@ -182,8 +182,8 @@ Nada de esto se ha ejecutado en Staging.
 **A. Antes (sin cambiar nada)**
 
 1. Autorización escrita del propietario que nombre la migración exacta de **cada** ejecución
-   (`approved_drafts=0037_studio_branches`, luego `0038_studio_finance`, …). Aprobar una posterior sola no
-   aplica nada: el script se detiene en el primer borrador sin aprobar (ensayado).
+   (etiqueta `staging:migrate-0037`, luego `staging:migrate-0038`, …). Poner una etiqueta posterior antes de
+   tiempo no aplica nada: el plan no coincide y la ejecución se detiene (ensayado y probado).
 2. El commit a usar tiene CI y `e2e-auth.yml` en verde (hoy `b48246f`: CI #92 y E2E #4 en verde; las 16 suites
    con sesión 795 / 0 en `12a4968`), y `npm run test:db` + `npm run staging:rehearse:next` en verde con ese commit.
 3. **Respaldo:** (1a) Supabase → Database → Backups: anotar hora de la última copia y si el plan ofrece PITR;
@@ -197,19 +197,24 @@ Nada de esto se ha ejecutado en Staging.
    Cualquier línea `~ <migración> changed since it was applied` o una migración ≤ 0036 en `Pending` = **parar**
    (ningún archivo 0001–0036 cambió desde el 2026-11-14; run #38 aplicó 0036 el 2026-11-15).
 
-**B. Una migración por ejecución, en este orden** (`staging.yml`, entrada `approved_drafts`; nunca a mano)
+**B. Una migración por ejecución, en este orden** — etiqueta `staging:migrate-00NN` en el PR #1, una por
+ejecución y solo con la autorización escrita de esa migración. Cada etiqueta fija su único borrador en
+`staging.yml` (`SINGLE_DRAFT`; nunca del texto de la etiqueta), ejecuta solo migraciones (sin Stripe, Vercel,
+usuarios ni pruebas), se detiene si el plan no es exactamente ese borrador con los posteriores retenidos, y
+después ejecuta las comprobaciones de solo lectura de `scripts/staging/verify-step.sh` (ensayadas: 82 / 0).
+**No usar** «Run workflow» manual: tiene Stripe, Vercel y pruebas activados por defecto.
 
-| Paso | `approved_drafts` | Salida esperada del run | Matriz `role_permissions` | Comprobación adicional |
+| Paso | Etiqueta (borrador fijado) | Salida esperada del run | Matriz `role_permissions` | Comprobación adicional |
 |---|---|---|---|---|
-| 1 | 0037_studio_branches | `→ applying 0037_studio_branches` · `up to date and verified` | 130 | — |
-| 2 | 0038_studio_finance | ídem 0038 | 130 | — |
-| 3 | 0039_catalog | ídem 0039 | 135 | — |
-| 4 | 0040_assistant_finance | ídem 0040 | 135 | — |
-| 5 | 0041_studio_advanced | ídem 0041 | 135 | — |
-| 6 | 0042_banking | ídem 0042 | 135 | bucket `Banking-evidence` privado con 3 políticas |
-| 7 | 0043_inventory | ídem 0043 | 143 | — |
-| 8 | 0044_pos | ídem 0044 | 153 | ninguna variable `POS_*` / `SQUARE_*` todavía |
-| 9 | 0045_platform_stabilization | ídem 0045 | 153 | `document_deletion_audit` sin escritura para `anon` (autocomprobación de la migración) |
+| 1 | `staging:migrate-0037` (0037_studio_branches) | `OK: dry run lists exactly 0037_studio_branches` · `→ applying 0037_studio_branches` · `up to date and verified` · `OK: 0037_studio_branches verified (read-only)` | 130 | — |
+| 2 | `staging:migrate-0038` (0038_studio_finance) | ídem 0038 | 130 | — |
+| 3 | `staging:migrate-0039` (0039_catalog) | ídem 0039 | 135 | — |
+| 4 | `staging:migrate-0040` (0040_assistant_finance) | ídem 0040 | 135 | — |
+| 5 | `staging:migrate-0041` (0041_studio_advanced) | ídem 0041 | 135 | — |
+| 6 | `staging:migrate-0042` (0042_banking) | ídem 0042 | 135 | bucket `Banking-evidence` privado con 3 políticas |
+| 7 | `staging:migrate-0043` (0043_inventory) | ídem 0043 | 143 | — |
+| 8 | `staging:migrate-0044` (0044_pos) | ídem 0044 | 153 | ninguna variable `POS_*` / `SQUARE_*` todavía |
+| 9 | `staging:migrate-0045` (0045_platform_stabilization) | ídem 0045 | 153 | `document_deletion_audit` sin escritura para `anon`; registro de permisos revocados presente |
 
 **C. Después de cada paso (solo lectura)**
 

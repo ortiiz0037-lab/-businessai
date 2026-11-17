@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url'
-import { spawnSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { describe, expect, it } from 'vitest'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -198,18 +198,18 @@ describe('staging.yml: what each label runs', () => {
       MODE: 'migrate', DO_MIGRATIONS: true, DO_STRIPE: false, DO_VERCEL: false, DO_TESTS: false, DO_PREVIEW_SUPABASE: false,
     })
     // the single approved draft is pinned in the file (never from the label, a variable or an input)
-    expect(yml).toContain('\n      SINGLE_DRAFT: 0036_workforce_access_check\n')
-    expect(yml).toContain("SINGLE_RUN: ${{ github.event.label.name == 'staging:migrate-0036' }}")
+    expect(evalFor('SINGLE_DRAFT', 'staging:migrate-0036')).toBe('0036_workforce_access_check')
+    expect(evalFor('SINGLE_RUN', 'staging:migrate-0036')).toBe(true)
     // the module list is unchanged and does not include 0036
     const pinned = /\n      MODULE_DRAFTS: ([0-9a-z_,]+)\n/.exec(yml)?.[1] ?? ''
     expect(pinned.split(',')).not.toContain('0036_workforce_access_check')
     // both APPROVED_DRAFTS expressions: 0036 only with that exact label
     const ad = yml.match(/APPROVED_DRAFTS: \$\{\{ (.+) \}\}/g)!
     expect(ad).toHaveLength(2)
-    for (const e of ad) expect(e).toContain("github.event.label.name == 'staging:migrate-0036' && env.SINGLE_DRAFT")
+    for (const e of ad) expect(e).toContain("env.SINGLE_RUN == 'true' && env.SINGLE_DRAFT")
     // dry run first: stops unless exactly 0036 is pending and nothing is held; then the rolled-back checks
     expect(yml).toContain('STOP: the dry run does not list exactly $SINGLE_DRAFT; nothing applied')
-    expect(yml).toContain('ERROR: $SINGLE_DRAFT is not the last migration of ORDER')
+    expect(yml).toContain('ERROR: $SINGLE_DRAFT is not in ORDER')
     expect(yml).toContain('bash scripts/staging/verify-0036.sh')
     // the migrate guard (pinned staging ref, production refused) runs for it: MODE == migrate
     expect(yml).toMatch(/PINNED_STAGING_REF: wbfpvxptoujgvflljasc/)
@@ -220,6 +220,51 @@ describe('staging.yml: what each label runs', () => {
     expect(v).toContain('strict_staging_url "${STAGING_DB_URL:-}" "${EXPECT_STAGING_REF:-}" "${PRODUCTION_PROJECT_REF:-}" || exit 1')
     expect(readFileSync(new URL('../scripts/staging/verify-lib.sh', import.meta.url), 'utf8')).toContain('ERROR: STAGING_DB_URL points at the PRODUCTION project')
     expect(v).not.toMatch(/^\s*commit\b/im)
+  })
+
+  it('staging:migrate-0037 … 0045: one pinned draft per label, migrate mode only, later drafts must stay held', () => {
+    const order = /ORDER=\(([\s\S]*?)\)/.exec(readFileSync(new URL('../scripts/staging/apply-migrations.sh', import.meta.url), 'utf8'))![1].match(/\d{4}[a-z]?_[a-z0-9_]+/g)!
+    const drafts = order.slice(order.indexOf('0037_studio_branches'))
+    expect(drafts.at(-1)).toBe('0045_platform_stabilization')
+    for (const d of drafts) {
+      const label = `staging:migrate-${d.slice(0, 4)}`
+      expect(flags(label), label).toEqual({ MODE: 'migrate', DO_MIGRATIONS: true, DO_STRIPE: false, DO_VERCEL: false, DO_TESTS: false, DO_PREVIEW_SUPABASE: false })
+      expect(evalFor('SINGLE_RUN', label), label).toBe(true)
+      expect(evalFor('SINGLE_DRAFT', label), label).toBe(d)
+      expect(yml, label).toContain(`github.event.label.name == '${label}'`)
+      expect(readFileSync(new URL(`../supabase/migrations/${d}.sql`, import.meta.url), 'utf8')).toMatch(/^-- STAGING-GATE: approval required/m)
+      expect(existsSync(new URL(`../supabase/rollback/${d.slice(0, 4)}_rollback.sql`, import.meta.url)), d).toBe(true)
+    }
+    // anything else approves nothing and is not a single-draft run (the name never comes from the label text)
+    for (const l of ['staging:migrate-0046', 'staging:migrate-0037_studio_branches', 'staging:migrate-0045,0046', 'staging:run'])
+      expect([evalFor('SINGLE_RUN', l), evalFor('SINGLE_DRAFT', l)], l).toEqual([false, ''])
+    expect(yml).not.toContain("github.event.label.name == 'staging:migrate-0046'")
+    // the shell of the guard: the drafts after the approved one, taken from ORDER
+    const laterLine = /\n\s+(later=\$\(sed [^\n]+)\n/.exec(yml)![1]
+    const later = (d: string) => execFileSync('bash', ['-c', `order="$(printf '%s\\n' ${order.join(' ')})"; SINGLE_DRAFT=${d}; ${laterLine}; printf '%s' "$later"`]).toString()
+    expect(later('0037_studio_branches')).toBe(drafts.slice(1).join(' '))
+    expect(later('0044_pos')).toBe('0045_platform_stabilization')
+    expect(later('0045_platform_stabilization')).toBe('')
+    // the apply stops unless the dry run holds exactly those later drafts
+    const heldLine = /\n\s+(held="\$\(grep '\^Held'[^\n]+)\n/.exec(yml)![1]
+    const held = (plan: string) => execFileSync('bash', ['-c', `${heldLine}; printf '%s' "$held"`], { env: { ...process.env, plan } }).toString()
+    expect(held('Pending: 0037_studio_branches\nHeld (draft not approved — pass APPROVED_DRAFTS to apply): 0038_studio_finance 0039_catalog')).toBe('0038_studio_finance 0039_catalog')
+    expect(held('Pending: 0045_platform_stabilization')).toBe('')
+    expect(yml).toContain(`[ "$held" = "$SINGLE_LATER" ] || { echo "STOP: held drafts are '$held', expected '$SINGLE_LATER'; nothing applied"; exit 1; }`)
+    // after the apply: applied up to the draft, the later ones must still be "not applied"
+    const badLine = /\n\s+(bad="\$\(grep -E '\^00'[^\n]+)\n/.exec(yml)![1]
+    const bad = (state: string, laterList: string) => execFileSync('bash', ['-c', `${badLine}; printf '%s' "$bad"`], { env: { ...process.env, state, SINGLE_LATER: laterList } }).toString()
+    const st = '0036_workforce_access_check|applied|x\n0037_studio_branches|applied|x\n0038_studio_finance|not applied|x\n0008_definer_function_grants|n/a|x'
+    expect(bad(st, '0038_studio_finance')).toBe('')
+    expect(bad(st, '')).toContain('0038_studio_finance')
+    expect(bad(st.replace('0037_studio_branches|applied', '0037_studio_branches|not applied'), '0038_studio_finance')).toContain('0037_studio_branches')
+    expect(bad(st.replace('0038_studio_finance|not applied', '0038_studio_finance|applied'), '0038_studio_finance')).toContain('0038_studio_finance')
+    // each step's read-only checks
+    expect(yml).toContain('bash scripts/staging/verify-step.sh "$SINGLE_DRAFT"')
+    const vs = readFileSync(new URL('../scripts/staging/verify-step.sh', import.meta.url), 'utf8')
+    expect(vs).toContain('strict_staging_url "${STAGING_DB_URL:-}" "${EXPECT_STAGING_REF:-}" "${PRODUCTION_PROJECT_REF:-}" || exit 1')
+    expect(vs).toContain("PGOPTIONS='-c default_transaction_read_only=on'")
+    for (const d of drafts) expect(vs, d).toContain(`  ${d})`)
   })
 
   it('the other labels keep their behaviour', () => {
@@ -407,7 +452,7 @@ describe('draft gate (review finding I12): a draft in ORDER is never applied wit
     expect(script).toMatch(/source "\$HERE\/draft-gate.sh"/)
     expect(script).toMatch(/\[\[ -n "\$recorded" && "\$recorded" == "\$sum" \]\] && known\+="\$name,"/)
     expect(script.indexOf('draft_gate "$MIG"')).toBeLessThan(script.indexOf('for name in "${pending[@]}"; do\n  file='))
-    expect(yml).toMatch(/APPROVED_DRAFTS: \$\{\{ github\.event\.label\.name == 'staging:migrate-modules' && env\.MODULE_DRAFTS \|\| github\.event\.label\.name == 'staging:migrate-0036' && env\.SINGLE_DRAFT \|\| github\.event_name == 'workflow_dispatch' && inputs\.approved_drafts \|\| '' \}\}/)
+    expect(yml).toMatch(/APPROVED_DRAFTS: \$\{\{ github\.event\.label\.name == 'staging:migrate-modules' && env\.MODULE_DRAFTS \|\| env\.SINGLE_RUN == 'true' && env\.SINGLE_DRAFT \|\| github\.event_name == 'workflow_dispatch' && inputs\.approved_drafts \|\| '' \}\}/)
     // every other label passes nothing: the list exists only behind that exact label
     expect(yml).toMatch(/MODULES_RUN: \$\{\{ github\.event\.label\.name == 'staging:migrate-modules' \}\}/)
     expect(yml.match(/APPROVED_DRAFTS:/g)).toHaveLength(2)

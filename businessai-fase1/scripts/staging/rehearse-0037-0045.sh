@@ -99,7 +99,14 @@ for i in "${!STEPS[@]}"; do
   ok "$(grep -c '^verify_0014a: OK$' <<<"$o")/$(grep -c '✓' <<<"$o")" "1/$((35+i))" "$m confirm: verify_0014a OK (read-only), $((35+i)) recorded"
   ok "$(q -d $DB -tA -c "select count(*) from public.role_permissions")" "${MATRIX[$i]}" "$m permission matrix: ${MATRIX[$i]} rows"
   ok "$(counts)" "$base_counts" "$m existing companies / clients / documents / memberships unchanged"
+  o="$(cd "$root" && STAGING_DB_URL="$(url $DB)" EXPECT_STAGING_REF="$STG" PRODUCTION_PROJECT_REF="$PROD" bash scripts/staging/verify-step.sh "$m" 2>&1)"
+  ok "$?/$(grep -c '^OK: ' <<<"$o")/$(grep -c '^FAIL' <<<"$o")" "0/1/0" "$m verify-step.sh (the workflow's read-only checks) passes"
+  [[ "$(grep -c '^FAIL' <<<"$o")" == 0 ]] || grep '^FAIL' <<<"$o" | sed 's/^/    /'
 done
+o="$(cd "$root" && STAGING_DB_URL="$(url $DB)" EXPECT_STAGING_REF="$STG" PRODUCTION_PROJECT_REF="$PROD" bash scripts/staging/verify-step.sh 0099_unknown 2>&1)"
+ok "$?" 1 "verify-step.sh refuses an unknown step"
+o="$(cd "$root" && STAGING_DB_URL="$(url $DB)&x=$PROD" EXPECT_STAGING_REF="$STG" PRODUCTION_PROJECT_REF="$PROD" bash scripts/staging/verify-step.sh 0037_studio_branches 2>&1)"
+ok "$(grep -c 'PRODUCTION' <<<"$o")" 1 "verify-step.sh refuses a URL that mentions the production project"
 
 echo "== 3. End state"
 ok "$(q -d $DB -tA -c "select public::text from storage.buckets where id = 'Banking-evidence'")/$(q -d $DB -tA -c "select count(*) from pg_policies where schemaname = 'storage' and tablename = 'objects' and (coalesce(qual,'') || coalesce(with_check,'')) ilike '%Banking-evidence%'")" "false/3" \
