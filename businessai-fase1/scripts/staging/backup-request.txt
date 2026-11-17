@@ -6,3 +6,4 @@
 2026-11-17 encrypted backup after 0038 expect_applied=36
 2026-11-17 encrypted backup after 0039 expect_applied=37
 2026-11-17 encrypted backup after 0040 expect_applied=38
+2026-11-17 encrypted backup after 0041 expect_applied=39
