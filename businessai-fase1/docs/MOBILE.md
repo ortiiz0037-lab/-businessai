@@ -103,7 +103,7 @@ migración nueva y cuentas de Apple y Google: **no implementado**.
 | Requisito | Estado |
 |---|---|
 | Textos de permisos: micrófono, reconocimiento de voz, cámara (escáner y recibos), fotos; Android `RECORD_AUDIO`, `CAMERA` | **Redactados** en `mobile/permissions.md` (S9); se copian al crear los proyectos nativos |
-| Iconos PNG (1024 × 1024 sin transparencia para iOS; adaptativos para Android) y pantallas de inicio | **Pendiente** (hoy solo hay SVG) |
+| Iconos PNG (1024 × 1024 sin transparencia para iOS; adaptativos para Android) y pantallas de inicio | **Hecho (S9)**: `mobile/assets/` (generados y verificados: 1024 RGB opaco, 432 con transparencia, 2732) |
 | Eliminación de la cuenta desde la app (App Store 5.1.1(v), Google Play) | **Hecho (S9, 0045)**: «Mi cuenta» (`/settings/account`) inicia la solicitud (cancelable mientras esté pendiente); un operador la completa con `scripts/ops/complete-account-deletions.mjs` (clave de servicio solo en su equipo) en ≤ 30 días. Los registros financieros de las empresas se conservan (obligación legal); el único propietario de una empresa debe transferirla o cerrarla antes. Probado en `126_platform_flows.test.sql` §H |
 | Etiquetas de privacidad / Data safety (datos financieros, de contacto, audio no almacenado) | Por completar con el inventario de datos |
 | Contenido generado por IA: el asistente lo indica, cita sus fuentes y no actúa sin confirmación | Hecho |
@@ -115,7 +115,7 @@ migración nueva y cuentas de Apple y Google: **no implementado**.
 |---|---|
 | Configuración Capacitor (`mobile/capacitor.config.json`) | Plantilla revisada: solo HTTPS, navegación limitada al dominio, sin depuración Android, splash `#070b14`. **Falta el dominio autorizado** |
 | Proyectos iOS / Android | **No creados** (requiere autorización, cuentas de desarrollador y Xcode / Android Studio: no disponibles en este entorno) |
-| Iconos y splash | **Pendiente**: solo `public/icon.svg`; faltan PNG 1024 px y adaptativos (no se generan aquí para no inventar arte final) |
+| Iconos y splash | **Generados** desde `public/icon.svg` (misma identidad, sin arte nuevo) con `node scripts/mobile/generate-assets.mjs`: `mobile/assets/icon-1024.png` (iOS, cuadrado y opaco, sin canal alfa), `android-foreground-432.png` (adaptativo, zona segura 66 %) + fondo `#070b14`, `splash-2732.png`. Se copian al crear los proyectos nativos |
 | Enlaces universales / App Links | Plantillas en `mobile/well-known/` (`apple-app-site-association`, `assetlinks.json`) con `TEAM_ID` y huella del certificado por completar; no se publican hasta tener los valores reales |
 | Cámara y escáner | En la web: ZXing / BarcodeDetector y lectores HID (S7/S8); no probados con cámara física |
 | Notificaciones | No implementadas (fase 2) |
