@@ -139,6 +139,27 @@ $$;
 revoke all on function public.account_deletion_request(text), public.account_deletion_cancel() from public, anon;
 grant execute on function public.account_deletion_request(text), public.account_deletion_cancel() to authenticated, service_role;
 
+-- Record exactly which of these privileges each role really had (direct grants), so the rollback
+-- restores that and nothing more: a database that never granted them (e.g. a project whose default
+-- privileges differ) must not gain write access to the audit on rollback. Re-running keeps the
+-- first record (the second run finds nothing left to revoke).
+create table if not exists ba_private.s9_revoked_audit_grants (
+  role_name text not null check (role_name in ('anon', 'authenticated')),
+  privilege text not null check (privilege in ('INSERT', 'UPDATE', 'DELETE', 'TRUNCATE')),
+  primary key (role_name, privilege));
+revoke all on ba_private.s9_revoked_audit_grants from public, anon, authenticated;
+do $$ begin
+  if to_regclass('public.document_deletion_audit') is not null then
+    insert into ba_private.s9_revoked_audit_grants (role_name, privilege)
+    select r.rolname, a.privilege_type
+      from pg_class c cross join lateral aclexplode(c.relacl) a join pg_roles r on r.oid = a.grantee
+     where c.oid = 'public.document_deletion_audit'::regclass
+       and ((r.rolname = 'anon' and a.privilege_type in ('INSERT', 'UPDATE', 'DELETE', 'TRUNCATE'))
+         or (r.rolname = 'authenticated' and a.privilege_type in ('UPDATE', 'DELETE', 'TRUNCATE')))
+    on conflict do nothing;
+  end if;
+end $$;
+
 do $$ begin
   if to_regclass('public.document_deletion_audit') is not null then
     revoke insert, update, delete, truncate on public.document_deletion_audit from anon;

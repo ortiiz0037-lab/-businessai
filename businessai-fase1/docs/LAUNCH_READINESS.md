@@ -41,7 +41,9 @@ autorización) y las integraciones con proveedores reales (credenciales).
 | `npm run test:db` (PostgreSQL 16 local, 52 escenarios: migraciones, rollbacks, RLS, carreras, flujos, límites de página) | **680 aprobadas, 0 fallidas** (escenarios 51 y 52 incluidos; `127_pagination` 16 aserciones) |
 | Escenario 52: 29 suites de módulos actuales **juntas** sobre 0001–0045 | Todas en verde (CRM, Workforce, Nómina, Libro mayor, Gastos, Cobros, Banco, Estados, Studio, Catálogo, Asistente S4, Banca, Inventario, POS, planes, equipo…) |
 | `126_platform_flows.test.sql` (flujos A–H y barrido multiempresa) | En verde |
-| `vitest` (lógica de la app, incluido el render del POS, la paginación y la consulta periódica de proveedores) | 910 aprobadas, 51 omitidas (pruebas que requieren servicios externos) |
+| `vitest` 4.1.12 (lógica de la app, incluido el render del POS, la paginación, la exportación CSV de Bancos y la consulta periódica de proveedores) | 910 aprobadas, 51 omitidas (pruebas que requieren servicios externos) |
+| `npm run staging:rehearse:next` (ensayo local del paso de Staging 0037 → 0045, una migración por ejecución, con el script real y los refs fijados) | **71 aprobadas, 0 fallidas** |
+| `npm audit` (producción y desarrollo) | 0 vulnerabilidades |
 | `e2e/public.e2e.mjs` (navegador, sin sesión: protección de todas las rutas, rutas de máquina, idioma, iPhone / iPad en páginas públicas) | 156 aprobadas |
 | TypeScript, ESLint | Sin errores (ESLint: 6 avisos preexistentes, ninguno nuevo) |
 | `next build` (Next.js 16.4.5) | Correcto, sin aviso de seguridad |
@@ -95,6 +97,10 @@ Tampoco: pruebas con hardware, cuentas reales de proveedores, ni nada en Staging
 | S9-16 | POS: el cursor comparaba fechas ISO como texto (`…00.123Z` < `…00Z`) y podía retroceder | Comparación por instante (`laterIso`) |
 | S9-17 | POS: sin manejo de límites de uso (429 / 503) de los proveedores | `providerFetch`: espera `Retry-After` (tope 10 s), 2 reintentos; probado |
 | S9-18 | Sin guardia automática de la secuencia de migraciones | `tests/migrations-sequence.test.ts` (rollback, borrador, orden, documentación, arnés, número siguiente) |
+| S9-19 | **El rollback de 0045 abría escritura en la auditoría de borrados** en una base que no tenía esos permisos antes: devolvía una lista fija (`anon`: insert / update / delete; `authenticated`: update / delete). Encontrado por el ensayo de Staging (huella distinta tras el rollback) | 0045 registra en `ba_private.s9_revoked_audit_grants` los permisos que existían de verdad; el rollback devuelve solo esos (ninguno sin registro). Probado en los dos casos: con permisos previos (escenario 52, huella idéntica) y sin ellos (ensayo, huella idéntica) |
+| S9-20 | Tras un rollback en Staging, su fila en `ba_meta.applied_migrations` quedaba: el script la creería aplicada y no la volvería a ofrecer. No estaba documentado | Paso documentado (`supabase/RUNBOOK.md` §10, `docs/STAGING_STATUS.md` §8 D) y ensayado |
+| S9-21 | `supabase/RUNBOOK.md` §10 no cubría los rollbacks 0036–0045 | Filas añadidas (qué restaura, cuándo se niega, cómo cubrirlo) |
+| S9-22 | `npm audit`: 2 críticas, 1 alta y 2 moderadas, **solo en herramientas de desarrollo** (vitest 3 / tinypool / @vitest/mocker, vite, minimatch); producción ya estaba en 0 | vitest 3.2 → 4.1.12 (ya sin tinypool), vite 7.3.8, typescript-eslint 8.73.0, minimatch 11.0.9 → **0 vulnerabilidades**. Mismas 910 pruebas en verde. El lockfile se resolvió con npm 11 porque npm 10.9.9 falla (`edgesOut`) con los pares de vitest 4; `npm ci` con npm 10 (el de CI) lo instala sin errores |
 | S9-7 | La suite 96 del asistente se usaba como regresión de la pila completa aunque está atada a 0029 | Sustituida por suites vigentes (98, 100, 101, 116); 96 sigue en su escenario |
 
 ## 4. Seguridad multiempresa (verificada en `126_platform_flows.test.sql` §G)
@@ -132,8 +138,20 @@ y su agente de puente, terminales de pago integradas (solo vía procesador), tab
 
 ## 8. Pendientes de Staging
 
-Aplicar 0037–0045 en el orden y con el procedimiento de `docs/STAGING_STATUS.md` §8 (autorización por
-migración); después, pruebas de humo en la Preview y la prueba de navegador con sesión contra Staging.
+Paquete de preparación listo (nada ejecutado en Staging): procedimiento con respaldo, comprobaciones previas,
+una migración por ejecución con salidas esperadas exactas, validación posterior y recuperación (rollback o
+restauración) en `docs/STAGING_STATUS.md` §8; rollbacks en `supabase/RUNBOOK.md` §10; ensayo local completo
+`npm run staging:rehearse:next` (71 / 0).
+
+**Aprobaciones del propietario que faltan:**
+
+1. Respaldo de Staging hecho por el propietario (copia de la plataforma y volcado lógico propio) — `RUNBOOK.md` §1.
+2. Una autorización escrita **por migración**, en orden: 0037, 0038, 0039, 0040, 0041, 0042, 0043, 0044, 0045
+   (cada una es una ejecución de `staging.yml` con `approved_drafts=<esa migración>`).
+3. Autorización para la prueba de humo en la Preview contra Staging con usuarios de prueba.
+4. Decisión sobre la actualización de acciones de GitHub a Node 24 (`docs/CI_NODE24.md`; propuesta, no aplicada).
+5. Por separado (no bloquean las migraciones): Stripe TEST, credenciales de proveedores POS, decisiones de
+   negocio (propinas, monedas / zonas horarias, suscripciones en tienda), hardware y cuentas de las tiendas.
 
 ## 9. Riesgos de lanzamiento
 

@@ -380,6 +380,16 @@ suscripciones: se pueden volver a sincronizar.
 | 0018 | `0018_rollback.sql` | Catálogo idéntico a 0017 (probado con huella); restaura el trigger de límite de miembros de 0011 | Se niega si hay invitaciones pendientes vigentes; las membresías aceptadas se conservan; `team_events` se conserva si tiene historial | Revocar invitaciones antes |
 | 0017 | `0017_rollback.sql` | Catálogo idéntico a 0016 (probado con huella) | Se niega si existen las tablas de empleados o sucursales (fases posteriores) | Revertir primero esos módulos |
 | 0016 | `0016_rollback.sql` | Catálogo idéntico a 0011 (probado con huella): `company_billing_state` de 0011 y `enforce_billing_limits` de 0010 | **`trial_claims`** (quién reclamó una prueba): tras el rollback la prueba vuelve a ser por empresa | Volcado de datos antes (§1b) |
+| 0036 | `0036_rollback.sql` | Catálogo idéntico a 0035 (probado con huella) | Nunca (solo funciones) | Ninguna |
+| 0037 | `0037_rollback.sql` | Catálogo idéntico a 0036 (huella; ensayo `rehearse-0037-0045.sh`) | Se niega si algún documento de Studio tiene sucursal | Quitar la sucursal o exportar antes |
+| 0038 | `0038_rollback.sql` | Catálogo idéntico a 0037 | Se niega si hay cartas de cobro, comprobantes de pago, vínculos a Gastos o bloques de gastos / antigüedad | Exportar los PDF; no hay vuelta atrás con datos |
+| 0039 | `0039_rollback.sql` | Catálogo idéntico a 0038; matriz 135 → 130 | Se niega si el catálogo tiene artículos | Exportar el catálogo |
+| 0040 | `0040_rollback.sql` | Catálogo idéntico a 0039 | Se niega si existen propuestas financieras del asistente para Studio | Ninguna |
+| 0041 | `0041_rollback.sql` | Catálogo idéntico a 0040 | Se niega si se usan las tipografías nuevas o propuestas de edición asistida | Ninguna |
+| 0042 | `0042_rollback.sql` | Catálogo idéntico a 0041 | Se niega si hay conexiones bancarias, aplicaciones de depósitos, recibos o asignaciones de sucursal; **el bucket `Banking-evidence` y sus archivos no se borran** | Exportar recibos; borrar el bucket vacío es un paso manual |
+| 0043 | `0043_rollback.sql` | Catálogo idéntico a 0042; matriz 143 → 135 | Se niega si hay datos de inventario | Exportar existencias y movimientos |
+| 0044 | `0044_rollback.sql` | Catálogo idéntico a 0043; matriz 153 → 143 | Se niega si hay datos del punto de venta | Exportar ventas y turnos |
+| 0045 | `0045_rollback.sql` | Catálogo idéntico a 0044 (huella, con y sin permisos previos en `document_deletion_audit`) | Se niega con solicitudes de eliminación de cuenta pendientes o si ya se eliminaron usuarios referenciados (no recrea las FK sobre registros huérfanos). Las instantáneas `documents.metadata.issued` se conservan. Devuelve **solo** los permisos de auditoría que 0045 encontró y registró | Ninguna |
 | Despliegue | Revertir el despliegue en Vercel | Código anterior | — | La base de datos no cambia |
 
 Respaldo (§1), puntos a tener en cuenta:
@@ -388,6 +398,11 @@ Respaldo (§1), puntos a tener en cuenta:
 - Comprueba con `supabase db dump --help` qué esquemas incluye el volcado: los
   esquemas gestionados por Supabase (como `storage`) pueden quedar fuera. Por eso
   el CSV de `inspect_storage_policies.sql` es parte obligatoria del respaldo.
+- **Registro de Staging tras un rollback:** `apply-migrations.sh` decide qué falta por
+  `ba_meta.applied_migrations`. Después de ejecutar `NNNN_rollback.sql` en Staging hay que borrar
+  su fila en la **misma** sesión (`delete from ba_meta.applied_migrations where name = '<migración>'`);
+  si no, el script la cree aplicada y nunca la vuelve a ofrecer. Ensayado en
+  `scripts/staging/rehearse-0037-0045.sh` §4.
 - La copia de la plataforma o PITR depende del plan: anota qué ofrece el tuyo y
   la hora de la última copia antes de empezar.
 

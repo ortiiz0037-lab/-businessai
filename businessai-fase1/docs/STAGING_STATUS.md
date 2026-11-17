@@ -173,19 +173,64 @@ en lugar de fallar). Desplegar el código de S9 sobre Staging con 0001–0036 es
 rollback de 0045 con huella idéntica. Cada borrador además tiene su escenario propio (45–52) con
 aplicación doble (idempotencia), rollback con huella idéntica y rechazo del rollback con datos.
 
-### Procedimiento para una futura prueba controlada en Staging (requiere autorización aparte)
+### Procedimiento para la prueba controlada en Staging (0037 → 0045) — requiere autorización aparte
 
-1. **Autorización explícita** del propietario que nombre las migraciones exactas (`APPROVED_DRAFTS=0037_studio_branches,…`).
-2. Copia de seguridad / punto de restauración de Staging (panel de Supabase) y anotar el run.
-3. `staging:check` (solo lectura): `inspect_migration_state.sql` debe mostrar 0001–0036 aplicadas y 0037–0045 «not applied».
-4. Ensayo local idéntico: `npm run staging:rehearse` y `npm run test:db` en verde con el mismo commit.
-5. Aplicar **de una en una** en el orden de la tabla con el workflow `staging.yml` (entrada `approved_drafts`), nunca a mano.
-6. Tras cada una: `verify_0014a.sql` = OK, recuento de la matriz esperado, `inspect_migration_state` = applied,
-   y la suite de su módulo en transacción revertida (como `verify-0036.sh`).
-7. Para 0042: comprobar que el bucket `Banking-evidence` es privado y tiene 3 políticas.
-8. Configurar variables solo después (nombres en `docs/POS.md` §9, `docs/BANKING.md`), nunca antes de la migración.
-9. Prueba de humo en la Preview con usuarios de prueba de Staging: crear empresa, factura, venta POS, conteo.
-10. Si una verificación falla: detener; el rollback de esa migración es una decisión aparte (no automática).
+Ensayado de principio a fin, en local, con el `apply-migrations.sh` **real** y los refs fijados reales:
+`npm run staging:rehearse:next` (`scripts/staging/rehearse-0037-0045.sh`) → **71 aprobadas, 0 fallidas**.
+Nada de esto se ha ejecutado en Staging.
+
+**A. Antes (sin cambiar nada)**
+
+1. Autorización escrita del propietario que nombre la migración exacta de **cada** ejecución
+   (`approved_drafts=0037_studio_branches`, luego `0038_studio_finance`, …). Aprobar una posterior sola no
+   aplica nada: el script se detiene en el primer borrador sin aprobar (ensayado).
+2. El commit a usar tiene CI y `e2e-auth.yml` en verde (hoy `b48246f`: CI #92 y E2E #4 en verde; las 16 suites
+   con sesión 795 / 0 en `12a4968`), y `npm run test:db` + `npm run staging:rehearse:next` en verde con ese commit.
+3. **Respaldo:** (1a) Supabase → Database → Backups: anotar hora de la última copia y si el plan ofrece PITR;
+   (1b) volcado lógico propio en el equipo del propietario, fuera del repositorio y cifrado:
+   `supabase db dump --db-url "<Staging>" -f schema.sql`, `--data-only -f data.sql`, `--role-only -f roles.sql`
+   (`supabase/RUNBOOK.md` §1). La restauración de un volcado equivalente (`pg_dump -Fc` / `pg_restore`) se
+   ensayó: catálogo y datos idénticos al estado 0036.
+4. `staging:check` (solo lectura, `DRY_RUN=1 STATUS=1 VERIFY_0014A=1`). Salida esperada **exacta**:
+   `No pending migrations.` · `Held (draft not approved …): 0037_studio_branches … 0045_platform_stabilization` ·
+   34 filas `✓` · `verify_after_migrations: 10,0,2,0,f,0,2,3,t,t,t,` · `verify_0014a: OK`.
+   Cualquier línea `~ <migración> changed since it was applied` o una migración ≤ 0036 en `Pending` = **parar**
+   (ningún archivo 0001–0036 cambió desde el 2026-11-14; run #38 aplicó 0036 el 2026-11-15).
+
+**B. Una migración por ejecución, en este orden** (`staging.yml`, entrada `approved_drafts`; nunca a mano)
+
+| Paso | `approved_drafts` | Salida esperada del run | Matriz `role_permissions` | Comprobación adicional |
+|---|---|---|---|---|
+| 1 | 0037_studio_branches | `→ applying 0037_studio_branches` · `up to date and verified` | 130 | — |
+| 2 | 0038_studio_finance | ídem 0038 | 130 | — |
+| 3 | 0039_catalog | ídem 0039 | 135 | — |
+| 4 | 0040_assistant_finance | ídem 0040 | 135 | — |
+| 5 | 0041_studio_advanced | ídem 0041 | 135 | — |
+| 6 | 0042_banking | ídem 0042 | 135 | bucket `Banking-evidence` privado con 3 políticas |
+| 7 | 0043_inventory | ídem 0043 | 143 | — |
+| 8 | 0044_pos | ídem 0044 | 153 | ninguna variable `POS_*` / `SQUARE_*` todavía |
+| 9 | 0045_platform_stabilization | ídem 0045 | 153 | `document_deletion_audit` sin escritura para `anon` (autocomprobación de la migración) |
+
+**C. Después de cada paso (solo lectura)**
+
+- `staging:check` con `EXPECT_NONE=1`: `verify_0014a: OK`, filas `✓` = 34 + número de paso, el resto sigue `Held`.
+- `inspect_migration_state.sql`: la migración del paso = `applied`.
+- Los datos existentes no cambian (empresas, clientes, documentos, membresías: mismos recuentos; ensayado).
+- Al terminar los 9 pasos: prueba de humo en la Preview con usuarios de prueba de Staging (empresa, factura,
+  venta POS, conteo) y aislamiento entre dos empresas de prueba.
+- Variables de entorno (POS, banca) **solo después** de su migración, nunca antes (`docs/POS.md` §9, `docs/BANKING.md`).
+
+**D. Si algo falla — plan de recuperación (decisión del propietario, nunca automática)**
+
+1. **Parar.** La migración que falla no se registra (cada archivo es una transacción: un fallo no cambia nada).
+2. **Recuperación A — rollback** (si ya se aplicó y no hay datos del módulo): ejecutar `supabase/rollback/NNNN_rollback.sql`
+   en orden **inverso** (0045 → 0037, solo las aplicadas) y, en la misma sesión, borrar su fila de
+   `ba_meta.applied_migrations`. Ensayado: las 9 en orden inverso dejan el catálogo **idéntico** al estado 0036,
+   la matriz en 130 y 0037–0045 otra vez `Held`. Cada rollback se niega (sin cambiar nada) si su módulo ya tiene
+   datos — ver `supabase/RUNBOOK.md` §10.
+3. **Recuperación B — restaurar** la copia del punto A.3 (PITR o volcado) si un rollback se niega o hay daño de datos.
+   Ensayado con `pg_dump -Fc` / `pg_restore`: catálogo, datos y registro (34) idénticos al estado 0036.
+4. Registrar qué pasó, qué run y qué se restauró, antes de cualquier nuevo intento.
 
 ### Antes de la prueba en Staging (S9.2)
 

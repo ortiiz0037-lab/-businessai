@@ -31,7 +31,8 @@
     "test:e2e:payroll": "node e2e/payroll.auth.e2e.mjs",
     "test:e2e:crm": "node e2e/crm.auth.e2e.mjs",
     "test:e2e:staging-shape": "node e2e/staging-shape.e2e.mjs",
-    "staging:rehearse": "bash scripts/staging/rehearse-modules.sh"
+    "staging:rehearse": "bash scripts/staging/rehearse-modules.sh",
+    "staging:rehearse:next": "bash scripts/staging/rehearse-0037-0045.sh"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",
@@ -54,6 +55,6 @@
     "eslint-config-next": "^16.4.5",
     "tailwindcss": "^4",
     "typescript": "^5",
-    "vitest": "^3.2.0"
+    "vitest": "^4.1.12"
   }
 }

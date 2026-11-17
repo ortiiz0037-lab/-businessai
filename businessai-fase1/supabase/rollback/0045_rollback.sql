@@ -27,10 +27,14 @@ drop table if exists public.account_deletion_requests;
 drop trigger if exists ba_snapshot_document_issue on public.documents;
 drop function if exists public.document_issue_snapshot();
 drop function if exists ba_private.doc_pick(jsonb, text[]);
-do $$ begin
-  if to_regclass('public.document_deletion_audit') is not null then
-    grant insert, update, delete on public.document_deletion_audit to anon;
-    grant update, delete on public.document_deletion_audit to authenticated;
+-- Give back exactly the audit privileges 0045 found and revoked (recorded at apply time); none
+-- when there is no record, so a rollback never opens write access that did not exist before.
+do $$ declare g record; begin
+  if to_regclass('public.document_deletion_audit') is not null and to_regclass('ba_private.s9_revoked_audit_grants') is not null then
+    for g in select role_name, privilege from ba_private.s9_revoked_audit_grants loop
+      execute format('grant %s on public.document_deletion_audit to %I', g.privilege, g.role_name);
+    end loop;
   end if;
 end $$;
+drop table if exists ba_private.s9_revoked_audit_grants;
 commit;
