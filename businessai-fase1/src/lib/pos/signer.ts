@@ -8,6 +8,8 @@
  *   pos_settle|v1|key|integration|ts|nonce|sha(payload)
  *   pos_due|v1|key|ts|nonce
  *   pos_bridge|v1|key|token_sha|ts|nonce
+ *   pos_token|v1|key|integration|ts|nonce|sha(payload)      (0045)
+ *   pos_active|v1|key|provider|ts|nonce                     (0045)
  * Each signature is single-use (nonce) and valid for two minutes.
  */
 import { createHmac, randomUUID } from 'node:crypto'
@@ -29,4 +31,6 @@ export class PosSigner {
   settle(integration: string, payload: string) { return this.sign(['pos_settle', 'v1', this.k.id, integration, '{ts}', '{nonce}', shaHex(payload)]) }
   due() { return this.sign(['pos_due', 'v1', this.k.id, '{ts}', '{nonce}']) }
   bridge(tokenSha: string) { return this.sign(['pos_bridge', 'v1', this.k.id, tokenSha, '{ts}', '{nonce}']) }
+  token(integration: string, payload: string) { return this.sign(['pos_token', 'v1', this.k.id, integration, '{ts}', '{nonce}', shaHex(payload)]) }
+  active(provider: string) { return this.sign(['pos_active', 'v1', this.k.id, provider, '{ts}', '{nonce}']) }
 }

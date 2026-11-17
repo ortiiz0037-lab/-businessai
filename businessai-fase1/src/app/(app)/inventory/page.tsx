@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { fetchAllPages } from '@/lib/supabase/paged'
 import { PageHeader, StatCard, EmptyState } from '@/components/ui/page'
 import { StateChip } from '@/components/bank-nav'
 import { InventoryNav, NoInventoryAccess } from '@/components/inventory/nav'
@@ -14,8 +15,8 @@ export default async function InventoryHome() {
   if (!access.view || !access.available) return <NoInventoryAccess tr={tr} unavailable={!access.available} />
   const [products, { data: lv }, { data: rp }, { data: mv }, { data: pos }, { data: trs }, { data: adj }, { data: br }] = await Promise.all([
     trackedProducts(supabase, companyId),
-    supabase.rpc('inventory_levels', { target: companyId, branch: null }),
-    supabase.rpc('inventory_replenishment_data', { target: companyId, branch: null }),
+    fetchAllPages((a, b) => supabase.rpc('inventory_levels', { target: companyId, branch: null }).order('branch_id').order('item_id').order('variant_key').range(a, b)).then((r) => ({ data: r.rows, error: r.error })),
+    fetchAllPages((a, b) => supabase.rpc('inventory_replenishment_data', { target: companyId, branch: null }).order('branch_id').order('item_id').order('variant_key').range(a, b)).then((r) => ({ data: r.rows, error: r.error })),
     supabase.from('inventory_movements').select('id, kind, quantity, item_id, variant_id, branch_id, occurred_at').eq('company_id', companyId).order('id', { ascending: false }).limit(10),
     supabase.from('purchase_orders').select('id, status').eq('company_id', companyId).in('status', ['draft', 'pending_approval', 'approved', 'partially_received']),
     supabase.from('inventory_transfers').select('id, status').eq('company_id', companyId).in('status', ['requested', 'approved', 'prepared', 'in_transit']),

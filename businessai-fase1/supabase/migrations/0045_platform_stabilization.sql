@@ -65,6 +65,40 @@ drop trigger if exists ba_snapshot_document_issue on public.documents;
 create trigger ba_snapshot_document_issue before insert or update of status on public.documents
   for each row execute function public.document_issue_snapshot();
 
+-- ===================================================================== POS: token renewal and polling (needs 0044)
+do $$ begin
+  if to_regprocedure('ba_private.pos_verify(text, text, text, bigint, uuid)') is not null then
+    execute $f$
+    create or replace function public.pos_integration_token_update(integration uuid, payload text, key text, ts bigint, nonce uuid, mac text)
+    returns void language plpgsql security definer set search_path = '' as $b$
+    declare p jsonb; i public.pos_integrations;
+    begin
+      perform ba_private.pos_verify(key, concat_ws('|', 'pos_token', 'v1', key, integration::text, ts::text, nonce::text, ba_private.sha_hex(payload)), mac, ts, nonce);
+      select * into i from public.pos_integrations where id = integration for update;
+      if i.id is null or i.status = 'disconnected' then raise exception 'POS_NOT_FOUND' using errcode = 'P0001'; end if;
+      p := payload::jsonb;
+      if coalesce(p ->> 'token_ciphertext', '') = '' or coalesce(p ->> 'key_version', '') !~ '^[A-Za-z0-9_-]{1,32}$' then raise exception 'POS_INTEGRATION_INVALID' using errcode = 'P0001'; end if;
+      insert into ba_private.pos_integration_secrets (integration_id, token_ciphertext, key_version, expires_at)
+      values (i.id, p ->> 'token_ciphertext', p ->> 'key_version', nullif(p ->> 'expires_at', '')::timestamptz)
+      on conflict (integration_id) do update set token_ciphertext = excluded.token_ciphertext, key_version = excluded.key_version, expires_at = excluded.expires_at, updated_at = now();
+      update public.pos_integrations set status = case when status in ('error', 'login_required') then 'active' else status end, error_code = null where id = i.id;
+      perform ba_private.pos_log(i.company_id, 'pos_integrations', i.id::text, 'token_renewed', '{}');
+    end $b$;
+    create or replace function public.pos_integrations_active(provider text, key text, ts bigint, nonce uuid, mac text)
+    returns jsonb language plpgsql security definer set search_path = '' as $b$
+    #variable_conflict use_variable
+    begin
+      perform ba_private.pos_verify(key, concat_ws('|', 'pos_active', 'v1', key, provider, ts::text, nonce::text), mac, ts, nonce);
+      return coalesce((select jsonb_agg(jsonb_build_object('integration_id', i.id, 'cursor', i.sync_cursor, 'last_success_at', i.last_success_at,
+               'locations', (select coalesce(jsonb_agg(m.external_location_id), '[]'::jsonb) from public.pos_location_maps m where m.integration_id = i.id)))
+             from public.pos_integrations i where i.provider = provider and i.status in ('active', 'error')), '[]'::jsonb);
+    end $b$;
+    revoke all on function public.pos_integration_token_update(uuid, text, text, bigint, uuid, text), public.pos_integrations_active(text, text, bigint, uuid, text) from public;
+    grant execute on function public.pos_integration_token_update(uuid, text, text, bigint, uuid, text), public.pos_integrations_active(text, text, bigint, uuid, text) to anon, authenticated, service_role;
+    $f$;
+  end if;
+end $$;
+
 -- ===================================================================== account deletion requests
 create table if not exists public.account_deletion_requests (
   user_id uuid primary key references auth.users(id) on delete cascade,

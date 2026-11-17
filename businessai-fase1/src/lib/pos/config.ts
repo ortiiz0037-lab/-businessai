@@ -11,9 +11,11 @@
  *   SQUARE_WEBHOOK_SIGNATURE_KEY, SQUARE_WEBHOOK_URL   the subscription's signature key and its exact notification URL
  *   SQUARE_BASE_URL           optional; outside production a loopback http URL selects the local TEST DOUBLE
  *   SHOPIFY_API_SECRET        the app's client secret (webhook HMAC); SHOPIFY_ACCESS_SCOPES documented in docs/POS.md
+ *   SHOPIFY_BASE_URL          optional; loopback http outside production = local TEST DOUBLE (polling)
  *   CLOVER_WEBHOOK_AUTH_CODE  the verification code Clover shows when the webhook URL is verified
  *   CLOVER_BASE_URL           https://api.clover.com (US) | https://apisandbox.dev.clover.com; loopback http = TEST DOUBLE
  *   LIGHTSPEED_CLIENT_SECRET  X-Series OAuth app secret (webhook signature)
+ *   LIGHTSPEED_BASE_URL       optional; loopback http outside production = local TEST DOUBLE (polling)
  *   POS_BRIDGE_ENABLED=1      accepts sales from the local bridge (/api/pos/bridge)
  *   POS_CRON_SECRET           ≥ 32 characters; authorises the recovery job (/api/pos/recover)
  */
@@ -31,6 +33,10 @@ export type PosConfig = {
   shopifySecret: string | null
   clover: { authCode: string; baseURL: string; testDouble: boolean } | null
   lightspeedSecret: string | null
+  /** loopback base URL of the local Lightspeed double (outside production only) */
+  lightspeedBase: string | null
+  /** loopback base URL of the local Shopify double (outside production only) */
+  shopifyBase: string | null
   bridge: boolean
   cronSecret: string | null
 }
@@ -68,6 +74,8 @@ export function readPosConfig(env: Record<string, string | undefined> = process.
     shopifySecret: core ? (env.SHOPIFY_API_SECRET ?? '').trim() || null : null,
     clover: core && cloverCode && baseUrlAllowed(cloverBase, ae) ? { authCode: cloverCode, baseURL: cloverBase.replace(/\/$/, ''), testDouble: cloverBase.startsWith('http:') } : null,
     lightspeedSecret: core ? (env.LIGHTSPEED_CLIENT_SECRET ?? '').trim() || null : null,
+    shopifyBase: (env.SHOPIFY_BASE_URL ?? '').trim() && baseUrlAllowed((env.SHOPIFY_BASE_URL ?? '').trim(), ae) ? (env.SHOPIFY_BASE_URL ?? '').trim().replace(/\/$/, '') : null,
+    lightspeedBase: (env.LIGHTSPEED_BASE_URL ?? '').trim() && baseUrlAllowed((env.LIGHTSPEED_BASE_URL ?? '').trim(), ae) ? (env.LIGHTSPEED_BASE_URL ?? '').trim().replace(/\/$/, '') : null,
     bridge: !!core && env.POS_BRIDGE_ENABLED === '1',
     cronSecret: (env.POS_CRON_SECRET ?? '').length >= 32 ? env.POS_CRON_SECRET! : null,
   }

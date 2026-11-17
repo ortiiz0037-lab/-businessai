@@ -154,3 +154,12 @@ export async function squareExchangeCode(oauthURL: string, appId: string, secret
   if (!res?.ok || !str(data.access_token) || !str(data.merchant_id)) throw new SquareError(str(data.error, 80) ?? 'OAUTH_FAILED', res?.status ?? 0)
   return { accessToken: str(data.access_token, 2000)!, refreshToken: str(data.refresh_token, 2000), expiresAt: str(data.expires_at), merchantId: str(data.merchant_id)! }
 }
+
+/** OAuth refresh (Square access tokens expire; the refresh token is long-lived) */
+export async function squareRefreshToken(oauthURL: string, appId: string, secret: string, refreshToken: string, fetcher: typeof fetch = fetch) {
+  const res = await fetcher(`${oauthURL}/oauth2/token`, { method: 'POST', signal: AbortSignal.timeout(30000), headers: { 'content-type': 'application/json', 'square-version': SQUARE_VERSION },
+    body: JSON.stringify({ client_id: appId, client_secret: secret, refresh_token: refreshToken, grant_type: 'refresh_token' }) }).catch(() => null)
+  const data = res ? obj(await res.json().catch(() => null)) : {}
+  if (!res?.ok || !str(data.access_token)) throw new SquareError(str(data.error, 80) ?? 'OAUTH_REFRESH_FAILED', res?.status ?? 0)
+  return { accessToken: str(data.access_token, 2000)!, refreshToken: str(data.refresh_token, 2000) ?? refreshToken, expiresAt: str(data.expires_at) }
+}

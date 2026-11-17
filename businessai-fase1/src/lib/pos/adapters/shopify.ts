@@ -68,3 +68,49 @@ export const shopifyAdapter: PosAdapter = {
   },
   normalize: (o) => normalizeShopifyOrder(o),
 }
+
+// --------------------------------------------------------------------------- historical reads (GraphQL Admin API)
+export const SHOPIFY_API_VERSION = '2025-01'
+const gid = (v: unknown) => { const m = /\/(\d+)$/.exec(String(v ?? '')); return m ? m[1] : null }
+const money = (v: unknown) => str(obj(obj(v).shopMoney).amount)
+const nodes = (v: unknown) => arr(obj(v).nodes).map(obj)
+const FIN: Record<string, string> = { PAID: 'paid', PARTIALLY_REFUNDED: 'partially_refunded', REFUNDED: 'refunded', VOIDED: 'voided' }
+
+/** a GraphQL order → the REST / webhook shape normalizeShopifyOrder already reads */
+export function shopifyGqlToRest(o: unknown): Record<string, unknown> {
+  const x = obj(o)
+  return {
+    id: gid(x.id), name: x.name, source_name: str(x.sourceName)?.toLowerCase() ?? null, location_id: gid(obj(x.retailLocation ?? x.physicalLocation).id),
+    currency: x.currencyCode, financial_status: FIN[String(x.displayFinancialStatus)] ?? String(x.displayFinancialStatus ?? '').toLowerCase(),
+    updated_at: x.updatedAt, processed_at: x.processedAt, cancelled_at: x.cancelledAt ?? null, total_price: money(x.totalPriceSet),
+    line_items: nodes(x.lineItems).map((l) => ({ id: gid(l.id), variant_id: gid(obj(l.variant).id), sku: l.sku, title: l.name, variant_title: l.variantTitle, quantity: l.quantity,
+      price: money(l.originalUnitPriceSet), total_discount: money(l.totalDiscountSet) ?? '0', tax_lines: arr(l.taxLines).map(obj).map((t) => ({ rate: t.rate, price: money(t.priceSet) })) })),
+    transactions: arr(x.transactions).map(obj).map((t) => ({ id: gid(t.id), kind: String(t.kind ?? '').toLowerCase(), status: String(t.status ?? '').toLowerCase(), gateway: t.gateway, amount: money(t.amountSet) })),
+    refunds: arr(x.refunds).map(obj).map((r) => ({ id: gid(r.id), created_at: r.createdAt, note: r.note,
+      refund_line_items: nodes(r.refundLineItems).map((l) => ({ line_item_id: gid(obj(l.lineItem).id), quantity: l.quantity, restock_type: String(l.restockType ?? '').toLowerCase() })) })),
+  }
+}
+
+const ORDERS_QUERY = `query($q: String!, $after: String) { orders(first: 50, after: $after, query: $q, sortKey: UPDATED_AT) {
+  pageInfo { hasNextPage endCursor }
+  nodes { id name sourceName updatedAt processedAt cancelledAt displayFinancialStatus currencyCode retailLocation { id }
+    totalPriceSet { shopMoney { amount } }
+    lineItems(first: 250) { nodes { id sku name variantTitle quantity variant { id } originalUnitPriceSet { shopMoney { amount } } totalDiscountSet { shopMoney { amount } } taxLines { rate priceSet { shopMoney { amount } } } } }
+    transactions { id kind status gateway amountSet { shopMoney { amount } } }
+    refunds { id createdAt note refundLineItems(first: 250) { nodes { quantity restockType lineItem { id } } } } } } }`
+
+export class ShopifyClient {
+  constructor(private readonly base: string, private readonly token: string, private readonly fetcher: typeof fetch = fetch) {}
+  /** POS orders updated since `since` (ISO), one page of 50 */
+  async ordersSince(since: string, after: string | null): Promise<{ orders: unknown[]; next: string | null }> {
+    const res = await this.fetcher(`${this.base}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, { method: 'POST', signal: AbortSignal.timeout(30000),
+      headers: { 'content-type': 'application/json', 'x-shopify-access-token': this.token },
+      body: JSON.stringify({ query: ORDERS_QUERY, variables: { q: `updated_at:>='${since}' source_name:pos`, after } }) }).catch(() => null)
+    if (!res?.ok) throw new Error(`SHOPIFY_${res?.status ?? 'UNREACHABLE'}`)
+    const j = obj(await res.json())
+    if (arr(j.errors).length) throw new Error('SHOPIFY_GRAPHQL')
+    const o = obj(obj(j.data).orders), pi = obj(o.pageInfo)
+    return { orders: arr(o.nodes), next: pi.hasNextPage ? str(pi.endCursor, 500) : null }
+  }
+}
+export const shopifyBase = (shopDomain: string, override: string | null) => override ?? `https://${shopDomain.replace(/[^a-z0-9.-]/gi, '')}`

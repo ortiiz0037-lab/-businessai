@@ -15,10 +15,11 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { PosConfig } from '@/lib/pos/config'
 import { decryptPosToken } from '@/lib/pos/crypto'
 import { PosSigner } from '@/lib/pos/signer'
-import { squareAdapter, normalizeSquareOrder, normalizeSquareReturn, SquareClient } from '@/lib/pos/adapters/square'
-import { shopifyAdapter, normalizeShopifyOrder } from '@/lib/pos/adapters/shopify'
+import { squareAdapter, normalizeSquareOrder, normalizeSquareReturn, SquareClient, SquareError, squareRefreshToken } from '@/lib/pos/adapters/square'
+import { encryptPosToken } from '@/lib/pos/crypto'
+import { shopifyAdapter, normalizeShopifyOrder, shopifyBase, ShopifyClient, shopifyGqlToRest } from '@/lib/pos/adapters/shopify'
 import { cloverAdapter, normalizeCloverOrder, CloverClient } from '@/lib/pos/adapters/clover'
-import { lightspeedAdapter, normalizeLightspeedReturn, normalizeLightspeedSale } from '@/lib/pos/adapters/lightspeed'
+import { lightspeedAdapter, lightspeedBase, LightspeedClient, normalizeLightspeedReturn, normalizeLightspeedSale } from '@/lib/pos/adapters/lightspeed'
 import type { HeaderBag, PosAdapter } from '@/lib/pos/adapters/common'
 import type { NormalizedSale, WebhookEvent } from '@/lib/pos/types'
 
@@ -40,13 +41,129 @@ export class PosSync {
     const { data, error } = await this.supabase.rpc('pos_integration_context', { integration, key: s.key, ts: s.ts, nonce: s.nonce, mac: s.mac })
     return error ? null : (data as Ctx)
   }
-  private token(ctx: Ctx): string | null {
+  private tokens(ctx: Ctx): { access: string; refresh: string | null } | null {
     if (!ctx.token_ciphertext || !this.cfg.core) return null
     try {
       const plain = decryptPosToken(ctx.token_ciphertext, this.cfg.core.tokenKeys)
       // OAuth connections keep {access_token, refresh_token}; manual tokens are the bare string
-      return plain.startsWith('{') ? (JSON.parse(plain) as { access_token?: string }).access_token ?? null : plain
+      if (!plain.startsWith('{')) return { access: plain, refresh: null }
+      const j = JSON.parse(plain) as { access_token?: string; refresh_token?: string | null }
+      return j.access_token ? { access: j.access_token, refresh: j.refresh_token ?? null } : null
     } catch { return null }
+  }
+  private token(ctx: Ctx): string | null { return this.tokens(ctx)?.access ?? null }
+
+  /** Square: renew an expired access token with the refresh token and store it (signed, 0045); returns the new token */
+  async renewSquare(integration: string, ctx: Ctx): Promise<string | null> {
+    const t = this.tokens(ctx)
+    if (!t?.refresh || this.cfg.square.configured !== true || !this.cfg.core) return null
+    let fresh
+    try { fresh = await squareRefreshToken(this.cfg.square.oauthURL, this.cfg.square.appId, this.cfg.square.secret, t.refresh, this.fetcher) } catch { return null }
+    const enc = encryptPosToken(JSON.stringify({ access_token: fresh.accessToken, refresh_token: fresh.refreshToken }), this.cfg.core.tokenKeys)
+    const payload = JSON.stringify({ token_ciphertext: enc.ciphertext, key_version: enc.keyVersion, expires_at: fresh.expiresAt })
+    const s = this.signer.token(integration, payload)
+    const { error } = await this.supabase.rpc('pos_integration_token_update', { integration, payload, key: s.key, ts: s.ts, nonce: s.nonce, mac: s.mac })
+    if (error) return null
+    ctx.token_ciphertext = enc.ciphertext
+    return fresh.accessToken
+  }
+
+  /** a Square call with one renewal on 401 (expired token) */
+  private async withSquare<T>(integration: string | null, ctx: Ctx, call: (c: SquareClient) => Promise<T>): Promise<T> {
+    if (this.cfg.square.configured !== true) throw new SquareError('not_configured', 0)
+    const token = this.token(ctx)
+    if (!token) throw new SquareError('token', 0)
+    try { return await call(new SquareClient(this.cfg.square.baseURL, token, this.fetcher)) }
+    catch (e) {
+      if (!(e instanceof SquareError) || e.status !== 401 || !integration) throw e
+      const renewed = await this.renewSquare(integration, ctx)
+      if (!renewed) throw e
+      return call(new SquareClient(this.cfg.square.baseURL, renewed, this.fetcher))
+    }
+  }
+
+  /**
+   * Polling (webhooks are not guaranteed): completed / canceled orders of the mapped locations updated since
+   * the cursor, page by page; each page is ingested (idempotent, out-of-order safe) and the cursor advances to
+   * the latest update seen. Returns the number of orders sent.
+   */
+  async pollSquare(integration: string, locations: string[], cursor: string | null, maxPages = 20): Promise<{ sent: number; cursor: string | null }> {
+    const ctx = await this.context(integration)
+    if (!ctx || !locations.length) return { sent: 0, cursor }
+    const since = cursor && !Number.isNaN(Date.parse(cursor)) ? cursor : new Date(Date.now() - 24 * 3600 * 1000).toISOString()
+    let page: string | null = null, sent = 0, latest = since
+    for (let i = 0; i < maxPages; i++) {
+      const r: { orders?: unknown[]; cursor?: string } = await this.withSquare(integration, ctx, (c) => c.searchOrders(locations, since, page))
+      const sales = (r.orders ?? []).map((o) => normalizeSquareOrder(o)).filter((x): x is NormalizedSale => !!x)
+      for (const o of r.orders ?? []) { const u = (o as { updated_at?: string }).updated_at; if (u && u > latest) latest = u }
+      if (sales.length) { await this.ingestWithCursor(integration, sales, latest); sent += sales.length }
+      if (!r.cursor) break
+      page = r.cursor
+    }
+    if (!sent) await this.ingestWithCursor(integration, [], latest)
+    return { sent, cursor: latest }
+  }
+  /** Clover polling: orders modified since the cursor (epoch ms), 100 per page; the cursor advances to the latest modifiedTime */
+  async pollClover(integration: string, cursor: string | null, maxPages = 20): Promise<{ sent: number; cursor: string | null }> {
+    const ctx = await this.context(integration)
+    const token = ctx ? this.token(ctx) : null
+    if (!ctx || !token || !this.cfg.clover || !ctx.external_account_id) return { sent: 0, cursor }
+    const since = cursor && /^\d{10,16}$/.test(cursor) ? Number(cursor) : Date.now() - 24 * 3600 * 1000
+    const client = new CloverClient(this.cfg.clover.baseURL, token, this.fetcher)
+    let sent = 0, latest = since
+    for (let i = 0; i < maxPages; i++) {
+      const page = await client.ordersSince(ctx.external_account_id, since, i * 100)
+      const sales = page.map((o) => normalizeCloverOrder(o, ctx.external_account_id!)).filter((x): x is NormalizedSale => !!x)
+      for (const o of page) { const m = (o as { modifiedTime?: number }).modifiedTime; if (typeof m === 'number' && m > latest) latest = m }
+      if (sales.length) { await this.ingestWithCursor(integration, sales, String(latest)); sent += sales.length }
+      if (page.length < 100) break
+    }
+    if (!sent) await this.ingestWithCursor(integration, [], String(latest))
+    return { sent, cursor: String(latest) }
+  }
+  /** Lightspeed X polling by version: sales above the cursor; returns (negative quantities) are applied to their sale */
+  async pollLightspeed(integration: string, cursor: string | null, maxPages = 20): Promise<{ sent: number; cursor: string | null }> {
+    const ctx = await this.context(integration)
+    const token = ctx ? this.token(ctx) : null
+    if (!ctx || !token || !ctx.external_account_id) return { sent: 0, cursor }
+    const client = new LightspeedClient(lightspeedBase(ctx.external_account_id, this.cfg.lightspeedBase), token, this.fetcher)
+    let after = cursor && /^\d{1,18}$/.test(cursor) ? Number(cursor) : 0, sent = 0
+    for (let i = 0; i < maxPages; i++) {
+      const page = await client.salesAfter(after)
+      const sales = page.sales.map((x) => normalizeLightspeedSale(x)).filter((x): x is NormalizedSale => !!x)
+      const next = page.max ?? after
+      if (sales.length) { await this.ingestWithCursor(integration, sales, String(next)); sent += sales.length }
+      if (!page.sales.length || next <= after) break
+      after = next
+    }
+    if (!sent) await this.ingestWithCursor(integration, [], String(after))
+    return { sent, cursor: String(after) }
+  }
+  /** Shopify polling through GraphQL: POS orders updated since the cursor (ISO), 50 per page */
+  async pollShopify(integration: string, cursor: string | null, maxPages = 20): Promise<{ sent: number; cursor: string | null }> {
+    const ctx = await this.context(integration)
+    const token = ctx ? this.token(ctx) : null
+    if (!ctx || !token || !ctx.external_account_id) return { sent: 0, cursor }
+    const since = cursor && !Number.isNaN(Date.parse(cursor)) ? cursor : new Date(Date.now() - 24 * 3600 * 1000).toISOString()
+    const client = new ShopifyClient(shopifyBase(ctx.external_account_id, this.cfg.shopifyBase), token, this.fetcher)
+    let after: string | null = null, sent = 0, latest = since
+    for (let i = 0; i < maxPages; i++) {
+      const page = await client.ordersSince(since, after)
+      const rest = page.orders.map(shopifyGqlToRest)
+      for (const o of rest) { const u = o.updated_at as string | undefined; if (u && u > latest) latest = u }
+      const sales = rest.map((o) => normalizeShopifyOrder(o)).filter((x): x is NormalizedSale => !!x)
+      if (sales.length) { await this.ingestWithCursor(integration, sales, latest); sent += sales.length }
+      if (!page.next) break
+      after = page.next
+    }
+    if (!sent) await this.ingestWithCursor(integration, [], latest)
+    return { sent, cursor: latest }
+  }
+  private async ingestWithCursor(integration: string, sales: NormalizedSale[], cursor: string) {
+    const payload = JSON.stringify({ trigger: 'scheduled', status: 'succeeded', cursor, sales })
+    const s = this.signer.ingest(integration, payload)
+    const { error } = await this.supabase.rpc('pos_ingest_batch', { integration, payload, key: s.key, ts: s.ts, nonce: s.nonce, mac: s.mac })
+    if (error) throw new Error('DB')
   }
 
   async record(provider: string, ev: WebhookEvent) {
@@ -66,7 +183,7 @@ export class PosSync {
   }
 
   /** fetch + normalize one order of an event (null: not a sale to import, or the provider failed) */
-  async fetchSale(ctx: Ctx, provider: string, objectId: string, body?: unknown): Promise<NormalizedSale | { error: string } | null> {
+  async fetchSale(ctx: Ctx, provider: string, objectId: string, body?: unknown, integration: string | null = null): Promise<NormalizedSale | { error: string } | null> {
     if (provider === 'shopify') return body ? normalizeShopifyOrder(body) : { error: 'no_body' }
     if (provider === 'lightspeed_x') {
       if (!body) return { error: 'no_body' }
@@ -78,12 +195,11 @@ export class PosSync {
     if (!token) return { error: 'token' }
     if (provider === 'square') {
       if (this.cfg.square.configured !== true) return { error: 'not_configured' }
-      const client = new SquareClient(this.cfg.square.baseURL, token, this.fetcher)
       try {
-        const order = await client.order(objectId)
+        const order = await this.withSquare(integration, ctx, (c) => c.order(objectId))
         const ret = normalizeSquareReturn(order)
         if (ret) {   // a return: the refund belongs to the original sale, sent with it
-          const src = normalizeSquareOrder(await client.order(ret.sourceOrderId))
+          const src = normalizeSquareOrder(await this.withSquare(integration, ctx, (c) => c.order(ret.sourceOrderId)))
           if (!src) return null
           return { ...src, version: String(Math.max(Number(src.version), Number(ret.version))), refunds: [...(src.refunds ?? []), ret.refund] }
         }
@@ -122,7 +238,7 @@ export async function handlePosWebhook(input: { provider: string; rawBody: strin
     if (rec.already || !rec.integration_id || rec.status !== 'received') continue
     const ctx = await sync.context(rec.integration_id)
     if (!ctx) continue
-    const sale = await sync.fetchSale(ctx, provider, ev.objectId, body)
+    const sale = await sync.fetchSale(ctx, provider, ev.objectId, body, rec.integration_id)
     if (sale && 'error' in sale) continue   // stays 'received': the recovery job fetches it again
     if (!sale) continue
     try { await sync.ingest(rec.integration_id, [{ ...sale, event_id: String(rec.event_id) }], 'webhook') } catch { return { status: 500, body: { ok: false, error: 'database_error' } } }
@@ -144,10 +260,40 @@ export async function recoverDue(supabase: SupabaseClient, cfg: PosConfig, fetch
   for (const d of due) {
     if (d.provider !== 'square' && d.provider !== 'clover') { skipped++; continue }   // body-only providers: their own retries / polling
     const ctx = await sync.context(d.integration_id)
-    const sale = ctx ? await sync.fetchSale(ctx, d.provider, d.object_id) : null
+    const sale = ctx ? await sync.fetchSale(ctx, d.provider, d.object_id, undefined, d.integration_id) : null
     if (!sale || 'error' in sale) { skipped++; continue }
     await sync.ingest(d.integration_id, [{ ...sale, event_id: String(d.event_id) }], 'recovery')
     applied++
   }
-  return { ok: true as const, due: due.length, applied, skipped }
+  // periodic polling of Square (missed webhooks): every active integration from its cursor
+  let polled = 0
+  if (cfg.square.configured === true) {
+    const a = signer.active('square')
+    const { data: active } = await supabase.rpc('pos_integrations_active', { provider: 'square', key: a.key, ts: a.ts, nonce: a.nonce, mac: a.mac })
+    for (const it of (active ?? []) as { integration_id: string; cursor: string | null; locations: string[] }[]) {
+      try { polled += (await sync.pollSquare(it.integration_id, it.locations, it.cursor)).sent } catch { /* the integration stays as it was; next run retries */ }
+    }
+  }
+  if (cfg.clover) {
+    const a = signer.active('clover')
+    const { data: active } = await supabase.rpc('pos_integrations_active', { provider: 'clover', key: a.key, ts: a.ts, nonce: a.nonce, mac: a.mac })
+    for (const it of (active ?? []) as { integration_id: string; cursor: string | null }[]) {
+      try { polled += (await sync.pollClover(it.integration_id, it.cursor)).sent } catch { /* retried on the next run */ }
+    }
+  }
+  if (cfg.shopifySecret) {
+    const a = signer.active('shopify')
+    const { data: active } = await supabase.rpc('pos_integrations_active', { provider: 'shopify', key: a.key, ts: a.ts, nonce: a.nonce, mac: a.mac })
+    for (const it of (active ?? []) as { integration_id: string; cursor: string | null }[]) {
+      try { polled += (await sync.pollShopify(it.integration_id, it.cursor)).sent } catch { /* retried on the next run */ }
+    }
+  }
+  if (cfg.lightspeedSecret) {
+    const a = signer.active('lightspeed_x')
+    const { data: active } = await supabase.rpc('pos_integrations_active', { provider: 'lightspeed_x', key: a.key, ts: a.ts, nonce: a.nonce, mac: a.mac })
+    for (const it of (active ?? []) as { integration_id: string; cursor: string | null }[]) {
+      try { polled += (await sync.pollLightspeed(it.integration_id, it.cursor)).sent } catch { /* retried on the next run */ }
+    }
+  }
+  return { ok: true as const, due: due.length, applied, skipped, polled }
 }

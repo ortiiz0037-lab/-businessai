@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { fetchAllPages, fetchAllPages as selectAll } from '@/lib/supabase/paged'
 import { PageHeader, StatCard } from '@/components/ui/page'
 import { FinanceNav, NoFinanceAccess, QualityBanner } from '@/components/finance-nav'
 import { financePage, loadBalance, loadMonthly, loadProjection, loadQuality } from '@/lib/finance/finance-page'
@@ -29,8 +30,8 @@ export default async function FinanceDashboard() {
   const [monthly, bs, ar, ap, published, quality, projection] = await Promise.all([
     loadMonthly(supabase, companyId, `${addMonths(month, -11)}-01`, 12),
     loadBalance(supabase, companyId, today),
-    supabase.rpc('ar_invoice_balances', { target: companyId, as_of: null }),
-    supabase.from('bills').select('total_cents, paid_cents, due_date').eq('company_id', companyId).in('status', ['approved', 'scheduled', 'partially_paid']).limit(5000),
+    fetchAllPages((a, b) => supabase.rpc('ar_invoice_balances', { target: companyId, as_of: null }).order('document_id').range(a, b)).then((r) => ({ data: r.rows, error: r.error })),
+    selectAll((a, b) => supabase.from('bills').select('total_cents, paid_cents, due_date').eq('company_id', companyId).in('status', ['approved', 'scheduled', 'partially_paid']).order('id').range(a, b)).then((r) => ({ data: r.rows, error: r.error })),
     supabase.from('budgets').select('id, name, version').eq('company_id', companyId).eq('status', 'published').eq('scenario', 'base').is('department_id', null).eq('fiscal_year', year).maybeSingle(),
     loadQuality(supabase, companyId, { from: `${year}-01-01`, to: today }),
     loadProjection(supabase, companyId, today),

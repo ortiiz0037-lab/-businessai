@@ -8,6 +8,8 @@ do $$ begin
     raise exception 'BA0045 rollback: account deletion requests are pending; nothing was changed.';
   end if;
 end $$;
+drop function if exists public.pos_integrations_active(text, text, bigint, uuid, text);
+drop function if exists public.pos_integration_token_update(uuid, text, text, bigint, uuid, text);
 drop function if exists public.account_deletion_cancel();
 drop function if exists public.account_deletion_request(text);
 drop table if exists public.account_deletion_requests;

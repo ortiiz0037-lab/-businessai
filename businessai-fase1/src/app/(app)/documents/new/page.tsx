@@ -1,4 +1,5 @@
 
+import { fetchAllPages as selectAll } from '@/lib/supabase/paged'
 import { activePayments } from '@/lib/documents/payments'
 import Link from 'next/link'
 import { paidByDocument } from '@/lib/supabase/paged'
@@ -254,19 +255,19 @@ export default async function NewDocumentPage({
 
   if (!membership?.company_id) redirect('/dashboard')
 
-  const { data: clients } = await supabase
+  const { rows: clients } = await selectAll((a, b) => supabase
     .from('clients')
     .select('id,name,business_name,email')
     .eq('company_id', membership.company_id)
     .neq('status', 'inactive')
-    .order('name')
-    .limit(1000)
+    .order('name').order('id')
+    .range(a, b))
   const crm = await crmAvailable()
   // catalog (0039): empty without the migration or without catalog.view
   const catalog = (params?.type ?? 'invoice') === 'invoice' || params?.type === 'quote' ? await activeCatalog(supabase, membership.company_id) : []
   const pickerItems = catalog.map((c) => ({ id: c.id, code: c.code, name: c.name, price_cents: c.price_cents, unit: c.unit, tax_rate: c.tax_rate }))
   const { data: archivedRows } = crm
-    ? await supabase.from('clients').select('id').eq('company_id', membership.company_id).not('archived_at', 'is', null).limit(1000)
+    ? await selectAll((a, b) => supabase.from('clients').select('id').eq('company_id', membership.company_id).not('archived_at', 'is', null).order('id').range(a, b)).then((r) => ({ data: r.rows }))
     : { data: [] as { id: string }[] }
   const archivedIds = new Set((archivedRows ?? []).map((r) => r.id as string))
 

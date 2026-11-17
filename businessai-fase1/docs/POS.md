@@ -181,6 +181,7 @@ integraciones no se ofrecen. Ninguna se ha configurado en Vercel.
 | `SHOPIFY_API_SECRET` | Shopify (firma de webhooks) |
 | `CLOVER_WEBHOOK_AUTH_CODE`, `CLOVER_BASE_URL` | Clover |
 | `LIGHTSPEED_CLIENT_SECRET` | Lightspeed X-Series |
+| `SHOPIFY_BASE_URL`, `LIGHTSPEED_BASE_URL`, `SQUARE_BASE_URL`, `CLOVER_BASE_URL` (http loopback) | Solo fuera de producción: dobles locales de prueba |
 | `POS_BRIDGE_ENABLED=1` | Puente local |
 | `POS_CRON_SECRET` (≥ 32 caracteres) | Trabajo de recuperación `/api/pos/recover` |
 
@@ -190,9 +191,13 @@ URL de webhooks: `/api/pos/webhooks/{square|clover|shopify|lightspeed_x}`.
 
 - Integraciones externas no verificadas con cuentas reales; disponibilidad en Puerto Rico de Square,
   Clover y Lightspeed por confirmar con cada proveedor.
-- Renovación automática del token de Square (refresh) no implementada: al caducar, la integración pasa a
-  error y se reconecta.
-- Shopify: sin lectura histórica (GraphQL); Clover y Lightspeed: sin consulta periódica programada.
+- ~~Renovación del token de Square~~ y ~~consulta periódica de Square y Clover~~: **hechas en S9** (0045:
+  `pos_integration_token_update`, `pos_integrations_active`; el trabajo `/api/pos/recover` renueva un token
+  caducado una vez con el *refresh token* y consulta desde el cursor de cada integración). Probado con dobles.
+- ~~Shopify sin lectura histórica~~ y ~~Lightspeed sin consulta periódica~~: **hechas en S9** — Shopify por la
+  API GraphQL Admin (`orders(query: "updated_at:>=… source_name:pos")`, misma normalización que el webhook) y
+  Lightspeed X por versión (`/api/2.0/sales?after=`). Todas las consultas periódicas corren en `/api/pos/recover`
+  (programarlo cada 5–15 min con `POS_CRON_SECRET`). Probado solo con dobles.
 - Propinas y cargos por servicio no se modelan (las ventas con ellos van a revisión).
 - Tarjeta integrada, Stripe Connect y ATH Móvil Business API: no implementados (requieren contrato y credenciales).
 - Costo de ventas no contabilizado (decisión del propietario, igual que S7).

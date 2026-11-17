@@ -78,6 +78,17 @@ export const cloverAdapter: PosAdapter = {
 
 export class CloverClient {
   constructor(private readonly baseURL: string, private readonly token: string, private readonly fetcher: typeof fetch = fetch) {}
+  /** orders modified since `sinceMs` (epoch ms), oldest first, one page of `limit` from `offset` */
+  async ordersSince(merchantId: string, sinceMs: number, offset: number, limit = 100): Promise<unknown[]> {
+    const u = new URL(`${this.baseURL}/v3/merchants/${encodeURIComponent(merchantId)}/orders`)
+    u.searchParams.append('filter', `modifiedTime>=${Math.max(0, Math.floor(sinceMs))}`)
+    u.searchParams.set('expand', 'lineItems,payments,payments.tender,payments.cardTransaction,refunds,employee,device')
+    u.searchParams.set('orderBy', 'modifiedTime ASC'); u.searchParams.set('limit', String(limit)); u.searchParams.set('offset', String(offset))
+    const res = await this.fetcher(u.toString(), { headers: { authorization: `Bearer ${this.token}` }, signal: AbortSignal.timeout(30000) }).catch(() => null)
+    if (!res?.ok) throw new Error(`CLOVER_${res?.status ?? 'UNREACHABLE'}`)
+    const j = (await res.json()) as { elements?: unknown[] }
+    return j.elements ?? []
+  }
   async order(merchantId: string, orderId: string): Promise<unknown> {
     const u = `${this.baseURL}/v3/merchants/${encodeURIComponent(merchantId)}/orders/${encodeURIComponent(orderId)}?expand=lineItems,payments,payments.tender,payments.cardTransaction,refunds,employee,device`
     const res = await this.fetcher(u, { headers: { authorization: `Bearer ${this.token}` }, signal: AbortSignal.timeout(30000) }).catch(() => null)

@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest'
 import { allocate, decimalToCents, fromThousandths, lineGross, percentOf, qtyText } from '@/lib/pos/money'
 import { changeFor, priceCart, quickCash } from '@/lib/pos/pricing'
 import { squareAdapter, normalizeSquareOrder, normalizeSquareReturn, squareAuthorizeUrl, squarePayoutToSettlement } from '@/lib/pos/adapters/square'
-import { shopifyAdapter, normalizeShopifyOrder } from '@/lib/pos/adapters/shopify'
+import { shopifyAdapter, normalizeShopifyOrder, shopifyGqlToRest } from '@/lib/pos/adapters/shopify'
 import { cloverAdapter, normalizeCloverOrder } from '@/lib/pos/adapters/clover'
 import { lightspeedAdapter, normalizeLightspeedReturn, normalizeLightspeedSale } from '@/lib/pos/adapters/lightspeed'
 import { methodFromLabel } from '@/lib/pos/adapters/common'
@@ -20,7 +20,7 @@ import { parseCsvRows, parseRegisterCsv, prDateToIso } from '@/lib/pos/csv'
 import { PosSigner } from '@/lib/pos/signer'
 import { readPosConfig } from '@/lib/pos/config'
 import { decryptPosToken, encryptPosToken } from '@/lib/pos/crypto'
-import { handlePosWebhook } from '@/lib/pos/sync'
+import { handlePosWebhook, recoverDue } from '@/lib/pos/sync'
 import { posErrorCode, posMessage } from '@/lib/pos/labels'
 import { PROVIDERS } from '@/lib/pos/providers'
 
@@ -278,5 +278,175 @@ describe('webhook path end to end (fake database + fake Square API)', () => {
     expect(db.calls).toHaveLength(0)
     expect((await handlePosWebhook({ provider: 'square', rawBody: body, headers, url: SQ_URL, cfg: readPosConfig({}), supabase: db as never })).status).toBe(503)
     expect((await handlePosWebhook({ provider: 'nope', rawBody: body, headers, url: SQ_URL, cfg: readPosConfig(env), supabase: db as never })).status).toBe(404)
+  })
+})
+
+describe('Square: token renewal and polling (fake API + fake database, 0045)', () => {
+  const POS_SERVER_KEYS = `k1:${Buffer.alloc(32, 1).toString('base64')}`, POS_TOKEN_KEYS = `t1:${Buffer.alloc(32, 2).toString('base64')}`
+  const env = { APP_ENV: 'development', POS_SERVER_KEYS, POS_TOKEN_KEYS, SQUARE_APPLICATION_ID: 'id', SQUARE_APPLICATION_SECRET: 's', SQUARE_BASE_URL: 'http://127.0.0.1:9',
+    SQUARE_WEBHOOK_SIGNATURE_KEY: SQ_KEY, SQUARE_WEBHOOK_URL: SQ_URL }
+  const keys = [{ id: 't1', key: Buffer.alloc(32, 2) }]
+  function db(token: string) {
+    const calls: { fn: string; args: Record<string, unknown> }[] = []
+    let cipher = encryptPosToken(JSON.stringify({ access_token: token, refresh_token: 'refresh-1' }), keys).ciphertext
+    return { calls, rpc: async (fn: string, args: Record<string, unknown>) => {
+      calls.push({ fn, args })
+      if (fn === 'pos_webhook_record') return { data: { already: false, event_id: 7, integration_id: 'int-1', status: 'received' }, error: null }
+      if (fn === 'pos_integration_context') return { data: { company_id: 'co', provider: 'square', status: 'active', external_account_id: 'M1', token_ciphertext: cipher, settings: {} }, error: null }
+      if (fn === 'pos_integration_token_update') { cipher = JSON.parse(String(args.payload)).token_ciphertext; return { data: null, error: null } }
+      if (fn === 'pos_sync_due') return { data: [], error: null }
+      if (fn === 'pos_integrations_active') return { data: [{ integration_id: 'int-1', cursor: '2026-11-16T00:00:00Z', locations: ['LOC-SJ'] }], error: null }
+      if (fn === 'pos_ingest_batch') return { data: { run: 'r', counts: {}, results: [] }, error: null }
+      return { data: null, error: { message: 'unknown' } }
+    } }
+  }
+  const square = (valid: string) => {
+    const seen: string[] = []
+    const f: typeof fetch = async (url, init) => {
+      const u = String(url); seen.push(u)
+      if (u.endsWith('/oauth2/token')) {
+        const b = JSON.parse(String(init?.body))
+        return b.grant_type === 'refresh_token' && b.refresh_token === 'refresh-1'
+          ? new Response(JSON.stringify({ access_token: valid, refresh_token: 'refresh-2', expires_at: '2026-12-31T00:00:00Z' }), { status: 200 })
+          : new Response(JSON.stringify({ error: 'invalid_grant' }), { status: 401 })
+      }
+      if (new Headers(init?.headers).get('authorization') !== `Bearer ${valid}`) return new Response(JSON.stringify({ errors: [{ code: 'UNAUTHORIZED' }] }), { status: 401 })
+      if (u.endsWith('/v2/orders/ORD-1')) return new Response(JSON.stringify({ order: sqOrder() }), { status: 200 })
+      if (u.endsWith('/v2/orders/search')) {
+        const b = JSON.parse(String(init?.body))
+        return b.cursor ? new Response(JSON.stringify({ orders: [sqOrder({ id: 'ORD-3', updated_at: '2026-11-17T02:00:00Z' })] }), { status: 200 })
+          : new Response(JSON.stringify({ orders: [sqOrder({ id: 'ORD-2', updated_at: '2026-11-17T01:00:00Z' })], cursor: 'page-2' }), { status: 200 })
+      }
+      return new Response('{}', { status: 404 })
+    }
+    return { f, seen }
+  }
+  const body = JSON.stringify({ merchant_id: 'M1', type: 'order.updated', event_id: 'ev-10', data: { type: 'order', id: 'ORD-1', object: { order_updated: { order_id: 'ORD-1', version: 4 } } } })
+  const headers = H({ 'x-square-hmacsha256-signature': createHmac('sha256', SQ_KEY).update(SQ_URL + body).digest('base64') })
+
+  it('an expired access token is renewed once with the refresh token, stored encrypted (signed), and the order is fetched', async () => {
+    const d = db('old-token'), sq = square('new-token')
+    const r = await handlePosWebhook({ provider: 'square', rawBody: body, headers, url: SQ_URL, cfg: readPosConfig(env), supabase: d as never, fetcher: sq.f })
+    expect(r.status).toBe(200)
+    const upd = d.calls.find((c) => c.fn === 'pos_integration_token_update')!
+    expect(upd.args.integration).toBe('int-1'); expect(String(upd.args.mac)).toMatch(/^[0-9a-f]{64}$/)
+    expect(String(upd.args.payload)).not.toContain('new-token')
+    expect(decryptPosToken(JSON.parse(String(upd.args.payload)).token_ciphertext, keys)).toContain('"refresh_token":"refresh-2"')
+    expect(JSON.parse(String(d.calls.find((c) => c.fn === 'pos_ingest_batch')!.args.payload)).sales[0].external_id).toBe('ORD-1')
+  })
+  it('a refresh that fails leaves the event for the recovery job (nothing ingested)', async () => {
+    const d = db('old-token')
+    const bad: typeof fetch = async (u) => (String(u).endsWith('/oauth2/token') ? new Response(JSON.stringify({ error: 'invalid_grant' }), { status: 401 }) : new Response(JSON.stringify({ errors: [{ code: 'UNAUTHORIZED' }] }), { status: 401 }))
+    await handlePosWebhook({ provider: 'square', rawBody: body, headers, url: SQ_URL, cfg: readPosConfig(env), supabase: d as never, fetcher: bad })
+    expect(d.calls.some((c) => c.fn === 'pos_ingest_batch')).toBe(false)
+  })
+  it('the recovery job polls every active Square integration page by page and advances the cursor', async () => {
+    const d = db('tok'), sq = square('tok')
+    const r = await recoverDue(d as never, readPosConfig(env), sq.f)
+    expect(r).toMatchObject({ ok: true, polled: 2 })
+    const batches = d.calls.filter((c) => c.fn === 'pos_ingest_batch').map((c) => JSON.parse(String(c.args.payload)))
+    expect(batches.map((b) => b.sales.map((x: { external_id: string }) => x.external_id))).toEqual([['ORD-2'], ['ORD-3']])
+    expect(batches.at(-1).cursor).toBe('2026-11-17T02:00:00Z'); expect(batches[0].trigger).toBe('scheduled')
+    expect(sq.seen.filter((u) => u.endsWith('/v2/orders/search'))).toHaveLength(2)
+  })
+})
+
+describe('Clover polling (fake API + fake database)', () => {
+  it('orders modified since the cursor, 100 per page, cursor = latest modifiedTime', async () => {
+    const POS_SERVER_KEYS = `k1:${Buffer.alloc(32, 1).toString('base64')}`, POS_TOKEN_KEYS = `t1:${Buffer.alloc(32, 2).toString('base64')}`
+    const cfg = readPosConfig({ APP_ENV: 'development', POS_SERVER_KEYS, POS_TOKEN_KEYS, CLOVER_WEBHOOK_AUTH_CODE: 'c', CLOVER_BASE_URL: 'http://127.0.0.1:9' })
+    const cipher = encryptPosToken('clover-token', [{ id: 't1', key: Buffer.alloc(32, 2) }]).ciphertext
+    const calls: { fn: string; args: Record<string, unknown> }[] = []
+    const db = { rpc: async (fn: string, args: Record<string, unknown>) => {
+      calls.push({ fn, args })
+      if (fn === 'pos_sync_due') return { data: [], error: null }
+      if (fn === 'pos_integrations_active') return { data: args.provider === 'clover' ? [{ integration_id: 'int-c', cursor: '1763300000000', locations: [] }] : [], error: null }
+      if (fn === 'pos_integration_context') return { data: { company_id: 'co', provider: 'clover', status: 'active', external_account_id: 'MID1', token_ciphertext: cipher, settings: {} }, error: null }
+      return { data: { run: 'r', counts: {}, results: [] }, error: null }
+    } }
+    const order = (id: string, t: number) => ({ id, state: 'locked', total: 1000, modifiedTime: t, lineItems: { elements: [{ id: `L-${id}`, name: 'Pan', price: 1000 }] },
+      payments: { elements: [{ id: `P-${id}`, amount: 1000, taxAmount: 0, result: 'SUCCESS', tender: { labelKey: 'com.clover.tender.cash' } }] } })
+    const urls: string[] = []
+    const f: typeof fetch = async (u, init) => {
+      urls.push(String(u))
+      if (new Headers(init?.headers).get('authorization') !== 'Bearer clover-token') return new Response('{}', { status: 401 })
+      return new Response(JSON.stringify({ elements: [order('O1', 1763300000100), order('O2', 1763300000900)] }), { status: 200 })
+    }
+    const r = await recoverDue(db as never, cfg, f)
+    expect(r).toMatchObject({ ok: true, polled: 2 })
+    const batch = JSON.parse(String(calls.find((c) => c.fn === 'pos_ingest_batch')!.args.payload))
+    expect(batch.sales.map((s: { external_id: string }) => s.external_id)).toEqual(['O1', 'O2']); expect(batch.cursor).toBe('1763300000900')
+    expect(decodeURIComponent(urls[0])).toContain('filter=modifiedTime>=1763300000000')
+  })
+})
+
+describe('Lightspeed X polling by version (fake API + fake database)', () => {
+  it('pages through sales above the cursor until no new version; cursor = version.max', async () => {
+    const POS_SERVER_KEYS = `k1:${Buffer.alloc(32, 1).toString('base64')}`, POS_TOKEN_KEYS = `t1:${Buffer.alloc(32, 2).toString('base64')}`
+    const cfg = readPosConfig({ APP_ENV: 'development', POS_SERVER_KEYS, POS_TOKEN_KEYS, LIGHTSPEED_CLIENT_SECRET: 'ls', LIGHTSPEED_BASE_URL: 'http://127.0.0.1:9' })
+    expect(readPosConfig({ APP_ENV: 'production', POS_SERVER_KEYS, POS_TOKEN_KEYS, LIGHTSPEED_BASE_URL: 'http://127.0.0.1:9' }).lightspeedBase).toBeNull()
+    const cipher = encryptPosToken('ls-token', [{ id: 't1', key: Buffer.alloc(32, 2) }]).ciphertext
+    const calls: { fn: string; args: Record<string, unknown> }[] = []
+    const db = { rpc: async (fn: string, args: Record<string, unknown>) => {
+      calls.push({ fn, args })
+      if (fn === 'pos_sync_due') return { data: [], error: null }
+      if (fn === 'pos_integrations_active') return { data: args.provider === 'lightspeed_x' ? [{ integration_id: 'int-l', cursor: '5', locations: [] }] : [], error: null }
+      if (fn === 'pos_integration_context') return { data: { company_id: 'co', provider: 'lightspeed_x', status: 'active', external_account_id: 'tienda', token_ciphertext: cipher, settings: {} }, error: null }
+      return { data: { run: 'r', counts: {}, results: [] }, error: null }
+    } }
+    const sale = (id: string, v: number) => ({ id, outlet_id: 'OUT-1', status: 'CLOSED', version: v, sale_date: '2026-11-16T13:00:00Z', total_price: '10.00', total_tax: '0',
+      line_items: [{ id: `LI-${id}`, product_id: 'P-1', quantity: 1, price: '10.00', discount: '0', tax: '0' }], payments: [{ id: `PM-${id}`, name: 'Cash', amount: '10.00' }] })
+    const urls: string[] = []
+    const f: typeof fetch = async (u) => {
+      urls.push(String(u))
+      const after = Number(new URL(String(u)).searchParams.get('after'))
+      if (after === 5) return new Response(JSON.stringify({ data: [sale('S6', 6), sale('S7', 7)], version: { min: 6, max: 7 } }), { status: 200 })
+      return new Response(JSON.stringify({ data: [], version: { min: null, max: null } }), { status: 200 })
+    }
+    const r = await recoverDue(db as never, cfg, f)
+    expect(r).toMatchObject({ ok: true, polled: 2 })
+    expect(urls.map((u) => new URL(u).searchParams.get('after'))).toEqual(['5', '7'])
+    const batch = JSON.parse(String(calls.find((c) => c.fn === 'pos_ingest_batch')!.args.payload))
+    expect(batch.sales.map((s: { external_id: string }) => s.external_id)).toEqual(['S6', 'S7']); expect(batch.cursor).toBe('7')
+  })
+})
+
+describe('Shopify historical reads through GraphQL (fake API + fake database)', () => {
+  const gql = { id: 'gid://shopify/Order/5001', name: '#1001', sourceName: 'pos', updatedAt: '2026-11-16T14:00:00Z', processedAt: '2026-11-16T13:00:00Z', cancelledAt: null,
+    displayFinancialStatus: 'PAID', currencyCode: 'USD', retailLocation: { id: 'gid://shopify/Location/777' }, totalPriceSet: { shopMoney: { amount: '22.3' } },
+    lineItems: { nodes: [{ id: 'gid://shopify/LineItem/9001', sku: '4006381333931', name: 'Café molido', variantTitle: null, quantity: 2, variant: { id: 'gid://shopify/ProductVariant/333' },
+      originalUnitPriceSet: { shopMoney: { amount: '10.0' } }, totalDiscountSet: { shopMoney: { amount: '0.0' } }, taxLines: [{ rate: 0.115, priceSet: { shopMoney: { amount: '2.3' } } }] }] },
+    transactions: [{ id: 'gid://shopify/OrderTransaction/71', kind: 'SALE', status: 'SUCCESS', gateway: 'cash', amountSet: { shopMoney: { amount: '22.3' } } }], refunds: [] }
+  it('a GraphQL order normalizes exactly like the webhook order', () => {
+    const s = normalizeShopifyOrder(shopifyGqlToRest(gql))!
+    expect(s).toMatchObject({ external_id: '5001', location_id: '777', total_cents: '2230' })
+    expect(s.lines[0]).toMatchObject({ external_line_id: '9001', item_ref: 'variant:333', unit_price_cents: '1000', tax_cents: '230' })
+    expect(s.payments[0]).toMatchObject({ method: 'cash', amount_cents: '2230', provider_payment_id: '71' })
+  })
+  it('the recovery job pages POS orders updated since the cursor', async () => {
+    const POS_SERVER_KEYS = `k1:${Buffer.alloc(32, 1).toString('base64')}`, POS_TOKEN_KEYS = `t1:${Buffer.alloc(32, 2).toString('base64')}`
+    const cfg = readPosConfig({ APP_ENV: 'development', POS_SERVER_KEYS, POS_TOKEN_KEYS, SHOPIFY_API_SECRET: 'x', SHOPIFY_BASE_URL: 'http://127.0.0.1:9' })
+    const cipher = encryptPosToken('shp-token', [{ id: 't1', key: Buffer.alloc(32, 2) }]).ciphertext
+    const calls: { fn: string; args: Record<string, unknown> }[] = []
+    const db = { rpc: async (fn: string, args: Record<string, unknown>) => {
+      calls.push({ fn, args })
+      if (fn === 'pos_sync_due') return { data: [], error: null }
+      if (fn === 'pos_integrations_active') return { data: args.provider === 'shopify' ? [{ integration_id: 'int-s', cursor: '2026-11-16T00:00:00Z', locations: [] }] : [], error: null }
+      if (fn === 'pos_integration_context') return { data: { company_id: 'co', provider: 'shopify', status: 'active', external_account_id: 'tienda.myshopify.com', token_ciphertext: cipher, settings: {} }, error: null }
+      return { data: { run: 'r', counts: {}, results: [] }, error: null }
+    } }
+    const bodies: Record<string, unknown>[] = []
+    const f: typeof fetch = async (u, init) => {
+      if (new Headers(init?.headers).get('x-shopify-access-token') !== 'shp-token') return new Response('{}', { status: 401 })
+      const b = JSON.parse(String(init?.body)); bodies.push(b)
+      return b.variables.after
+        ? new Response(JSON.stringify({ data: { orders: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [{ ...gql, id: 'gid://shopify/Order/5002', updatedAt: '2026-11-16T15:00:00Z' }] } } }), { status: 200 })
+        : new Response(JSON.stringify({ data: { orders: { pageInfo: { hasNextPage: true, endCursor: 'c1' }, nodes: [gql] } } }), { status: 200 })
+    }
+    const r = await recoverDue(db as never, cfg, f)
+    expect(r).toMatchObject({ ok: true, polled: 2 })
+    expect((bodies[0].variables as { q: string }).q).toBe("updated_at:>='2026-11-16T00:00:00Z' source_name:pos")
+    const batches = calls.filter((c) => c.fn === 'pos_ingest_batch').map((c) => JSON.parse(String(c.args.payload)))
+    expect(batches.flatMap((b) => b.sales.map((s: { external_id: string }) => s.external_id))).toEqual(['5001', '5002']); expect(batches.at(-1).cursor).toBe('2026-11-16T15:00:00Z')
   })
 })

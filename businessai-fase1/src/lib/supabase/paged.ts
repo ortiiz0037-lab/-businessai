@@ -12,7 +12,8 @@ export async function fetchAllPages<T>(
     const { data, error } = await page(from, Math.min(from + size, max) - 1)
     if (error) return { rows, error, truncated: false }
     rows.push(...(data ?? []))
-    if (!data || data.length < size) return { rows, error: null, truncated: false }
+    // a page shorter than what was asked for is the last one (also when the cap cuts the page in two)
+    if (!data || data.length < Math.min(size, max - from)) return { rows, error: null, truncated: false }
   }
   return { rows, error: null, truncated: true }
 }
@@ -44,3 +45,6 @@ export async function paidByDocument(supabase: unknown, documentIds: string[]): 
   for (const [k, v] of paid) paid.set(k, Math.round(v * 100) / 100)
   return paid
 }
+
+/** splits ids for `.in()` filters (keeps the request URL short) */
+export const chunks = <T,>(list: T[], n = 100): T[][] => Array.from({ length: Math.ceil(list.length / n) }, (_, i) => list.slice(i * n, i * n + n))

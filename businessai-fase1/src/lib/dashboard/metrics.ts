@@ -120,6 +120,8 @@ export function computeDashboard(input: {
   documents: DashDocument[]
   payments: DashPayment[]
   clients: DashClient[]
+  /** exact number of clients of the company (the list may hold only the recent / referenced ones) */
+  clientCount?: number
   now: Date
   timeZone?: string
 }): DashboardMetrics {
@@ -218,14 +220,14 @@ export function computeDashboard(input: {
 
   return {
     today,
-    hasData: input.documents.length + input.payments.length + input.clients.length > 0,
+    hasData: input.documents.length + input.payments.length + (input.clientCount ?? input.clients.length) > 0,
     collected: compare(collectedByMonth),
     invoiced: compare(invoicedByMonth),
     receivable: { total: cents(receivableTotal), count: receivableCount },
     overdue: { total: cents(overdue.reduce((s, l) => s + l.outstanding, 0)), count: overdue.length, items: overdue.slice(0, 5) },
     dueSoon: { total: cents(dueSoon.reduce((s, l) => s + l.outstanding, 0)), count: dueSoon.length, items: dueSoon.slice(0, 5) },
     quotes: { openCount, openTotal: cents(openTotal), staleCount },
-    clients: { total: input.clients.length, newThisMonth },
+    clients: { total: input.clientCount ?? input.clients.length, newThisMonth },
     months: months.map((key) => ({ key, invoiced: cents(invoicedByMonth.get(key) ?? 0), collected: cents(collectedByMonth.get(key) ?? 0) })),
     topClients,
     activity,

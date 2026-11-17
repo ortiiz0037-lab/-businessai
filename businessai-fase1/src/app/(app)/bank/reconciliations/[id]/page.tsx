@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { fetchAllPages } from '@/lib/supabase/paged'
 import { notFound } from 'next/navigation'
 import PrintButton from '@/components/PrintButton'
 import { PageHeader } from '@/components/ui/page'
@@ -26,7 +27,7 @@ export default async function ReconciliationPage({ params, searchParams }: { par
     supabase.from('bank_accounts').select('*').eq('id', rec.bank_account_id).maybeSingle(),
     supabase.rpc('bank_reconciliation_summary', { rec: id }),
     supabase.from('bank_lines').select('*').eq('bank_account_id', rec.bank_account_id).eq('status', 'unmatched').gte('txn_date', rec.period_start).lte('txn_date', rec.period_end).order('txn_date'),
-    supabase.rpc('bank_open_journal_lines', { account: rec.bank_account_id, from_date: null, to_date: rec.period_end }),
+    fetchAllPages((a, b) => supabase.rpc('bank_open_journal_lines', { account: rec.bank_account_id, from_date: null, to_date: rec.period_end }).order('journal_line_id').range(a, b)).then((r) => ({ data: r.rows, error: r.error })),
     supabase.from('bank_events').select('*').eq('entity', 'bank_reconciliations').eq('entity_id', id).order('id', { ascending: false }),
     supabase.from('ledger_accounts').select('id, code, name, name_en, status').eq('company_id', companyId).eq('status', 'active').order('code'),
     who(),

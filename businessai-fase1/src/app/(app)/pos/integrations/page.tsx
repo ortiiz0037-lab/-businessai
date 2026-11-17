@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { fetchAllPages as selectAll } from '@/lib/supabase/paged'
 import { PageHeader } from '@/components/ui/page'
 import { StateChip } from '@/components/bank-nav'
 import { NoPosAccess, PosNav, Flash } from '@/components/pos/nav'
@@ -30,7 +31,7 @@ export default async function PosIntegrations({ searchParams }: { searchParams: 
       .in('status', ['needs_review', 'failed', 'dead', 'received']).order('id', { ascending: false }).limit(50),
     supabase.from('pos_sync_runs').select('id, integration_id, trigger, status, received, created, updated, duplicates, stale, needs_review, failed, file_name, started_at').eq('company_id', companyId).order('started_at', { ascending: false }).limit(15),
     supabase.from('pos_settlements').select('id, provider_payout_id, payout_date, gross_cents, fees_cents, net_cents, status, bank_line_id').eq('company_id', companyId).order('payout_date', { ascending: false }).limit(20),
-    supabase.from('catalog_items').select('id, code, name').eq('company_id', companyId).eq('status', 'active').order('name').limit(1000),
+    selectAll((a, b) => supabase.from('catalog_items').select('id, code, name').eq('company_id', companyId).eq('status', 'active').order('name').order('id').range(a, b)).then((r) => ({ data: r.rows, error: r.error })),
     access.bank ? supabase.from('bank_lines').select('id, txn_date, amount_cents, description').eq('company_id', companyId).eq('status', 'unmatched').gt('amount_cents', 0).order('txn_date', { ascending: false }).limit(200) : Promise.resolve({ data: [] }),
   ]) : [{ data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }]
   const integrations = (ints ?? []) as { id: string; provider: string; environment: string; display_name: string; external_account_id: string | null; status: string; last_sync_at: string | null; error_code: string | null }[]

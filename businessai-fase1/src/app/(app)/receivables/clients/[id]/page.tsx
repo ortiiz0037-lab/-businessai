@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { fetchAllPages } from '@/lib/supabase/paged'
 import { notFound } from 'next/navigation'
 import { PageHeader, StatCard } from '@/components/ui/page'
 import { SubmitButton } from '@/components/submit-button'
@@ -21,8 +22,8 @@ export default async function ClientReceivablesPage({ params, searchParams }: { 
   const { data: client } = await supabase.from('clients').select('id, name, email, phone').eq('id', id).eq('company_id', companyId).maybeSingle()
   if (!client) notFound()
   const [{ data: balData }, { data: agingData }, { data: notes }, { data: promData }, { data: evData }, name] = await Promise.all([
-    supabase.rpc('ar_invoice_balances', { target: companyId, as_of: null }),
-    supabase.rpc('ar_aging', { target: companyId, as_of: null }),
+    fetchAllPages((a, b) => supabase.rpc('ar_invoice_balances', { target: companyId, as_of: null }).order('document_id').range(a, b)).then((r) => ({ data: r.rows, error: r.error })),
+    fetchAllPages((a, b) => supabase.rpc('ar_aging', { target: companyId, as_of: null }).order('client_id').range(a, b)).then((r) => ({ data: r.rows, error: r.error })),
     supabase.from('collection_notes').select('*').eq('client_id', id).order('created_at', { ascending: false }).limit(50),
     supabase.from('payment_promises').select('*').eq('client_id', id).order('created_at', { ascending: false }).limit(50),
     supabase.from('receivables_events').select('*').eq('client_id', id).order('id', { ascending: false }).limit(50),

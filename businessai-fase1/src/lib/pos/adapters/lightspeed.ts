@@ -73,3 +73,22 @@ export const lightspeedAdapter: PosAdapter = {
   },
   normalize: normalizeLightspeedSale,
 }
+
+/**
+ * Polling: GET https://{domain_prefix}.retail.lightspeed.app/api/2.0/sales?after=<version>&page_size=…
+ * returns sales whose version is above `after`, ordered by version (`version.max` = the next cursor).
+ * `baseFor` lets the local double replace the host (outside production only).
+ */
+export class LightspeedClient {
+  constructor(private readonly base: string, private readonly token: string, private readonly fetcher: typeof fetch = fetch) {}
+  async salesAfter(after: number, pageSize = 200): Promise<{ sales: unknown[]; max: number | null }> {
+    const res = await this.fetcher(`${this.base}/api/2.0/sales?after=${Math.max(0, Math.floor(after))}&page_size=${pageSize}`,
+      { headers: { authorization: `Bearer ${this.token}`, accept: 'application/json' }, signal: AbortSignal.timeout(30000) }).catch(() => null)
+    if (!res?.ok) throw new Error(`LIGHTSPEED_${res?.status ?? 'UNREACHABLE'}`)
+    const j = obj(await res.json())
+    const max = obj(j.version).max
+    return { sales: arr(j.data), max: typeof max === 'number' ? max : null }
+  }
+}
+export const lightspeedBase = (domainPrefix: string, override: string | null) =>
+  override ?? `https://${domainPrefix.replace(/[^a-z0-9-]/gi, '')}.retail.lightspeed.app`

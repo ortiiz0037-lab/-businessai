@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { fetchAllPages } from '@/lib/supabase/paged'
 import { notFound } from 'next/navigation'
 import { PageHeader } from '@/components/ui/page'
 import { SubmitButton } from '@/components/submit-button'
@@ -24,7 +25,7 @@ export default async function InvoiceCollectionPage({ params, searchParams }: { 
   const { locale, tr, f, money, today, supabase, companyId, access, who } = await receivablesPage()
   if (!access.view) return <NoReceivablesAccess tr={tr} unavailable={!access.available} />
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound()
-  const { data: balData } = await supabase.rpc('ar_invoice_balances', { target: companyId, as_of: null })
+  const { data: balData } = await fetchAllPages((a, b) => supabase.rpc('ar_invoice_balances', { target: companyId, as_of: null }).order('document_id').range(a, b)).then((r) => ({ data: r.rows, error: r.error }))
   // 0038: Studio documents about this invoice (collection letters…); none without 0038 or without studio.view
   const studioLinks = await supabase.rpc('studio_finance_links', { target: companyId, bill: null, document: id })
   const studioDocs = (studioLinks.error ? [] : studioLinks.data ?? []) as { id: string; kind: string; title: string; status: string; number: string | null }[]

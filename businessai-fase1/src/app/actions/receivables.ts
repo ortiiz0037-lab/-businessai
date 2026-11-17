@@ -5,6 +5,7 @@
  * concurrency and posts reversals to the ledger. Email goes out only when
  * an email provider is configured; nothing is marked sent otherwise.
  */
+import { fetchAllPages } from '@/lib/supabase/paged'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
@@ -142,7 +143,7 @@ export async function sendReminder(formData: FormData) {
     supabase.from('clients').select('name').eq('id', r.client_id).maybeSingle(),
     supabase.from('collection_settings').select('*').eq('company_id', companyId).maybeSingle(),
     supabase.from('companies').select('name').eq('id', companyId).maybeSingle(),
-    supabase.rpc('ar_invoice_balances', { target: companyId, as_of: null }),
+    fetchAllPages((a, b) => supabase.rpc('ar_invoice_balances', { target: companyId, as_of: null }).order('document_id').range(a, b)).then((r) => ({ data: r.rows, error: r.error })),
   ])
   const row = ((bal ?? []) as { document_id: string; balance_cents: number }[]).find((b) => b.document_id === r.document_id)
   if (!row || Number(row.balance_cents) <= 0) go(back, { error: 'invoice_not_open' })

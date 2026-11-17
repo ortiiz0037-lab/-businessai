@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import { fetchAllPages, fetchAllPages as selectAll } from '@/lib/supabase/paged'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import { getActiveMembership } from '@/lib/active-company'
@@ -114,8 +115,8 @@ export async function loadProjection(supabase: SupabaseClient, companyId: string
     loadAssumptions(supabase, companyId),
     loadMonthly(supabase, companyId, `${firstHistory}-01`, 12),
     loadBalance(supabase, companyId, today),
-    supabase.rpc('ar_invoice_balances', { target: companyId, as_of: null }),
-    supabase.from('bills').select('total_cents, paid_cents, due_date').eq('company_id', companyId).in('status', ['approved', 'scheduled', 'partially_paid']).limit(5000),
+    fetchAllPages((a, b) => supabase.rpc('ar_invoice_balances', { target: companyId, as_of: null }).order('document_id').range(a, b)).then((r) => ({ data: r.rows, error: r.error })),
+    selectAll((a, b) => supabase.from('bills').select('total_cents, paid_cents, due_date').eq('company_id', companyId).in('status', ['approved', 'scheduled', 'partially_paid']).order('id').range(a, b)).then((r) => ({ data: r.rows, error: r.error })),
     supabase.from('budgets').select('id, fiscal_year, name, version').eq('company_id', companyId).eq('status', 'published').eq('scenario', 'base').is('department_id', null).in('fiscal_year', years),
     supabase.from('ledger_accounts').select('id, type').eq('company_id', companyId),
     supabase.from('expense_categories').select('id, account_id').eq('company_id', companyId),

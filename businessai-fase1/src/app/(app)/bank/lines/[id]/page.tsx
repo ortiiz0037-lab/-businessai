@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { fetchAllPages } from '@/lib/supabase/paged'
 import { notFound } from 'next/navigation'
 import { PageHeader } from '@/components/ui/page'
 import { SubmitButton } from '@/components/submit-button'
@@ -26,7 +27,7 @@ export default async function BankLinePage({ params, searchParams }: { params: P
   const hi = new Date(Date.parse(`${line.txn_date}T12:00:00Z`) + 45 * 86_400_000).toISOString().slice(0, 10)
   const [{ data: sug }, { data: book }, { data: others }, { data: items }, { data: ledger }, name] = await Promise.all([
     supabase.rpc('bank_suggestions', { account: line.bank_account_id }),
-    supabase.rpc('bank_open_journal_lines', { account: line.bank_account_id, from_date: lo, to_date: hi }),
+    fetchAllPages((a, b) => supabase.rpc('bank_open_journal_lines', { account: line.bank_account_id, from_date: lo, to_date: hi }).order('journal_line_id').range(a, b)).then((r) => ({ data: r.rows, error: r.error })),
     supabase.from('bank_lines').select('id, txn_date, description, amount_cents').eq('bank_account_id', line.bank_account_id).eq('status', 'unmatched').neq('id', id).gte('txn_date', lo).lte('txn_date', hi).order('txn_date').limit(100),
     supabase.from('bank_match_items').select('group_id, journal_line_id, bank_line_id, amount_cents, active').eq('bank_line_id', id),
     supabase.from('ledger_accounts').select('id, code, name, name_en, type, status').eq('company_id', companyId).eq('status', 'active').order('code'),

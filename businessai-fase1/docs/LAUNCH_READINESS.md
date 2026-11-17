@@ -38,10 +38,10 @@ autorización) y las integraciones con proveedores reales (credenciales).
 
 | Prueba | Resultado |
 |---|---|
-| `npm run test:db` (PostgreSQL 16 local, 52 escenarios: migraciones, rollbacks, RLS, carreras, flujos) | **678 aprobadas, 0 fallidas** (escenarios 51 y 52 incluidos) |
+| `npm run test:db` (PostgreSQL 16 local, 52 escenarios: migraciones, rollbacks, RLS, carreras, flujos) | **679 aprobadas, 0 fallidas** (escenarios 51 y 52 incluidos) |
 | Escenario 52: 29 suites de módulos actuales **juntas** sobre 0001–0045 | Todas en verde (CRM, Workforce, Nómina, Libro mayor, Gastos, Cobros, Banco, Estados, Studio, Catálogo, Asistente S4, Banca, Inventario, POS, planes, equipo…) |
 | `126_platform_flows.test.sql` (flujos A–H y barrido multiempresa) | En verde |
-| `vitest` (lógica de la app) | 873 aprobadas |
+| `vitest` (lógica de la app, incluido el render del POS, la paginación y la consulta periódica de proveedores) | 889 aprobadas |
 | `e2e/public.e2e.mjs` (navegador, sin sesión: protección de todas las rutas, rutas de máquina, idioma, iPhone / iPad en páginas públicas) | 156 aprobadas |
 | TypeScript, ESLint | Sin errores |
 | `next build` (Next.js 16.4.5) | Correcto, sin aviso de seguridad |
@@ -67,6 +67,10 @@ Tampoco: pruebas con hardware, cuentas reales de proveedores, ni nada en Staging
 | S9-4 | Next.js 16.4.3 afectado por un aviso (divulgación de parámetros con `unstable_cache` y `'use cache'`, ≥16.3.0 ≤16.4.4; la app no usa esas funciones) | Actualizado a 16.4.5 (primera versión corregida) con `eslint-config-next`; build, unit y E2E públicos en verde; `npm audit --omit=dev`: 0 vulnerabilidades |
 | S9-5 | Tablas de estados financieros y propuestas de reglas sin desplazamiento horizontal en teléfonos | Envueltas con `overflow-x-auto` |
 | S9-6 | Sin guía de primeros pasos tras crear la empresa | Lista «Primeros pasos» en el panel, derivada de datos reales |
+| S9-8 | **Cifras incompletas sin aviso**: el API de Supabase devuelve como máximo 1 000 filas por petición; el panel (`limit(5000)` / `limit(10000)`), los totales de Gastos en Finanzas, las exportaciones CSV del banco y del inventario, el selector de clientes de facturas, los productos del inventario / POS y las funciones `ar_invoice_balances`, `ar_aging`, `ar_client_report`, `inventory_levels`, `inventory_replenishment_data`, `bank_open_journal_lines` y `ledger_account_activity` (Cobros, Finanzas, Asistente, Inventario, Banco, Libro mayor) se cortaban en 1 000 | Lectura completa por páginas con el ayudante existente `fetchAllPages` en todos esos lugares; el panel además lee solo lo necesario (facturas abiertas + 13 meses) y avisa si no pudo cargar todo |
+| S9-9 | `fetchAllPages` decía «no truncado» cuando el límite de seguridad cortaba una página por la mitad | Corregido (compara con lo pedido); pruebas en `tests/paginate.test.ts` |
+| S9-10 | Square: sin renovación del token ni consulta periódica (los webhooks no garantizan la entrega); Clover igual | 0045 + `PosSync.renewSquare / pollSquare / pollClover`; probado con dobles |
+| S9-11 | Copias de seguridad de código versionadas (`page.tsx.before-*`, `page-completa.txt`) | Eliminadas (siguen en el historial de git) |
 | S9-7 | La suite 96 del asistente se usaba como regresión de la pila completa aunque está atada a 0029 | Sustituida por suites vigentes (98, 100, 101, 116); 96 sigue en su escenario |
 
 ## 4. Seguridad multiempresa (verificada en `126_platform_flows.test.sql` §G)
@@ -113,12 +117,11 @@ migración); después, pruebas de humo en la Preview y la prueba de navegador co
 2. 0037–0045 nunca aplicadas sobre los datos reales de Staging.
 3. Stripe sin verificar de extremo a extremo en el entorno real (webhook, cambios de plan, fallos de pago).
 4. Integraciones POS y bancarias solo con dobles.
-5. El panel carga hasta 5 000 documentos y 10 000 pagos por empresa en una consulta: correcto para clientes
-   pequeños, necesita agregación en la base de datos antes de clientes grandes.
+5. El panel ya lee solo facturas abiertas y los últimos 13 meses, completo por páginas (S9-8); con volúmenes
+   muy grandes (decenas de miles de documentos al año) convendrá agregarlo en la base de datos.
 6. Moneda y zona horaria fijas (USD, Puerto Rico): no apto para clientes fuera de PR sin cambios.
 7. Aplicaciones móviles no creadas; suscripciones en tiendas sin decidir.
-8. Archivos de respaldo `page.tsx.before-*` / `.pre-audit-fix` en `src/app/(app)/documents/[id]/` (no se
-   compilan; conviene eliminarlos en una limpieza autorizada).
+8. ~~Archivos de respaldo de código~~ (eliminados en S9).
 
 ## 10. Requisitos para los primeros clientes
 

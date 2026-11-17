@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { fetchAllPages } from '@/lib/supabase/paged'
 import PrintButton from '@/components/PrintButton'
 import { PageHeader } from '@/components/ui/page'
 import { NoReceivablesAccess, ReceivablesNav } from '@/components/receivables-nav'
@@ -17,7 +18,7 @@ export default async function ReceivablesReportPage({ searchParams }: { searchPa
   if (!access.view) return <NoReceivablesAccess tr={tr} unavailable={!access.available} />
   const from = isoDay(sp.from) ?? `${today.slice(0, 8)}01`
   const to = isoDay(sp.to) ?? today
-  const { data } = await supabase.rpc('ar_client_report', { target: companyId, from_date: from, to_date: to })
+  const { data } = await fetchAllPages((a, b) => supabase.rpc('ar_client_report', { target: companyId, from_date: from, to_date: to }).order('client_id').range(a, b)).then((r) => ({ data: r.rows, error: r.error }))
   const rows = (data ?? []) as Row[]
   const cols: [keyof Row, string][] = [['opening_cents', tr('Saldo inicial', 'Opening')], ['invoiced_cents', tr('Facturado', 'Invoiced')], ['collected_cents', tr('Cobrado', 'Collected')],
     ['payments_voided_cents', tr('Pagos anulados', 'Voided payments')], ['invoices_voided_cents', tr('Facturas anuladas', 'Voided invoices')], ['closing_cents', tr('Saldo final', 'Closing')]]

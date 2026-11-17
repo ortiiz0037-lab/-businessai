@@ -4,6 +4,7 @@
  * account that are not linked to a deposit yet. Read with the user's session
  * (RLS); the matching engine only suggests from these.
  */
+import { fetchAllPages as selectAll } from '@/lib/supabase/paged'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { OpenInvoice, RecordedPayment } from '@/lib/banking/matching'
 
@@ -20,7 +21,7 @@ export async function openInvoices(supabase: SupabaseClient, companyId: string):
   if (!docs.length) return []
   const paid = new Map<string, number>()
   for (let i = 0; i < docs.length; i += 100) {
-    const { data: pays } = await supabase.from('payments').select('document_id, amount, voided_at').in('document_id', docs.slice(i, i + 100).map((d) => d.id)).limit(5000)
+    const { rows: pays } = await selectAll((a, b) => supabase.from('payments').select('document_id, amount, voided_at').in('document_id', docs.slice(i, i + 100).map((d) => d.id)).order('id').range(a, b))
     for (const p of (pays ?? []) as { document_id: string; amount: number; voided_at?: string | null }[]) if (!p.voided_at) paid.set(p.document_id, (paid.get(p.document_id) ?? 0) + cents(p.amount))
   }
   return docs.map((d) => ({
@@ -35,7 +36,7 @@ export async function linkablePayments(supabase: SupabaseClient, companyId: stri
   const [{ data }, { data: linked }] = await Promise.all([
     supabase.from('payments').select('id, amount, paid_at, reference, document_id, payment_method, voided_at, documents(document_number, clients(name))')
       .eq('company_id', companyId).eq('deposit_account_id', ledgerAccountId).gte('paid_at', since).order('paid_at', { ascending: false }).limit(300),
-    supabase.from('bank_line_allocations').select('payment_id').eq('company_id', companyId).is('voided_at', null).limit(5000),
+    selectAll((a, b) => supabase.from('bank_line_allocations').select('payment_id').eq('company_id', companyId).is('voided_at', null).order('id').range(a, b)).then((r) => ({ data: r.rows, error: r.error })),
   ])
   const taken = new Set(((linked ?? []) as { payment_id: string }[]).map((x) => x.payment_id))
   type Row = { id: string; amount: number; paid_at: string; reference: string | null; document_id: string; payment_method: string | null; voided_at: string | null

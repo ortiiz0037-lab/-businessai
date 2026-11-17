@@ -331,6 +331,34 @@ begin
   perform pf.ok((select count(*) from public.documents where company_id = pf.id('A')) = 2, 'H: a request deletes no business data');
 end $$;
 
+-- ------------------------------------------------------------- I. POS token renewal and polling list (server-signed, 0045)
+create function pf.mac(msg text) returns text language sql volatile as $$
+  select encode(ba_private.hmac_sha256(decode('c2VydmVyLWtleS1mb3ItdGhlLXBmLXRlc3RzLTAxMjM0NTY3ODk=', 'base64'), convert_to(msg, 'UTF8')), 'hex') $$;
+do $$
+declare iid uuid; n uuid := gen_random_uuid(); ts bigint := extract(epoch from now())::bigint; p text; e text; r jsonb;
+begin
+  perform public.pos_set_server_key('kp', 'c2VydmVyLWtleS1mb3ItdGhlLXBmLXRlc3RzLTAxMjM0NTY3ODk=');
+  insert into public.pos_integrations (company_id, provider, environment, display_name, external_account_id, status, sync_cursor)
+  values (pf.id('A'), 'square', 'test_double', 'Square', 'M-PF', 'error', '2026-11-16T00:00:00Z') returning id into iid;
+  insert into public.pos_location_maps (integration_id, company_id, external_location_id, branch_id) values (iid, pf.id('A'), 'LOC-PF', pf.id('SJ'));
+  insert into public.pos_integrations (company_id, provider, environment, display_name, external_account_id, status) values (pf.id('B'), 'square', 'test_double', 'Square B', 'M-PFB', 'disconnected');
+  p := '{"token_ciphertext":"k1.aaaaaaaaaaaaaaaaaaaa.bb.cc","key_version":"k1","expires_at":"2026-12-31T00:00:00Z"}';
+  e := pf.err(null, format('select public.pos_integration_token_update(%L, %L, %L, %s, %L, %L)', iid, p, 'kp', ts, n, pf.mac('forged')));
+  perform pf.ok(e like '%POS_SERVER_AUTH%', 'I: a token update needs the server signature');
+  e := pf.err(null, format('select public.pos_integration_token_update(%L, %L, %L, %s, %L, %L)', iid, p, 'kp', ts, n,
+         pf.mac(concat_ws('|', 'pos_token', 'v1', 'kp', iid::text, ts::text, n::text, encode(sha256(convert_to(p, 'UTF8')), 'hex')))));
+  perform pf.ok(e = '', 'I: the signed token update runs ' || e);
+  perform pf.ok((select token_ciphertext from ba_private.pos_integration_secrets where integration_id = iid) like 'k1.%'
+                and (select status from public.pos_integrations where id = iid) = 'active', 'I: the renewed token is stored encrypted and the integration is active again');
+  n := gen_random_uuid();
+  r := pf.val(null, format('select public.pos_integrations_active(%L, %L, %s, %L, %L)::text', 'square', 'kp', ts, n,
+         pf.mac(concat_ws('|', 'pos_active', 'v1', 'kp', 'square', ts::text, n::text))))::jsonb;
+  perform pf.ok(jsonb_array_length(r) = 1 and r -> 0 ->> 'integration_id' = iid::text and r -> 0 -> 'locations' = '["LOC-PF"]'::jsonb and r -> 0 ->> 'cursor' = '2026-11-16T00:00:00Z',
+    'I: the polling job lists active Square integrations with cursor and locations (not disconnected ones)');
+  perform pf.ok(pf.err('admin', format('select public.pos_integrations_active(%L, %L, %s, %L, %L)', 'square', 'kp', ts, gen_random_uuid(), repeat('0', 64))) like '%POS_SERVER_AUTH%',
+    'I: users cannot list integrations through it');
+end $$;
+
 do $$
 begin
   if exists (select 1 from pf.failures) then raise exception 'PLATFORM FLOW TESTS FAILED: %', (select string_agg(msg, '; ') from pf.failures); end if;
