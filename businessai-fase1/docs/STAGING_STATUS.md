@@ -241,6 +241,7 @@ después ejecuta las comprobaciones de solo lectura de `scripts/staging/verify-s
 | Paso | Run | Resultado |
 |---|---|---|
 | 0037 | Staging #39 (44179025000), 2026-11-17 21:23 UTC, autorización escrita del propietario | Plan = exactamente 0037, resto retenido · `→ applying 0037_studio_branches` · `up to date and verified` · 35 registradas · `verify_0014a: OK` · estado: 0001–0037 applied, 0038–0045 not applied · matriz 130 · `branch_id` y `studio_set_branch` presentes · filas sin cambios (3 empresas, 63 documentos, 51 pagos). Stripe, Vercel y pruebas: omitidos |
+| respaldo tras 0037 | Staging backup #3 (44179627627), 21:25 UTC | 35 registradas, 154 tablas restauradas idénticas, registro restaurado 35; `staging-0037-20261117T212551Z.dump` 1 630 604 bytes (sha256 `28436e6f…1854a7`); cifrado `.enc` 1 630 624 bytes (sha256 `4a5321a2…55d6e6`), descifrado verificado; artefacto 14371651440 hasta 2026-12-17 |
 
 **C. Después de cada paso (solo lectura)**
 
