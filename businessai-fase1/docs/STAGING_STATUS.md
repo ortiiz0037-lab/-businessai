@@ -191,6 +191,12 @@ Nada de esto se ha ejecutado en Staging.
    `supabase db dump --db-url "<Staging>" -f schema.sql`, `--data-only -f data.sql`, `--role-only -f roles.sql`
    (`supabase/RUNBOOK.md` §1). La restauración de un volcado equivalente (`pg_dump -Fc` / `pg_restore`) se
    ensayó: catálogo y datos idénticos al estado 0036.
+   **Automatizado:** `.github/workflows/staging-backup.yml` (se inicia al cambiar
+   `scripts/staging/backup-request.txt`) ejecuta `scripts/staging/backup.sh` en solo lectura: guardas del
+   proyecto, recuento `ba_meta.applied_migrations` = 34, `pg_dump -Fc` de `public`, `ba_meta`, `ba_private`,
+   `auth` y `storage`, lectura del archivo, **restauración real** en un servidor desechable del runner con el
+   mismo número de filas en cada tabla, y cifrado AES-256. El repositorio es **público**: el volcado solo se
+   guarda cifrado (artefacto, 30 días) y solo si existe el secreto `STAGING_BACKUP_PASSPHRASE`.
 4. `staging:check` (solo lectura, `DRY_RUN=1 STATUS=1 VERIFY_0014A=1`). Salida esperada **exacta**:
    `No pending migrations.` · `Held (draft not approved …): 0037_studio_branches … 0045_platform_stabilization` ·
    34 filas `✓` · `verify_after_migrations: 10,0,2,0,f,0,2,3,t,t,t,` · `verify_0014a: OK`.

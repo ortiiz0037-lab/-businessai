@@ -731,3 +731,32 @@ describe('verify-0036.sh: strict staging project and explicit fingerprint failur
     expect(src).toContain('source "$here/verify-lib.sh"')
   })
 })
+
+describe('staging-backup.yml: read-only, pinned, encrypted-only artifact', () => {
+  const yml = readFileSync(new URL('../../.github/workflows/staging-backup.yml', import.meta.url), 'utf8')
+  const sh = readFileSync(new URL('../scripts/staging/backup.sh', import.meta.url), 'utf8')
+  it('starts only from a change to the request file, only in this repository', () => {
+    expect(yml).toMatch(/on:\n  push:\n    paths: \['businessai-fase1\/scripts\/staging\/backup-request\.txt'\]\n/)
+    expect(yml).not.toMatch(/pull_request|workflow_dispatch|schedule/)
+    expect(yml).toContain("if: github.repository == 'ortiiz0037-lab/-businessai'")
+  })
+  it('touches nothing but the staging database, read-only, with the pinned refs', () => {
+    expect(yml).toContain('PINNED_STAGING_REF: wbfpvxptoujgvflljasc')
+    expect(yml).toContain('PINNED_PRODUCTION_REF: rugqcumiuqrjbfwpuslm')
+    expect(yml).not.toMatch(/STRIPE|VERCEL|SERVICE_ROLE|apply-migrations/)
+    expect(yml.match(/secrets\.\w+/g)!.every((s) => ['secrets.STAGING_DB_URL', 'secrets.STAGING_BACKUP_PASSPHRASE'].includes(s))).toBe(true)
+    expect(sh).toContain('strict_staging_url "${STAGING_DB_URL:-}" "${EXPECT_STAGING_REF:-}" "${PRODUCTION_PROJECT_REF:-}" || exit 1')
+    expect(sh).toContain("PGOPTIONS='-c default_transaction_read_only=on' PGCONNECT_TIMEOUT=15 \"$PG_BIN/pg_dump\"")
+    expect(sh).toContain("ro() { PGOPTIONS='-c default_transaction_read_only=on'")
+    expect(sh).toContain('ERROR: this database looks like PRODUCTION. Nothing was dumped.')
+    expect(sh).not.toMatch(/echo[^\n]*\$STAGING_DB_URL/)
+  })
+  it('keeps only the encrypted dump, and only when the key exists', () => {
+    const upload = yml.slice(yml.indexOf('uses: actions/upload-artifact'), yml.indexOf('- name: Not retained'))
+    expect(yml).toMatch(/Keep the ENCRYPTED dump \(only when the key exists\)\n\s+if: env\.HAS_PASSPHRASE == 'true'/)
+    expect(upload).toContain('*.dump.enc')
+    expect(upload).not.toMatch(/\*\.dump\n|\.dump$|toc\.txt|restore\.err/m)
+    expect(sh).toContain('rm -f "$dump"   # only the encrypted copy is kept')
+    expect(yml).toMatch(/Remove the plaintext working files\n\s+if: always\(\)/)
+  })
+})

@@ -1,0 +1,91 @@
+name: Staging backup (read-only)
+
+# Logical backup of the STAGING database (pinned project), verified by a real restore on the runner.
+# READ-ONLY on Staging (every session read-only; pg_dump takes ACCESS SHARE locks only). Never touches
+# Production, Stripe, Vercel, users or migrations.
+#
+# Started by a push that changes businessai-fase1/scripts/staging/backup-request.txt (one line per request).
+#
+# This repository is PUBLIC: logs and artifacts are visible to anyone. The log shows only counts, sizes and
+# checksums. The dump is kept (as an artifact) ONLY encrypted, AES-256 with the repository secret
+# STAGING_BACKUP_PASSPHRASE; without that secret the run still dumps, restores and compares every table, but
+# keeps nothing. See businessai-fase1/docs/STAGING_STATUS.md §8 A.3.
+on:
+  push:
+    paths: ['businessai-fase1/scripts/staging/backup-request.txt']
+
+concurrency: staging
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    if: github.repository == 'ortiiz0037-lab/-businessai'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: businessai-fase1
+    env:
+      STAGING_PROJECT_REF: ${{ vars.STAGING_PROJECT_REF }}
+      PRODUCTION_PROJECT_REF: ${{ vars.PRODUCTION_PROJECT_REF }}
+      PINNED_STAGING_REF: wbfpvxptoujgvflljasc
+      PINNED_PRODUCTION_REF: rugqcumiuqrjbfwpuslm
+      HAS_PASSPHRASE: ${{ secrets.STAGING_BACKUP_PASSPHRASE != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Guard: pinned staging project, never production"
+        env:
+          STAGING_DB_URL: ${{ secrets.STAGING_DB_URL }}
+        run: |
+          [ "$STAGING_PROJECT_REF" = "$PINNED_STAGING_REF" ] || { echo "ERROR: STAGING_PROJECT_REF is not the pinned businessai-staging ref"; exit 1; }
+          [ "$PRODUCTION_PROJECT_REF" = "$PINNED_PRODUCTION_REF" ] || { echo "ERROR: PRODUCTION_PROJECT_REF is not the pinned production ref"; exit 1; }
+          [ -n "$STAGING_DB_URL" ] || { echo "ERROR: secret STAGING_DB_URL missing"; exit 1; }
+          echo "OK: target $PINNED_STAGING_REF (staging); production $PINNED_PRODUCTION_REF refused; encryption key present: $HAS_PASSPHRASE"
+      - name: PostgreSQL tools matching the staging server (PGDG)
+        env:
+          STAGING_DB_URL: ${{ secrets.STAGING_DB_URL }}
+        run: |
+          major=$(PGOPTIONS='-c default_transaction_read_only=on' PGCONNECT_TIMEOUT=15 psql "$STAGING_DB_URL" -X -q -tA -c "show server_version_num" | cut -c1-2) \
+            || { echo "ERROR: cannot reach the staging database (read-only)"; exit 1; }
+          echo "staging server major: $major"
+          if [ ! -x "/usr/lib/postgresql/$major/bin/pg_dump" ] || [ ! -x "/usr/lib/postgresql/$major/bin/initdb" ]; then
+            sudo install -d /usr/share/postgresql-common/pgdg
+            sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+            echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+            sudo apt-get update -q >/dev/null && sudo apt-get install -y -q "postgresql-$major" >/dev/null
+          fi
+          echo "PGB=/usr/lib/postgresql/$major/bin" >> "$GITHUB_ENV"
+      - name: Scratch PostgreSQL for the restore test (unix socket, local only)
+        run: |
+          SOCK=/tmp/ba-bk-sock; DATA=/tmp/ba-bk-data
+          sudo mkdir -p "$SOCK" "$DATA" && sudo chown postgres "$SOCK" "$DATA" && sudo chmod 755 "$SOCK"
+          sudo -u postgres "$PGB/initdb" -D "$DATA" -U postgres -A trust >/dev/null
+          sudo -u postgres "$PGB/pg_ctl" -D "$DATA" -o "-k $SOCK -p 5432 -c listen_addresses=''" -l /tmp/ba-bk.log -w start
+      - name: Dump, integrity, restore test, encryption
+        env:
+          STAGING_DB_URL: ${{ secrets.STAGING_DB_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.STAGING_BACKUP_PASSPHRASE }}
+        run: |
+          EXPECT_STAGING_REF="$PINNED_STAGING_REF" PRODUCTION_PROJECT_REF="$PINNED_PRODUCTION_REF" PG_BIN="$PGB" OUT_DIR="$RUNNER_TEMP/backup" \
+          RESTORE_PSQL="$PGB/psql -h /tmp/ba-bk-sock -p 5432 -U postgres" RESTORE_HOST=/tmp/ba-bk-sock RESTORE_PORT=5432 \
+            bash scripts/staging/backup.sh
+      - name: Keep the ENCRYPTED dump (only when the key exists)
+        if: env.HAS_PASSPHRASE == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-backup-encrypted
+          path: |
+            ${{ runner.temp }}/backup/*.dump.enc
+            ${{ runner.temp }}/backup/manifest.txt
+            ${{ runner.temp }}/backup/counts-live.tsv
+          if-no-files-found: error
+          retention-days: 30
+      - name: Not retained without the key
+        if: env.HAS_PASSPHRASE != 'true'
+        run: |
+          echo "NOT RETAINED: the dump was verified and discarded. Owner action: create the repository secret STAGING_BACKUP_PASSPHRASE, then request again."
+      - name: Remove the plaintext working files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/backup"
