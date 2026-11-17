@@ -102,6 +102,7 @@ ORDER=(
   0041_studio_advanced
   0042_banking
   0043_inventory
+  0044_pos
 )
 EXPECTED_VERIFY="10,0,2,0,f,0,2,3,t,t,t,"
 

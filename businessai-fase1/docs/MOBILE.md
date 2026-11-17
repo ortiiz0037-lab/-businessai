@@ -40,6 +40,14 @@ base de datos. Nunca incluye claves de servicio, de Stripe ni del proveedor de I
   dispositivo; recepción, conteos y transferencias escaneando; probado en iPhone 13 e iPad Mini
   (sin cámara física en las pruebas). En la app nativa se podrá usar el escáner nativo
   (AVFoundation / ML Kit) a través del mismo contrato de «código leído».
+- **Punto de venta en iPhone / iPad / pantallas táctiles (S8)**: `/pos/register` en dos columnas
+  (productos y venta) en iPad y computadora, apilado en iPhone; botones de 44 px o más, teclado
+  numérico (`inputMode`) para importes, escáner con cámara o lector Bluetooth / USB HID (el mismo
+  componente de S7), recibo imprimible desde el navegador. Requiere conexión (sin modo fuera de
+  línea todavía). En la app nativa: cámara nativa para códigos y, más adelante, impresora térmica /
+  cajón de dinero por el SDK del fabricante; las terminales de pago solo mediante la integración
+  oficial del procesador. La prueba de navegador del POS en tamaños móviles no se ejecutó en este
+  entorno (ver `docs/POS.md` §8).
 - **Recibos con la cámara (S6)**: `/bank/receipts` abre la cámara trasera del iPhone / iPad
   (`capture="environment"`), reduce las fotos grandes a JPEG y las sube a almacenamiento
   privado; probado en iPhone 13 e iPad Mini. Plaid Link en el contenedor nativo

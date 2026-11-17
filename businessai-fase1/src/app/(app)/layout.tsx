@@ -30,6 +30,7 @@ function navigation(locale: Locale): NavItem[] {
     { href: '/payments', label: t.payments, icon: 'wallet', primary: true },
     { href: '/catalog', label: t.catalog, icon: 'archive' },
     { href: '/inventory', label: t.inventory, icon: 'clipboard' },
+    { href: '/pos', label: t.pos, icon: 'card' },
     { href: '/workforce', label: t.workforce, icon: 'clock' },
     { href: '/payroll', label: t.payroll, icon: 'wallet' },
     { href: '/receivables', label: t.receivables, icon: 'wallet' },

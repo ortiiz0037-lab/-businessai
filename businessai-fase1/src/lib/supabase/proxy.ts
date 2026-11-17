@@ -8,7 +8,10 @@ const PUBLIC_EXACT = ['/', '/manifest.webmanifest']
 
 // Rutas llamadas por servicios externos sin sesión de usuario. Cada una se
 // autentica por su cuenta (Stripe: verificación de la firma `stripe-signature`).
-const MACHINE_ROUTES = ['/api/stripe/webhook', '/api/banking/webhooks/plaid']
+const MACHINE_ROUTES = ['/api/stripe/webhook', '/api/banking/webhooks/plaid',
+  // POS (0044): provider webhooks (each verifies its provider's signature), the local bridge (bearer token)
+  // and the recovery job (POS_CRON_SECRET); they write only through the server-signed functions
+  '/api/pos/webhooks/square', '/api/pos/webhooks/clover', '/api/pos/webhooks/shopify', '/api/pos/webhooks/lightspeed_x', '/api/pos/bridge', '/api/pos/recover']
 
 // `?lang=es|en` on any page (e.g. coming from the public site) is remembered
 // for the app in the same cookie the language selector writes.

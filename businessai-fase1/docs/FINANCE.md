@@ -266,6 +266,13 @@ la cobranza.
 > proveedor de Gastos (una factura, una orden) sin crear gastos ni pagos. La valoración del
 > inventario (promedio / FIFO) es informativa y **no** se contabiliza; ver `docs/INVENTORY.md` §4.
 
+> **S8 (migración 0044):** cada venta del punto de venta se contabiliza al confirmarse (Dr Efectivo o
+> «Fondos por depositar (punto de venta)» 1050, Cr Ingresos 4000, Cr IVU por pagar 2100); anulaciones con
+> asiento espejo, devoluciones con el inverso, liquidaciones del procesador Dr Banco + Dr Comisiones (6450),
+> Cr Fondos por depositar, emparejando la línea bancaria (`bank_match`); diferencias de caja revisadas a
+> Sobrantes y faltantes (6460). Fuentes nuevas: `pos_sale`, `pos_sale_void`, `pos_refund`, `pos_settlement`,
+> `pos_cash_difference`. Un periodo cerrado nunca se reabre: el asiento va al día de hoy. Ver `docs/POS.md`.
+
 # Entrega 5 — Conciliación bancaria (migración 0026)
 
 > **S6 (migración 0042):** conexiones bancarias con el proveedor, sincronización,

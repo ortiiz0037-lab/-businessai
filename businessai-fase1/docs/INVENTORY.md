@@ -108,13 +108,13 @@ diferencias; cierre de periodos coherente con la valoración elegida.
 - La valoración no se contabiliza (punto 4). Sin lotes, números de serie ni caducidad.
 - Las órdenes de compra no se imprimen todavía desde Document Studio (el tipo «orden de compra»
   existe en Studio; el bloque de datos de la orden queda para la siguiente entrega).
-- El punto de venta (S8) usará `inventory_move` / `inventory_reserve` (ya preparados).
+- El punto de venta (S8, 0044) descuenta con `ba_private.inv_post` una vez por línea de venta (`pos:<venta>:<línea>`), respeta el disponible (en mano − reservado − comprometido), compensa anulaciones con movimientos `correction` y devoluciones con `customer_return`; las ventas importadas sin existencias quedan bloqueadas, nunca en negativo. Ver `docs/POS.md`.
 
 ## 7. Hoja de ruta
 
 1. Aprobación de 0043 en Staging.
 2. Inventario perpetuo contable (decisión del propietario, punto 4).
 3. Documento de orden de compra en Document Studio (bloque de líneas desde la orden).
-4. Punto de venta (S8): ventas con escaneo, reservas, devoluciones.
+4. ~~Punto de venta (S8)~~: hecho en 0044 (`docs/POS.md`).
 5. Lotes / series / caducidad; etiquetas con código de barras imprimibles.
 6. Herramienta de solo lectura del asistente: existencias y alertas de reposición.

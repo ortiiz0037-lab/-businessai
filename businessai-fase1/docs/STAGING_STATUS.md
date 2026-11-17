@@ -137,4 +137,7 @@ Errores corregidos gracias a esta prueba:
    0038), 0041 (Document Studio avanzado, no aplicada; necesita 0040) y 0042
    (banca, pagos y recibos, no aplicada; necesita 0035 y 0030; añade el bucket
    privado `Banking-evidence`) y 0043 (inventario, no aplicada; necesita 0039; añade
-   tres permisos, matriz 143): cada uno necesita autorización.
+   tres permisos, matriz 143) y 0044 (punto de venta, no aplicada; necesita 0043;
+   añade cuatro permisos, matriz 153; no requiere ningún bucket ni variable para
+   aplicarse): cada uno necesita autorización. Ninguna variable `POS_*` /
+   `SQUARE_*` está configurada en Vercel.
