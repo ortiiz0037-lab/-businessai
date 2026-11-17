@@ -51,7 +51,8 @@ echo "server major: $server_major · pg_dump major: $client_major"
 (( client_major >= server_major )) || { echo "ERROR: pg_dump $client_major is older than the server ($server_major)"; exit 1; }
 applied="$(ro -c "select count(*) from ba_meta.applied_migrations")"
 ok "$applied" "$EXPECT_APPLIED" "ba_meta.applied_migrations: $EXPECT_APPLIED recorded"
-echo "last recorded: $(ro -c "select name from ba_meta.applied_migrations order by name desc limit 1")"
+last_recorded="$(ro -c "select name from ba_meta.applied_migrations order by name desc limit 1")"
+echo "last recorded: $last_recorded"
 in_list=$(printf "'%s'," "${SCHEMAS[@]}"); in_list=${in_list%,}
 count_sql="$(ro -c "select string_agg(format('select %L || chr(9) || count(*) from %I.%I', n.nspname || '.' || c.relname, n.nspname, c.relname), ' union all ' order by n.nspname, c.relname)
   from pg_class c join pg_namespace n on n.oid = c.relnamespace where c.relkind in ('r', 'p') and n.nspname in ($in_list)")"
@@ -60,7 +61,7 @@ echo "tables: $(wc -l < "$OUT_DIR/counts-live.tsv") · rows: $(awk -F'\t' '{s+=$
 echo "users (auth.users): $(awk -F'\t' '$1=="auth.users"{print $2}' "$OUT_DIR/counts-live.tsv") · companies: $(awk -F'\t' '$1=="public.companies"{print $2}' "$OUT_DIR/counts-live.tsv")"
 
 echo "== 3. Dump"
-stamp=$(date -u +%Y%m%dT%H%M%SZ); dump="$OUT_DIR/staging-0036-$stamp.dump"
+stamp=$(date -u +%Y%m%dT%H%M%SZ); dump="$OUT_DIR/staging-${last_recorded:0:4}-$stamp.dump"
 schema_args=(); for s in "${SCHEMAS[@]}"; do schema_args+=(--schema="$s"); done
 PGOPTIONS='-c default_transaction_read_only=on' PGCONNECT_TIMEOUT=15 "$PG_BIN/pg_dump" "$STAGING_DB_URL" -Fc "${schema_args[@]}" -f "$dump" 2> "$OUT_DIR/pg_dump.err"
 rc=$?; ok "$rc" 0 "pg_dump exit status"; [[ $rc -eq 0 ]] || { sed 's/postgres[^ ]*@[^ ]*/<url>/g' "$OUT_DIR/pg_dump.err" | head -10; exit 1; }

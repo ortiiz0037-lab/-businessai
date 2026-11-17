@@ -68,6 +68,9 @@ jobs:
           STAGING_DB_URL: ${{ secrets.STAGING_DB_URL }}
           BACKUP_PASSPHRASE: ${{ secrets.STAGING_BACKUP_PASSPHRASE }}
         run: |
+          # expected number of recorded migrations: "expect_applied=NN" on the last request line (default 34)
+          expect=$(tail -n 1 scripts/staging/backup-request.txt | grep -oE 'expect_applied=[0-9]+' | cut -d= -f2)
+          EXPECT_APPLIED="${expect:-34}" \
           EXPECT_STAGING_REF="$PINNED_STAGING_REF" PRODUCTION_PROJECT_REF="$PINNED_PRODUCTION_REF" PG_BIN="$PGB" OUT_DIR="$RUNNER_TEMP/backup" \
           RESTORE_PSQL="$PGB/psql -h /tmp/ba-bk-sock -p 5432 -U postgres" RESTORE_HOST=/tmp/ba-bk-sock RESTORE_PORT=5432 \
             bash scripts/staging/backup.sh

@@ -2,3 +2,4 @@
 # Changing this file and pushing starts the run. Nothing else starts it.
 2026-11-17 before 0037: verify dump + restore + count 34 (owner authorization: autonomous Staging backup)
 2026-11-17 encrypted backup before 0037 (owner created STAGING_BACKUP_PASSPHRASE)
+2026-11-17 encrypted backup after 0037 expect_applied=35

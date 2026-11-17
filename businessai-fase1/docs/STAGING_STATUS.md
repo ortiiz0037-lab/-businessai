@@ -236,6 +236,12 @@ después ejecuta las comprobaciones de solo lectura de `scripts/staging/verify-s
 | 8 | `staging:migrate-0044` (0044_pos) | ídem 0044 | 153 | ninguna variable `POS_*` / `SQUARE_*` todavía |
 | 9 | `staging:migrate-0045` (0045_platform_stabilization) | ídem 0045 | 153 | `document_deletion_audit` sin escritura para `anon`; registro de permisos revocados presente |
 
+**Registro de ejecución**
+
+| Paso | Run | Resultado |
+|---|---|---|
+| 0037 | Staging #39 (44179025000), 2026-11-17 21:23 UTC, autorización escrita del propietario | Plan = exactamente 0037, resto retenido · `→ applying 0037_studio_branches` · `up to date and verified` · 35 registradas · `verify_0014a: OK` · estado: 0001–0037 applied, 0038–0045 not applied · matriz 130 · `branch_id` y `studio_set_branch` presentes · filas sin cambios (3 empresas, 63 documentos, 51 pagos). Stripe, Vercel y pruebas: omitidos |
+
 **C. Después de cada paso (solo lectura)**
 
 - `staging:check` con `EXPECT_NONE=1`: `verify_0014a: OK`, filas `✓` = 34 + número de paso, el resto sigue `Held`.
