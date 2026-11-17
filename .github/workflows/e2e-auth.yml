@@ -55,10 +55,9 @@ jobs:
           echo "PG_SOCKET=$SOCK" >> "$GITHUB_ENV"
       - name: Database for the suite (all migrations, local seed)
         run: PSQL="psql -h $PG_SOCKET -p 5432 -U postgres" DB=ba_e2e_fin bash e2e/local-stack/db.sh
-      - name: Build (placeholder public config, no secrets)
+      # Built WITHOUT any NEXT_PUBLIC_SUPABASE_* value: Next.js inlines those at build time, and the suites
+      # pass the local stack's URL when they start `next start` (a placeholder here sent sign-in nowhere).
+      - name: Build (no Supabase config baked in, no secrets)
         run: npm run build
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
-          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: placeholder
       - name: Signed-in browser suite
         run: PG_PORT=5432 DB=ba_e2e_fin node e2e/${{ matrix.suite }}.auth.e2e.mjs
