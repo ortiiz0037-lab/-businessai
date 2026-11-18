@@ -16,9 +16,10 @@ name: Staging tests
 #   4. real screenshots of every screen on iPhone, iPad and desktop
 #      (scripts/staging/screenshots.mjs; temporary user, removed; uploaded as
 #      the "preview-screenshots" artifact).
-#   5. sign-up, email confirmation and password recovery through the Preview's
-#      forms against staging Auth (scripts/staging/e2e-auth-email.mjs; one
-#      temporary @example.com user, removed).
+#   5. email confirmation and password recovery links through the Preview
+#      against staging Auth, sending NO email (scripts/staging/e2e-auth-email.mjs
+#      --mode=links; one temporary user, removed). Real emails: the separate
+#      label staging:auth-email (staging-auth-email.yml, 2 emails).
 # Steps 2 and 3 run even if an earlier test step fails, so every result is
 # visible; the job fails if any of them fails or if the RLS suites are skipped.
 # Never production: refs pinned below, TEST Stripe key only.
@@ -133,15 +134,16 @@ jobs:
           npx playwright install --with-deps chromium
           node scripts/staging/screenshots.mjs
 
-      - name: 5. Sign-up, email confirmation and password recovery (staging Auth + Preview; temporary user, removed)
+      - name: 5. Email confirmation and password recovery links (staging Auth + Preview; sends NO email; temporary user, removed)
         id: authmail
         if: ${{ !cancelled() && steps.guard.outcome == 'success' }}
         env:
           STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          STAGING_AUTH_TEST_EMAIL: ${{ secrets.STAGING_AUTH_TEST_EMAIL }}
         run: |
           [ -d node_modules/playwright ] || { npm install --no-save --no-audit --no-fund playwright@1.63.0 && npx playwright install --with-deps chromium; }
-          node scripts/staging/e2e-auth-email.mjs
+          node scripts/staging/e2e-auth-email.mjs --mode=links
 
       - name: Upload screenshots
         if: ${{ !cancelled() && steps.guard.outcome == 'success' }}

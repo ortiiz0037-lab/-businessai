@@ -176,3 +176,9 @@ al registro **HTTP 429 `over_email_send_rate_limit`** («email rate limit exceed
 integrado — y sus enlaces siguen yendo a la Site URL **`localhost:3000`**. El formulario de registro desplegado ya
 muestra «Demasiados intentos» en lugar del mensaje genérico (corrección de `signUp` verificada en la Preview). Sin
 cambios en la configuración de Auth, el resultado del correo no puede mejorar: requiere las acciones 1–2 de arriba.
+
+**Correo con el servicio predeterminado de Supabase (sin dominio propio, decisión del 2026-11-18)**: preparado en
+`docs/EMAIL_RESEND.md`. `staging:test` ya no envía correos (paso 5 en modo enlaces); los 2 correos reales por hora
+se prueban con la etiqueta `staging:auth-email` hacia un buzón de un miembro de la organización (secreto
+`STAGING_AUTH_TEST_EMAIL`), con una persona que abre los correos. Pendiente del propietario: Site URL y Redirect URLs
+de Staging (valores en ese documento) y el secreto. Resend queda documentado para cuando haya dominio.

@@ -763,10 +763,37 @@ describe('staging-backup.yml: read-only, pinned, encrypted-only artifact', () =>
 
 describe('label workflows: a skipped job never cancels the run that has work', () => {
   it('the staging concurrency group is on the job, never on the workflow', () => {
-    for (const f of ['staging.yml', 'staging-test.yml', 'staging-demo.yml', 'staging-backup.yml']) {
+    for (const f of ['staging.yml', 'staging-test.yml', 'staging-demo.yml', 'staging-backup.yml', 'staging-auth-email.yml']) {
       const yml = readFileSync(new URL(`../../.github/workflows/${f}`, import.meta.url), 'utf8')
       expect(yml, f).not.toMatch(/^concurrency:/m)
       expect(yml, f).toMatch(/\njobs:\n  [a-z]+:\n    concurrency: staging\n/)
     }
+  })
+})
+
+describe('staging Auth email: no email in staging:test, two real emails only with staging:auth-email', () => {
+  const test = readFileSync(new URL('../../.github/workflows/staging-test.yml', import.meta.url), 'utf8')
+  const inbox = readFileSync(new URL('../../.github/workflows/staging-auth-email.yml', import.meta.url), 'utf8')
+  const src = readFileSync(new URL('../scripts/staging/e2e-auth-email.mjs', import.meta.url), 'utf8')
+  it('staging:test runs the links mode (sends nothing)', () => {
+    expect(test).toContain('node scripts/staging/e2e-auth-email.mjs --mode=links')
+    expect(test).not.toContain('--mode=inbox')
+  })
+  it('the real-mailbox run has its own exact label, the staging guard, the secret mailbox and no writers', () => {
+    expect(inbox).toMatch(/github\.event\.label\.name == 'staging:auth-email' &&/)
+    expect(inbox).toMatch(/github\.event\.pull_request\.head\.repo\.full_name == github\.repository/)
+    expect(inbox).not.toMatch(/workflow_dispatch|push:/)
+    expect(inbox).toContain('[ "$STAGING_PROJECT_REF" = "$PINNED_STAGING_REF" ]')
+    expect(inbox).toContain('STAGING_AUTH_TEST_EMAIL: ${{ secrets.STAGING_AUTH_TEST_EMAIL }}')
+    expect(inbox).toContain('node scripts/staging/e2e-auth-email.mjs --mode=inbox')
+    for (const writer of ['stripe', 'vercel-env', 'preview-supabase', 'apply-migrations', 'VERCEL_TOKEN', 'STAGING_DB_URL', 'STRIPE']) expect(inbox, writer).not.toContain(writer)
+  })
+  it('the script never uses a placeholder domain, refuses to send within the hour, and never prints the mailbox', () => {
+    expect(src).not.toMatch(/@example\.(com|test)/)
+    expect(src).toContain('no Auth email sent in the last 60 minutes')
+    expect(src).toContain("if (!redirectsOk || recent.length || blocked) { info('STOPPED before sending any email'); return }")
+    // no interpolation of the address or a password in any printed line (literal words like "email" are fine)
+    expect(src).not.toMatch(/(console\.log|info|check)\([^\n]*\$\{(email|probe|mailbox\.[a-z]+|password|newPassword)\}/)
+    expect(src).toContain('mailer_autoconfirm === false')
   })
 })

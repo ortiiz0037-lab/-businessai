@@ -1,0 +1,73 @@
+name: Staging auth email (real mailbox)
+
+# Sign-up confirmation and password recovery with REAL emails (label `staging:auth-email` on the pull request).
+# Staging uses Supabase's default email service until BusinessAI has its own domain (docs/EMAIL_RESEND.md): it
+# delivers only to mailboxes of the Supabase organisation's members and about 2 emails per hour. This run sends
+# exactly TWO emails to the authorised mailbox (repository secret STAGING_AUTH_TEST_EMAIL) and waits for a person
+# to open them (up to 15 minutes each); it refuses to send anything if an Auth email went out in the last hour,
+# if Supabase's links would not come back to the Preview, or if a real account already uses the mailbox.
+# Writes no configuration: no Auth settings, Stripe, Vercel or database changes. Never production.
+
+on:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+jobs:
+  inbox:
+    concurrency: staging
+    if: >-
+      github.event.label.name == 'staging:auth-email' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: businessai-fase1
+    env:
+      PINNED_STAGING_REF: wbfpvxptoujgvflljasc
+      PINNED_PRODUCTION_REF: rugqcumiuqrjbfwpuslm
+      STAGING_PROJECT_REF: ${{ vars.STAGING_PROJECT_REF }}
+      PRODUCTION_PROJECT_REF: ${{ vars.PRODUCTION_PROJECT_REF }}
+      STAGING_URL: ${{ vars.STAGING_URL }}
+      STAGING_SUPABASE_URL: https://${{ vars.STAGING_PROJECT_REF }}.supabase.co
+      STAGING_SUPABASE_PUBLISHABLE_KEY: ${{ vars.STAGING_SUPABASE_PUBLISHABLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: businessai-fase1/package-lock.json
+      - run: npm ci
+
+      - name: Guard (staging only; names only, never values)
+        env:
+          HAS_SERVICE: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY != '' }}
+          HAS_BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET != '' }}
+          HAS_MAILBOX: ${{ secrets.STAGING_AUTH_TEST_EMAIL != '' }}
+        run: |
+          problems=()
+          [ "$STAGING_PROJECT_REF" = "$PINNED_STAGING_REF" ] || problems+=("variable STAGING_PROJECT_REF is not the pinned staging project")
+          [ "$PRODUCTION_PROJECT_REF" = "$PINNED_PRODUCTION_REF" ] || problems+=("variable PRODUCTION_PROJECT_REF is not the pinned production project")
+          [ "$STAGING_SUPABASE_URL" = "https://$PINNED_STAGING_REF.supabase.co" ] || problems+=("Supabase URL is not the staging project")
+          [ -n "$STAGING_URL" ] || problems+=("variable STAGING_URL")
+          case "$STAGING_URL$STAGING_SUPABASE_URL" in *"$PINNED_PRODUCTION_REF"*) problems+=("a URL mentions the PRODUCTION project");; esac
+          [ -n "$STAGING_SUPABASE_PUBLISHABLE_KEY" ] || problems+=("variable STAGING_SUPABASE_PUBLISHABLE_KEY")
+          [ "$HAS_SERVICE" = true ] || problems+=("secret STAGING_SUPABASE_SERVICE_ROLE_KEY")
+          [ "$HAS_BYPASS" = true ] || problems+=("secret VERCEL_AUTOMATION_BYPASS_SECRET")
+          [ "$HAS_MAILBOX" = true ] || problems+=("secret STAGING_AUTH_TEST_EMAIL (a mailbox of a member of the Supabase organisation)")
+          if [ ${#problems[@]} -gt 0 ]; then printf 'Stopped before any test:\n'; printf '  - %s\n' "${problems[@]}"; exit 1; fi
+          echo "Guard OK: staging $PINNED_STAGING_REF, production $PINNED_PRODUCTION_REF refused."
+
+      - name: Playwright (browser only, not saved in package.json)
+        run: npm install --no-save --no-audit --no-fund playwright@1.63.0 && npx playwright install --with-deps chromium
+
+      - name: Sign-up confirmation and password recovery — 2 real emails; open them when the log says ACTION
+        env:
+          STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          STAGING_AUTH_TEST_EMAIL: ${{ secrets.STAGING_AUTH_TEST_EMAIL }}
+        run: node scripts/staging/e2e-auth-email.mjs --mode=inbox
