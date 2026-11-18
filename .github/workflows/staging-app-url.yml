@@ -27,8 +27,9 @@ jobs:
     env:
       APP_URL: https://staging.mybusinessai.site
       STAGING_BRANCH: ${{ github.head_ref }}
-      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
-      VERCEL_TEAM_ID: ${{ vars.VERCEL_TEAM_ID }}
+      # same pinned project as staging.yml (the businessai project of ortiiz0037-lab)
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID || 'prj_hk9DvqsNN5M2OJA2jqm1IHw2lqAW' }}
+      VERCEL_TEAM_ID: ${{ vars.VERCEL_TEAM_ID || 'team_zY0NJlHyXWCFrO080or2mu5h' }}
       MODE: ${{ github.event.label.name == 'staging:app-url-apply' && 'apply' || 'plan' }}
     steps:
       - uses: actions/checkout@v4
