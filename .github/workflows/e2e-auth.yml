@@ -21,7 +21,7 @@ jobs:
       fail-fast: false
       matrix:
         suite: [finance, finance-flows, studio, studio-branches, studio-finance, studio-advanced, catalog, assistant, assistant-s4,
-                banking, inventory, pos, workforce, employee-link, payroll, crm]
+                banking, inventory, pos, workforce, employee-link, payroll, crm, sweep]
     defaults:
       run:
         working-directory: businessai-fase1

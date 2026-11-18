@@ -30,6 +30,7 @@
     "test:e2e:employee-link": "node e2e/employee-link.auth.e2e.mjs",
     "test:e2e:payroll": "node e2e/payroll.auth.e2e.mjs",
     "test:e2e:crm": "node e2e/crm.auth.e2e.mjs",
+    "test:e2e:sweep": "node e2e/sweep.auth.e2e.mjs",
     "test:e2e:staging-shape": "node e2e/staging-shape.e2e.mjs",
     "staging:rehearse": "bash scripts/staging/rehearse-modules.sh",
     "staging:rehearse:next": "bash scripts/staging/rehearse-0037-0045.sh"
