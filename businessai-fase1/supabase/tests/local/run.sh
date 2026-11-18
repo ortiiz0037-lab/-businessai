@@ -1420,6 +1420,34 @@ else head -20 "$WORK/fp45.diff"; check different ok "after the 0045 rollback the
 if psqlq -d l52a -f "$HERE/../../rollback/0045_rollback.sql" >"$WORK/l52a.out" 2>&1; then check ran refused "0045 rollback while an account deletion request is pending"; else
   grep -q "BA0045 rollback" "$WORK/l52a.out" && check refused refused "0045 rollback refuses while an account deletion request is pending (nothing changed)"; fi
 
+echo "== Scenario 53: PRODUCTION rehearsal — the inspected production shape with legacy data, 0005 → 0045 in ORDER"
+# The path a Production migration would take (docs/PRODUCTION_MIGRATION_PLAN.md): the inspected schema (old policies,
+# grants, can_edit_company_profile), data written by the current app, then every migration in apply-migrations.sh ORDER.
+PROD_ORDER=$(sed -n '/^ORDER=(/,/^)/p' "$HERE/../../../scripts/staging/apply-migrations.sh" | grep -oE '[0-9]{4}[a-z]?_[a-z0-9_]+' | sed -n '/^0005_security_baseline$/,$p')
+base p53
+psqlq -d p53 -f "$HERE/53_production_legacy_seed.sql" >/dev/null && check ok ok "legacy data of the current app loaded on the inspected shape"
+legacy="select (select count(*) from public.companies)||'/'||(select count(*) from public.memberships)||'/'||(select count(*) from public.clients)||'/'||(select count(*) from public.documents)||'/'||(select count(*) from public.payments)||'/'||(select sum(total) from public.documents)||'/'||(select string_agg(document_number, ',' order by document_number) from public.documents)"
+legacy_before="$(count p53 "$legacy")"
+applied_all=ok
+for m in $PROD_ORDER; do psqlq -d p53 -f "$MIG/$m.sql" >/dev/null || { applied_all="failed at $m"; break; }; done
+check "$applied_all" ok "all $(wc -w <<<"$PROD_ORDER") migrations 0005 → 0045 apply on the production shape with data, in ORDER"
+check "$(ro p53 "$HERE/../../inspect/inspect_migration_state.sql" | grep -E '^00' | grep -vc '|applied|')" 0 "every migration detected as applied (0008 included: the production function exists)"
+check "$(ro p53 "$VER")" OK "verify_0014a answers OK on the migrated production shape"
+check "$(count p53 'select count(*) from public.role_permissions')" 153 "permission matrix: 153 rows (as Staging after 0045)"
+check "$(count p53 "$legacy")" "$legacy_before" "legacy companies, members, clients, documents, payments, totals and numbers unchanged"
+check "$(count p53 "select count(*) from public.payments where created_by is not null")" 1 "the legacy payment keeps who recorded it"
+reapply=ok; for m in $PROD_ORDER; do psqlq -d p53 -f "$MIG/$m.sql" >/dev/null || { reapply="failed at $m"; break; }; done
+check "$reapply" ok "re-running the whole sequence changes nothing (each migration is idempotent: a retry is safe)"
+# company without a subscription (RUNBOOK §9.0): can read, cannot create clients; with an active one it can
+# all output (stderr arrives before the buffered stdout); the caller picks what it needs
+asuser() { psqlq -d p53 -tA -c "begin; set local role authenticated; select set_config('request.jwt.claims', '{\"sub\":\"$1\",\"role\":\"authenticated\"}', true) is not null; $2; rollback;" 2>&1 || true; }
+check "$(asuser c5300000-0000-4000-8000-000000000003 "select 'docs=' || count(*) from public.documents" | grep -o 'docs=[0-9]*')" docs=1 "a company without subscription still reads its documents"
+check "$(asuser c5300000-0000-4000-8000-000000000003 "insert into public.clients (company_id, name) values ('c5310000-0000-4000-8000-000000000002', 'Nuevo') returning 'inserted'" | grep -o 'BILLING_INACTIVE\|inserted')" BILLING_INACTIVE "… and cannot create clients until it subscribes (the §9.0 decision)"
+check "$(asuser c5300000-0000-4000-8000-000000000001 "insert into public.clients (company_id, name) values ('c5310000-0000-4000-8000-000000000001', 'Nuevo') returning 'inserted'" | grep -o 'BILLING_INACTIVE\|inserted')" inserted "a company with an active subscription keeps creating clients"
+check "$(asuser c5300000-0000-4000-8000-000000000003 "select 'seen=' || count(*) from public.clients where company_id = 'c5310000-0000-4000-8000-000000000001'" | grep -o 'seen=[0-9]*')" seen=0 "isolation: the other company sees none of its clients"
+run_suite p53 "$HERE/10_rls_business.test.sql" 'ALL RLS TESTS PASSED' "RLS suite on the migrated production shape"
+run_suite p53 "$HERE/126_platform_flows.test.sql" 'ALL PLATFORM FLOW TESTS PASSED' "platform flows on the migrated production shape (alongside the legacy companies)"
+
 echo "== Scenario 9: a busy table makes 0005 fail fast (lock_timeout) with zero changes"
 base s9
 "${RUNAS[@]}" psql -X -q -h "$WORK" -p "$PORT" -U postgres -d s9 \
