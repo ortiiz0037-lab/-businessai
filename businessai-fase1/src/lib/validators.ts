@@ -21,11 +21,24 @@ export const companySchema = z.object({
   name: z.string().trim().min(2, 'Mínimo 2 caracteres').max(120, 'Máximo 120 caracteres'),
 })
 
-export function fieldErrors(err: z.ZodError): Record<string, string> {
+/** English for the messages of the schemas above (the schemas keep Spanish, the default language). */
+const FIELD_ERRORS_EN: Record<string, string> = {
+  'Correo no válido': 'Invalid email',
+  'Mínimo 2 caracteres': 'At least 2 characters',
+  'Mínimo 8 caracteres': 'At least 8 characters',
+  'Máximo 72 caracteres': 'At most 72 characters',
+  'Máximo 80 caracteres': 'At most 80 characters',
+  'Máximo 120 caracteres': 'At most 120 characters',
+  'Requerida': 'Required',
+  'Las contraseñas no coinciden': 'The passwords do not match',
+}
+
+/** First message per field, in the language of the request (`en` translates the schema messages). */
+export function fieldErrors(err: z.ZodError, locale: 'es' | 'en' = 'es'): Record<string, string> {
   const out: Record<string, string> = {}
   for (const issue of err.issues) {
     const key = String(issue.path[0] ?? '')
-    if (key && !out[key]) out[key] = issue.message
+    if (key && !out[key]) out[key] = locale === 'en' ? (FIELD_ERRORS_EN[issue.message] ?? issue.message) : issue.message
   }
   return out
 }

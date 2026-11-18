@@ -8,11 +8,12 @@ import { SELECTED_PLAN_COOKIE, isPlanKey } from '@/lib/billing/catalog'
 import { fieldErrors, newPasswordSchema, resetRequestSchema, safeNext, signInSchema, signUpSchema, type FormState } from '@/lib/validators'
 
 export async function signUp(_: FormState, formData: FormData): Promise<FormState> {
+  const locale = await getLocale()
+  const en = locale === 'en'
   const parsed = signUpSchema.safeParse(Object.fromEntries(formData))
-  if (!parsed.success) return { fieldErrors: fieldErrors(parsed.error) }
+  if (!parsed.success) return { fieldErrors: fieldErrors(parsed.error, locale) }
   const { fullName, email, password } = parsed.data
   const supabase = await createClient()
-  const en = (await getLocale()) === 'en'
   // Where to continue after confirming the email (e.g. a team invitation).
   const next = safeNext(formData.get('next'), '/onboarding')
   const origin = await appOrigin()
@@ -33,11 +34,12 @@ export async function signUp(_: FormState, formData: FormData): Promise<FormStat
 }
 
 export async function signIn(_: FormState, formData: FormData): Promise<FormState> {
+  const locale = await getLocale()
   const parsed = signInSchema.safeParse(Object.fromEntries(formData))
-  if (!parsed.success) return { fieldErrors: fieldErrors(parsed.error) }
+  if (!parsed.success) return { fieldErrors: fieldErrors(parsed.error, locale) }
   const supabase = await createClient()
   const { error } = await supabase.auth.signInWithPassword(parsed.data)
-  if (error) return { error: (await getLocale()) === 'en' ? 'Wrong email or password.' : 'Correo o contraseña incorrectos.' }
+  if (error) return { error: locale === 'en' ? 'Wrong email or password.' : 'Correo o contraseña incorrectos.' }
   redirect(safeNext(formData.get('next')))
 }
 
@@ -60,33 +62,38 @@ async function appOrigin(): Promise<string | null> {
  * has an account or not (no account enumeration).
  */
 export async function requestPasswordReset(_: FormState, formData: FormData): Promise<FormState> {
+  const locale = await getLocale()
+  const en = locale === 'en'
   const parsed = resetRequestSchema.safeParse(Object.fromEntries(formData))
-  if (!parsed.success) return { fieldErrors: fieldErrors(parsed.error) }
+  if (!parsed.success) return { fieldErrors: fieldErrors(parsed.error, locale) }
   const origin = await appOrigin()
   if (!origin) {
     console.error('PASSWORD_RESET_ORIGIN_MISSING: set NEXT_PUBLIC_APP_URL')
-    return { error: 'No se pudo enviar el enlace en este momento. Inténtalo más tarde.' }
+    return { error: en ? 'The link could not be sent right now. Please try again later.' : 'No se pudo enviar el enlace en este momento. Inténtalo más tarde.' }
   }
   const supabase = await createClient()
   const { error } = await supabase.auth.resetPasswordForEmail(parsed.data.email, {
     redirectTo: `${origin}/auth/confirm?next=/reset-password`,
   })
   if (error && error.status !== 429) console.error('PASSWORD_RESET_REQUEST_ERROR', { status: error.status, code: error.code })
-  if (error?.status === 429) return { error: 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.' }
-  return { message: 'Si existe una cuenta con ese correo, te enviamos un enlace para crear una nueva contraseña.' }
+  if (error?.status === 429) return { error: en ? 'Too many attempts. Wait a few minutes and try again.' : 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.' }
+  return { message: en ? 'If an account exists for that email, we sent you a link to create a new password.' : 'Si existe una cuenta con ese correo, te enviamos un enlace para crear una nueva contraseña.' }
 }
 
 /** Sets a new password for the user who opened the reset link (session required). */
 export async function updatePassword(_: FormState, formData: FormData): Promise<FormState> {
+  const locale = await getLocale()
+  const en = locale === 'en'
   const parsed = newPasswordSchema.safeParse(Object.fromEntries(formData))
-  if (!parsed.success) return { fieldErrors: fieldErrors(parsed.error) }
+  if (!parsed.success) return { fieldErrors: fieldErrors(parsed.error, locale) }
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { error: 'El enlace expiró. Solicita uno nuevo desde «¿Olvidaste tu contraseña?».' }
+  if (!user) return { error: en ? 'The link has expired. Request a new one from “Forgot your password?”.' : 'El enlace expiró. Solicita uno nuevo desde «¿Olvidaste tu contraseña?».' }
   const { error } = await supabase.auth.updateUser({ password: parsed.data.password })
   if (error) {
     console.error('PASSWORD_UPDATE_ERROR', { status: error.status, code: error.code })
-    return { error: error.code === 'same_password' ? 'La nueva contraseña debe ser distinta de la anterior.' : 'No se pudo cambiar la contraseña. Inténtalo de nuevo.' }
+    if (error.code === 'same_password') return { error: en ? 'The new password must be different from the previous one.' : 'La nueva contraseña debe ser distinta de la anterior.' }
+    return { error: en ? 'The password could not be changed. Please try again.' : 'No se pudo cambiar la contraseña. Inténtalo de nuevo.' }
   }
   redirect('/dashboard?password=updated')
 }

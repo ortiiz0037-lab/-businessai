@@ -9,7 +9,7 @@ import { companySchema, fieldErrors, type FormState } from '@/lib/validators'
 
 export async function createCompany(_: FormState, formData: FormData): Promise<FormState> {
   const parsed = companySchema.safeParse(Object.fromEntries(formData))
-  if (!parsed.success) return { fieldErrors: fieldErrors(parsed.error) }
+  if (!parsed.success) return { fieldErrors: fieldErrors(parsed.error, await getLocale()) }
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
