@@ -25,9 +25,20 @@ describe('NEXT_PUBLIC_APP_URL for Preview only', () => {
   })
   it('the workflow writes only with the apply label, on the authorised branch', () => {
     const yml = readFileSync(new URL('../../.github/workflows/staging-app-url.yml', import.meta.url), 'utf8')
-    expect(yml).toContain("MODE: ${{ github.event.label.name == 'staging:app-url-apply' && 'apply' || 'plan' }}")
+    expect(yml).toContain("MODE: ${{ github.event.label.name == 'staging:app-url-apply' && 'apply' || github.event.label.name == 'staging:app-url-verify' && 'verify' || 'plan' }}")
+    expect(yml).toMatch(/name: NEXT_PUBLIC_APP_URL \(Preview\)\n        if: env.MODE != 'verify'/)
     expect(yml).toContain('[ "$STAGING_BRANCH" = "claude/businessai-platform-audit-vjjcoc" ]')
     expect(yml).toContain('APP_URL: https://staging.mybusinessai.site')
     expect(yml).not.toMatch(/target: \[?'?production/)
+  })
+})
+
+describe('app-url probe verdict', () => {
+  it('passes only when APP_URL is accepted (415) and a foreign origin is refused (403)', async () => {
+    const { judgeProbe } = await import('../scripts/staging/app-url-probe.mjs')
+    expect(judgeProbe(415, 403).ok).toBe(true)
+    expect(judgeProbe(403, 403).ok).toBe(false)
+    expect(judgeProbe(415, 415).ok).toBe(false)
+    expect(judgeProbe(307, 307).ok).toBe(false)
   })
 })

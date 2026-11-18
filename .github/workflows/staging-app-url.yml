@@ -4,6 +4,8 @@ name: Staging app URL (Vercel Preview only)
 #   label `staging:app-url-plan`  → READ-ONLY: shows the current entries and exactly what would change.
 #   label `staging:app-url-apply` → writes ONLY the Preview entry and rebuilds the branch's preview.
 #                                   Run it only with the owner's written approval.
+#   label `staging:app-url-verify` → READ-ONLY for Vercel: domain check + proof (by behaviour) that the running
+#                                   Preview build carries APP_URL (temporary staging user, no email, deleted).
 # Never changes a Production variable or deployment; no Supabase, Stripe or DNS change.
 
 on:
@@ -17,7 +19,8 @@ jobs:
   appurl:
     concurrency: staging
     if: >-
-      (github.event.label.name == 'staging:app-url-plan' || github.event.label.name == 'staging:app-url-apply') &&
+      (github.event.label.name == 'staging:app-url-plan' || github.event.label.name == 'staging:app-url-apply' ||
+       github.event.label.name == 'staging:app-url-verify') &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -30,7 +33,13 @@ jobs:
       # same pinned project as staging.yml (the businessai project of ortiiz0037-lab)
       VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID || 'prj_hk9DvqsNN5M2OJA2jqm1IHw2lqAW' }}
       VERCEL_TEAM_ID: ${{ vars.VERCEL_TEAM_ID || 'team_zY0NJlHyXWCFrO080or2mu5h' }}
-      MODE: ${{ github.event.label.name == 'staging:app-url-apply' && 'apply' || 'plan' }}
+      MODE: ${{ github.event.label.name == 'staging:app-url-apply' && 'apply' || github.event.label.name == 'staging:app-url-verify' && 'verify' || 'plan' }}
+      PINNED_STAGING_REF: wbfpvxptoujgvflljasc
+      STAGING_PROJECT_REF: ${{ vars.STAGING_PROJECT_REF }}
+      PRODUCTION_PROJECT_REF: ${{ vars.PRODUCTION_PROJECT_REF }}
+      STAGING_URL: ${{ vars.STAGING_URL }}
+      STAGING_SUPABASE_URL: https://${{ vars.STAGING_PROJECT_REF }}.supabase.co
+      STAGING_DOMAIN: staging.mybusinessai.site
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -42,6 +51,22 @@ jobs:
           [ -n "$VERCEL_PROJECT_ID" ] || { echo "ERROR: variable VERCEL_PROJECT_ID"; exit 1; }
           echo "Mode: $MODE · branch $STAGING_BRANCH · Preview only"
       - name: NEXT_PUBLIC_APP_URL (Preview)
+        if: env.MODE != 'verify'
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: node scripts/staging/preview-app-url.mjs --$MODE
+      - name: Verify — domain check (read-only)
+        if: env.MODE == 'verify'
+        env:
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: bash scripts/staging/domain-check.sh
+      - name: Verify — the Preview build carries APP_URL (temporary user, no email, deleted)
+        if: ${{ !cancelled() && env.MODE == 'verify' }}
+        env:
+          STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: |
+          npm ci --no-audit --no-fund
+          npm install --no-save --no-audit --no-fund playwright@1.63.0
+          npx playwright install --with-deps chromium
+          node scripts/staging/app-url-probe.mjs
