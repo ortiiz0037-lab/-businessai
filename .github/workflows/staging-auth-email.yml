@@ -70,4 +70,5 @@ jobs:
           STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
           STAGING_AUTH_TEST_EMAIL: ${{ secrets.STAGING_AUTH_TEST_EMAIL }}
+          APP_URL: https://staging.mybusinessai.site
         run: node scripts/staging/e2e-auth-email.mjs --mode=inbox

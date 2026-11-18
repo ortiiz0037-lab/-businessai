@@ -35,6 +35,7 @@
 import { createRequire } from 'node:module'
 import { createClient } from '@supabase/supabase-js'
 import { mailboxProblem, parseMailbox } from './auth-mailbox.mjs'
+import { checkAppUrl } from './preview-app-url.mjs'
 
 const env = process.env
 const mode = (process.argv.find((a) => a.startsWith('--mode=')) ?? '--mode=links').slice(7)
@@ -54,6 +55,11 @@ const mailbox = parseMailbox(env.STAGING_AUTH_TEST_EMAIL)
 if (!mailbox) fail(`STAGING_AUTH_TEST_EMAIL ${mailboxProblem(env.STAGING_AUTH_TEST_EMAIL)}`)
 
 const base = env.STAGING_URL.replace(/\/$/, '')
+// APP_URL: the origin the Preview build puts in its Auth links (NEXT_PUBLIC_APP_URL, e.g. https://staging.<domain>).
+// The link and form flows run there (what a person gets in the email); E checks Supabase accepts both origins.
+if (env.APP_URL) { const bad = checkAppUrl(env.APP_URL.replace(/\/+$/, '')); if (bad) fail(bad) }
+const site = env.APP_URL ? env.APP_URL.replace(/\/+$/, '') : base
+if (env.PRODUCTION_PROJECT_REF && site.includes(env.PRODUCTION_PROJECT_REF)) fail('refusing to run against PRODUCTION')
 const stamp = Date.now()
 // links mode: a sub-address of the authorised mailbox, never emailed; inbox mode: the mailbox itself
 const email = mode === 'inbox' ? mailbox.address : `${mailbox.local}+e2e-${stamp}@${mailbox.domain}`
@@ -100,14 +106,18 @@ async function settingsAndRedirects() {
   const { data, error } = await admin.auth.admin.createUser({ email: probe, password, email_confirm: true, user_metadata: { businessai_e2e: true } })
   if (error) throw error
   try {
-    const props = await tokenHash('magiclink', probe, { options: { redirectTo: `${base}/auth/confirm?next=/onboarding` } })
-    const r = await fetch(props.action_link, { redirect: 'manual' })
-    const loc = r.headers.get('location') ?? ''
-    const target = loc ? new URL(loc, env.STAGING_SUPABASE_URL) : null
-    const ok = r.status >= 300 && r.status < 400 && target?.origin === new URL(base).origin
-    check('E. Supabase sends its links back to the Preview (Site URL / Redirect URLs)', ok,
-      target ? (ok ? 'the Preview' : `${target.host}, not the Preview: Authentication → URL Configuration`) : `HTTP ${r.status}`)
-    return ok
+    let all = true
+    for (const origin of [...new Set([base, site])]) {
+      const props = await tokenHash('magiclink', probe, { options: { redirectTo: `${origin}/auth/confirm?next=/onboarding` } })
+      const r = await fetch(props.action_link, { redirect: 'manual' })
+      const loc = r.headers.get('location') ?? ''
+      const target = loc ? new URL(loc, env.STAGING_SUPABASE_URL) : null
+      const ok = r.status >= 300 && r.status < 400 && target?.origin === new URL(origin).origin
+      check(`E. Supabase sends its links back to ${new URL(origin).host} (Site URL / Redirect URLs)`, ok,
+        target ? (ok ? 'accepted' : `${target.host} instead: add ${origin}/** in Authentication → URL Configuration`) : `HTTP ${r.status}`)
+      all &&= ok
+    }
+    return all
   } finally { await admin.auth.admin.deleteUser(data.user.id) }
 }
 
@@ -120,11 +130,11 @@ async function linksMode(browser) {
   check('C. before confirming: sign-in is refused', !(await canSignIn(password)))
   const ctx = await browser.newContext({ extraHTTPHeaders: headers, locale: 'es-PR' })
   const page = await ctx.newPage()
-  await page.goto(`${base}/dashboard`, { waitUntil: 'domcontentloaded' })
+  await page.goto(`${site}/dashboard`, { waitUntil: 'domcontentloaded' })
   check('C. before confirming: protected pages send to /login', new URL(page.url()).pathname === '/login')
   // D
   const conf = await tokenHash('signup', email, { password })
-  await page.goto(`${base}/auth/confirm?token_hash=${encodeURIComponent(conf.hashed_token)}&type=signup&next=/onboarding`, { waitUntil: 'networkidle' })
+  await page.goto(`${site}/auth/confirm?token_hash=${encodeURIComponent(conf.hashed_token)}&type=signup&next=/onboarding`, { waitUntil: 'networkidle' })
   check('D. confirmation link: signed in and sent to onboarding', new URL(page.url()).pathname === '/onboarding', new URL(page.url()).pathname)
   check('D. the address is now confirmed', Boolean((await findUser())?.email_confirmed_at))
   check('D. after confirming: sign-in works', await canSignIn(password))
@@ -133,7 +143,7 @@ async function linksMode(browser) {
   const rec = await tokenHash('recovery', email)
   const c2 = await browser.newContext({ extraHTTPHeaders: headers, locale: 'es-PR' })
   const p2 = await c2.newPage()
-  await p2.goto(`${base}/auth/confirm?token_hash=${encodeURIComponent(rec.hashed_token)}&type=recovery&next=/reset-password`, { waitUntil: 'networkidle' })
+  await p2.goto(`${site}/auth/confirm?token_hash=${encodeURIComponent(rec.hashed_token)}&type=recovery&next=/reset-password`, { waitUntil: 'networkidle' })
   check('G. recovery link (another browser) opens the new-password form', new URL(p2.url()).pathname === '/reset-password' && await p2.locator('input[name="confirm"]').count() > 0, new URL(p2.url()).pathname)
   await p2.fill('input[name="password"]', newPassword)
   await p2.fill('input[name="confirm"]', newPassword)
@@ -145,13 +155,13 @@ async function linksMode(browser) {
   // H
   const c3 = await browser.newContext({ extraHTTPHeaders: headers, locale: 'es-PR' })
   const p3 = await c3.newPage()
-  await p3.goto(`${base}/auth/confirm?token_hash=${'0'.repeat(56)}&type=recovery&next=/reset-password`, { waitUntil: 'networkidle' })
+  await p3.goto(`${site}/auth/confirm?token_hash=${'0'.repeat(56)}&type=recovery&next=/reset-password`, { waitUntil: 'networkidle' })
   const url = new URL(p3.url())
   check('H. a forged / expired recovery link → "forgot password" with an explanation', url.pathname === '/forgot-password' && url.searchParams.get('error') === 'link')
-  await p3.goto(`${base}/dashboard`, { waitUntil: 'domcontentloaded' })
+  await p3.goto(`${site}/dashboard`, { waitUntil: 'domcontentloaded' })
   check('H. … and no session', new URL(p3.url()).pathname === '/login')
   await c3.close()
-  info('links mode: no email was sent')
+  info(`links mode: flows run on ${new URL(site).host}; no email was sent`)
 }
 
 async function inboxMode(browser) {
@@ -172,7 +182,7 @@ async function inboxMode(browser) {
   // 1. sign-up → confirmation email
   const ctx = await browser.newContext({ extraHTTPHeaders: headers, locale: 'es-PR' })
   const page = await ctx.newPage()
-  await page.goto(`${base}/signup?lang=es`, { waitUntil: 'networkidle', timeout: 60000 })
+  await page.goto(`${site}/signup?lang=es`, { waitUntil: 'networkidle', timeout: 60000 })
   await page.fill('input[name="fullName"]', 'QA Correo real')
   await page.fill('input[name="email"]', email)
   await page.fill('input[name="password"]', password)
@@ -194,7 +204,7 @@ async function inboxMode(browser) {
   // 2. forgot password → recovery email
   const c2 = await browser.newContext({ extraHTTPHeaders: headers, locale: 'es-PR' })
   const p2 = await c2.newPage()
-  await p2.goto(`${base}/forgot-password?lang=es`, { waitUntil: 'networkidle' })
+  await p2.goto(`${site}/forgot-password?lang=es`, { waitUntil: 'networkidle' })
   await p2.fill('input[name="email"]', email)
   await p2.locator('form button[type="submit"]').first().click()
   const a2 = p2.locator('p.alert-success, p.alert-danger').first()
