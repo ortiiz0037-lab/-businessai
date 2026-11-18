@@ -4,7 +4,7 @@ import { AuthCard } from '@/components/auth-card'
 import { updatePassword } from '@/app/actions/auth'
 import { createClient } from '@/lib/supabase/server'
 import { AUTH } from '@/lib/i18n/auth'
-import { toLocale } from '@/lib/i18n/landing'
+import { pageLocale } from '@/lib/i18n/server'
 
 /**
  * New password. Reached from the reset email: /auth/confirm verifies the
@@ -13,7 +13,7 @@ import { toLocale } from '@/lib/i18n/landing'
  */
 export default async function ResetPasswordPage({ searchParams }: { searchParams: Promise<{ lang?: string }> }) {
   const { lang } = await searchParams
-  const locale = toLocale(lang)
+  const locale = await pageLocale(lang)
   const t = AUTH[locale]
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()

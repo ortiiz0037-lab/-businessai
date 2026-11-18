@@ -87,17 +87,36 @@ try {
     await context.close()
   }
 
-  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } })
+  // Language of the sign-in pages: ?lang= first, then the remembered choice (ba_locale), then the
+  // browser's language, else Spanish — the rule of the app and of the sign-in server actions.
+  {
+    const es = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: 'es-PR' })
+    const p = await es.newPage()
+    await p.goto(`${BASE}/login`)
+    check(await p.getByRole('button', { name: /iniciar sesión|entrar/i }).count() > 0, 'login in Spanish for a Spanish browser')
+    check(await p.evaluate(() => document.documentElement.lang) === 'es', 'login: <html lang="es">')
+    await es.close()
+    const en = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: 'en-US' })
+    const q = await en.newPage()
+    await q.goto(`${BASE}/login`)
+    check(await q.getByRole('button', { name: /sign in|log in/i }).count() > 0, 'login in English for an English browser')
+    await en.close()
+  }
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: 'es-PR' })
   const page = await context.newPage()
-  // Language: Spanish by default, English with ?lang=en.
-  await page.goto(`${BASE}/login`)
-  check(await page.getByRole('button', { name: /iniciar sesión|entrar/i }).count() > 0, 'login in Spanish by default')
   await page.goto(`${BASE}/login?lang=en`)
   check(await page.getByRole('button', { name: /sign in|log in/i }).count() > 0, 'login in English with ?lang=en')
+  check(await page.evaluate(() => document.documentElement.lang) === 'en', 'login: <html lang="en">')
+  await page.goto(`${BASE}/login`)
+  check(await page.getByRole('button', { name: /sign in|log in/i }).count() > 0, 'English is remembered: /login without ?lang stays English')
+  await page.goto(`${BASE}/forgot-password`)
+  check(await page.getByRole('button', { name: /send|link/i }).count() > 0, 'English is remembered on password recovery too')
   await page.goto(`${BASE}/forgot-password?lang=en&error=link`)
   check(await page.getByText('opened in another browser').count() > 0, 'reset link error explained in English (I10)')
-  await page.goto(`${BASE}/forgot-password?error=link`)
+  await page.goto(`${BASE}/forgot-password?lang=es&error=link`)
   check(await page.getByText('otro navegador').count() > 0, 'reset link error explained in Spanish (I10)')
+  await page.goto(`${BASE}/login`)
+  check(await page.getByRole('button', { name: /iniciar sesión|entrar/i }).count() > 0, 'switching back to Spanish is remembered')
   // Invitation link: public, explains an unknown link, sends no referrer.
   await page.goto(`${BASE}/invite?token=${'0'.repeat(64)}&lang=es`)
   check(await page.getByText('Enlace no válido').count() > 0, 'an unknown invitation link is explained (Spanish)')

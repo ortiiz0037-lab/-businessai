@@ -102,6 +102,9 @@ try {
     return { ctx, page, errs }
   }
 
+  // Pages whose language comes from the URL (the home page: / and /?lang=en, for search engines) or that
+  // exist only in Spanish (pricing and legal texts, pending a reviewed translation): Spanish whatever the cookie.
+  const SPANISH_BY_DESIGN = new Set(['/', '/precios', '/privacidad', '/terminos'])
   async function sweep(name, s, list, locale) {
     let ok = 0
     for (const path of list) {
@@ -117,7 +120,8 @@ try {
       check(over <= 1, `${where}: no horizontal page scroll`, `${over}px wider`)
       check(s.errs.length === 0, `${where}: no console / request errors`, s.errs.slice(0, 3).join(' | '))
       const lang = await s.page.evaluate(() => document.documentElement.lang).catch(() => '')
-      check(lang.startsWith(locale), `${where}: <html lang> is ${locale}`, `lang="${lang}"`)
+      const want = /[?&]lang=en/.test(path) ? 'en' : SPANISH_BY_DESIGN.has(path) ? 'es' : locale
+      check(lang.startsWith(want), `${where}: <html lang> is ${want}`, `lang="${lang}"`)
       if (locale === 'en') {
         const found = SPANISH_UI.filter((w) => new RegExp(`(^|[^\\p{L}])${w}([^\\p{L}]|$)`, 'u').test(body))
         if (found.length) warnings.push(`${where}: Spanish interface words in English: ${found.join(', ')}`)
@@ -142,7 +146,8 @@ try {
   }
 
   // ---------------------------------------------------------------- public and sign-in pages
-  const publicRoutes = ['/', '/precios', '/privacidad', '/terminos', '/login', '/signup', '/register', '/forgot-password', '/reset-password', '/clock', '/kiosk']
+  // '/?lang=en' last: it also stores English for the rest of that session
+  const publicRoutes = ['/', '/precios', '/privacidad', '/terminos', '/login', '/signup', '/register', '/forgot-password', '/reset-password', '/clock', '/kiosk', '/?lang=en']
   for (const [name, opts, locale] of [['public · iPhone 13 · es', devices['iPhone 13'], 'es'], ['public · desktop · en', desktop, 'en']]) {
     const s = await session(null, opts, locale)
     await sweep(name, s, publicRoutes, locale)

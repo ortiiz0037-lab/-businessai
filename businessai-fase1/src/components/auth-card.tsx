@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { Brand } from '@/components/ui/brand'
 import { Icon, type IconName } from '@/components/ui/icon'
 import type { AuthCopy } from '@/lib/i18n/auth'
+import { HtmlLang } from '@/components/html-lang'
 
 const POINT_ICONS: IconName[] = ['shield', 'lock', 'sparkle']
 
@@ -15,6 +16,7 @@ export function AuthCard({ title, subtitle, children, footer, copy, langHref, la
 }) {
   return (
     <main lang={lang} className="min-h-screen bg-app lg:grid lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
+      <HtmlLang locale={lang === 'en' ? 'en' : 'es'} />
       {/* Brand panel */}
       <section className="card-hero relative flex flex-col rounded-none border-0 px-6 pb-10 pt-6 sm:px-10 lg:min-h-screen lg:px-14 lg:py-12">
         <div aria-hidden="true" className="pointer-events-none absolute inset-0 opacity-[0.07] [background-image:linear-gradient(rgb(255_255_255)_1px,transparent_1px),linear-gradient(90deg,rgb(255_255_255)_1px,transparent_1px)] [background-size:56px_56px] [mask-image:radial-gradient(70%_60%_at_30%_30%,black,transparent)]" />

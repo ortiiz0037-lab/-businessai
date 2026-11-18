@@ -4,11 +4,11 @@ import { AuthCard } from '@/components/auth-card'
 import { signIn } from '@/app/actions/auth'
 import { safeNext } from '@/lib/validators'
 import { AUTH } from '@/lib/i18n/auth'
-import { toLocale } from '@/lib/i18n/landing'
+import { pageLocale } from '@/lib/i18n/server'
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string; error?: string; lang?: string }> }) {
   const { next, error, lang } = await searchParams
-  const locale = toLocale(lang)
+  const locale = await pageLocale(lang)
   const t = AUTH[locale]
   const withLang = (href: string) => (locale === 'en' ? `${href}${href.includes('?') ? '&' : '?'}lang=en` : href)
   const params = new URLSearchParams()

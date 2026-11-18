@@ -4,12 +4,13 @@ import { AuthCard } from '@/components/auth-card'
 import { signUp } from '@/app/actions/auth'
 import { TRIAL_DAYS, catalogPlan, isPlanKey } from '@/lib/billing/catalog'
 import { AUTH } from '@/lib/i18n/auth'
-import { LANDING, toLocale } from '@/lib/i18n/landing'
+import { pageLocale } from '@/lib/i18n/server'
+import { LANDING } from '@/lib/i18n/landing'
 
 export default async function SignUpPage({ searchParams }: { searchParams: Promise<{ plan?: string; lang?: string; next?: string }> }) {
   const { plan, lang, next } = await searchParams
   const nextPath = next && (next.startsWith('/invite?') || next.startsWith('/clock/link?')) ? next : null
-  const locale = toLocale(lang)
+  const locale = await pageLocale(lang)
   const t = AUTH[locale]
   const chosen = isPlanKey(plan) ? catalogPlan(plan) : null
   const chosenName = chosen ? LANDING[locale].pricing.plans[chosen.plan].name : null

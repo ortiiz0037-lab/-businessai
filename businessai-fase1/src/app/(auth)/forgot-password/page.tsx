@@ -3,12 +3,12 @@ import { ActionForm } from '@/components/action-form'
 import { AuthCard } from '@/components/auth-card'
 import { requestPasswordReset } from '@/app/actions/auth'
 import { AUTH } from '@/lib/i18n/auth'
-import { toLocale } from '@/lib/i18n/landing'
+import { pageLocale } from '@/lib/i18n/server'
 
 /** Public: request a password-reset email. */
 export default async function ForgotPasswordPage({ searchParams }: { searchParams: Promise<{ lang?: string; error?: string }> }) {
   const { lang, error } = await searchParams
-  const locale = toLocale(lang)
+  const locale = await pageLocale(lang)
   const t = AUTH[locale]
   const langHref = `/forgot-password?lang=${locale === 'es' ? 'en' : 'es'}`
   return (

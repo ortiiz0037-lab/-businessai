@@ -33,7 +33,6 @@ export default function CompanyBranding({
   signatureIsLegacyPublic,
   locale = 'es',
 }: CompanyBrandingProps) {
-  const supabase = createClient()
   const tr = (es: string, en: string) => (locale === 'en' ? en : es)
 
   const [logo, setLogo] = useState(logoUrl)
@@ -55,6 +54,8 @@ export default function CompanyBranding({
     setMessage(tr('Subiendo imagen...', 'Uploading image...'))
 
     try {
+      // Created on upload, not while rendering: a missing client configuration must not take the page down.
+      const supabase = createClient()
       const type = file.type as AllowedImageType
       const path = buildObjectPath(companyId, tipo, type, crypto.randomUUID())
       const bucket = tipo === 'logo' ? LOGO_BUCKET : SIGNATURE_BUCKET
@@ -90,7 +91,7 @@ export default function CompanyBranding({
 
       if (updateError) {
         throw new Error(
-          `La imagen se subió, pero no se pudo guardar en el perfil: ${updateError.message}`
+          tr(`La imagen se subió, pero no se pudo guardar en el perfil: ${updateError.message}`, `The image was uploaded but could not be saved to the profile: ${updateError.message}`)
         )
       }
       if (!updated || updated.length === 0) {

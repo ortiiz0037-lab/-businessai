@@ -13,3 +13,12 @@ export async function getLocale(): Promise<Locale> {
   const [c, h] = await Promise.all([cookies(), headers()])
   return resolveLocale(c.get(LOCALE_COOKIE)?.value, h.get('accept-language'))
 }
+
+/**
+ * Locale of a page that also takes `?lang=` (sign-in pages): the parameter when present (the proxy
+ * remembers it for the next requests), else the remembered / browser language — the same rule the
+ * server actions of those pages use, so the form and its messages always share one language.
+ */
+export async function pageLocale(lang: unknown): Promise<Locale> {
+  return lang === 'en' || lang === 'es' ? lang : getLocale()
+}
