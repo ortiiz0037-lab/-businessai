@@ -169,3 +169,10 @@ este entorno y no es un secreto que deba pegarse en la conversación):
 3. Opcional, para comprobar la **entrega** real: un buzón de pruebas (dirección que pueda leerse) para repetir
    el paso 5 con un correo de verdad.
 Después: volver a ejecutar `staging:test` (el paso 5 debe dar 20 / 20).
+
+**Repetición #37 (44234509681, 2026-11-18 04:02 UTC, commit `0bac143`)**: facturación Stripe TEST **25 / 25**, RLS
+**51 / 51**, 78 capturas, humo correcto; correo **15 / 20**, con la causa exacta ya registrada: Supabase responde
+al registro **HTTP 429 `over_email_send_rate_limit`** («email rate limit exceeded») — el límite del servicio de correo
+integrado — y sus enlaces siguen yendo a la Site URL **`localhost:3000`**. El formulario de registro desplegado ya
+muestra «Demasiados intentos» en lugar del mensaje genérico (corrección de `signUp` verificada en la Preview). Sin
+cambios en la configuración de Auth, el resultado del correo no puede mejorar: requiere las acciones 1–2 de arriba.
