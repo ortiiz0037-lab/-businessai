@@ -1,0 +1,46 @@
+name: Staging app URL (Vercel Preview only)
+
+# NEXT_PUBLIC_APP_URL for Vercel PREVIEW only (scripts/staging/preview-app-url.mjs).
+#   label `staging:app-url-plan`  → READ-ONLY: shows the current entries and exactly what would change.
+#   label `staging:app-url-apply` → writes ONLY the Preview entry and rebuilds the branch's preview.
+#                                   Run it only with the owner's written approval.
+# Never changes a Production variable or deployment; no Supabase, Stripe or DNS change.
+
+on:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+jobs:
+  appurl:
+    concurrency: staging
+    if: >-
+      (github.event.label.name == 'staging:app-url-plan' || github.event.label.name == 'staging:app-url-apply') &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: businessai-fase1
+    env:
+      APP_URL: https://staging.mybusinessai.site
+      STAGING_BRANCH: ${{ github.head_ref }}
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+      VERCEL_TEAM_ID: ${{ vars.VERCEL_TEAM_ID }}
+      MODE: ${{ github.event.label.name == 'staging:app-url-apply' && 'apply' || 'plan' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Guard (the authorised staging branch only)
+        run: |
+          [ "$STAGING_BRANCH" = "claude/businessai-platform-audit-vjjcoc" ] || { echo "ERROR: not the authorised staging branch"; exit 1; }
+          [ -n "$VERCEL_PROJECT_ID" ] || { echo "ERROR: variable VERCEL_PROJECT_ID"; exit 1; }
+          echo "Mode: $MODE · branch $STAGING_BRANCH · Preview only"
+      - name: NEXT_PUBLIC_APP_URL (Preview)
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: node scripts/staging/preview-app-url.mjs --$MODE
