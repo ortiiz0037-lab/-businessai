@@ -112,3 +112,60 @@ Iteraciones del barrido: 1.ª ejecución 2390 / 20 fallos (R-2, R-4) → 2.ª 24
 - 6 avisos de ESLint (imágenes `<img>` de logotipo/firma con URL firmada, dos variables sin uso): sin efecto funcional.
 - Acciones de GitHub en Node 20 (propuesta Node 24 en `docs/CI_NODE24.md`, pendiente de su decisión).
 - Pruebas de iPhone / iPad: tamaños de pantalla en Chromium, no dispositivos físicos.
+
+## Actualización 2026-11-18 (tarde): Stripe TEST y correo de autenticación en Staging
+
+Autorizado: Stripe solo en modo TEST y correo solo en Staging. Ejecuciones de `staging-test.yml` (etiqueta
+`staging:test`): #35 (44228213750) y #36 (44229800029, la de referencia). Nada en Stripe LIVE, Production ni `main`.
+
+| Paso | Tipo | Resultado (#36) |
+|---|---|---|
+| Prueba de humo de la Preview (login, rutas protegidas, webhook rechaza sin firma y con firma falsa) | **Real** (Preview desplegada) | Correcto |
+| Facturación de extremo a extremo: Stripe **TEST** con relojes de prueba + webhook desplegado + base de Staging | **Real** (Stripe TEST, no simulado) | **25 / 25** |
+| RLS y permisos contra Staging (aislamiento, roles, Storage, matriz de permisos) | **Real** (Staging) | **51 / 51** (en #35, 48 / 51: la prueba declaraba el catálogo hasta 0035; corregido) |
+| Capturas reales (iPhone, iPad, escritorio; es / en) | **Real** (Preview) | 78 capturas, artefacto `preview-screenshots` |
+| Registro, confirmación de correo, recuperación de contraseña | **Real** (Supabase Auth de Staging + formularios de la Preview) | **15 / 20** — ver abajo |
+
+Escenarios de facturación verificados con Stripe TEST: prueba de 7 días sin cobro → cobro automático del plan
+(39.99 USD); **renovación** del mes siguiente (2.º cobro, periodo avanzado); tarjeta que falla → `past_due` con
+acceso de gracia → **recuperación** con tarjeta nueva → activa; cancelación durante la prueba (sin cobro) y
+**cancelación de una suscripción activa** (solo lectura, datos conservados); **cambio de plan** Pro → Premium
+(plan y límites actualizados); tarjeta rechazada al registrarse (sin tarjeta, sin suscripción, sin acceso);
+**webhook**: 43 eventos de la ejecución, todos procesados; peticiones sin firma o falsificadas → HTTP 400 y nada
+guardado. Datos de prueba borrados (los relojes de Stripe TEST se eliminan con sus clientes).
+Las pruebas RLS conservan, por diseño, 1 empresa de prueba con pagos inmutables y 3 usuarios de prueba bloqueados
+por ejecución.
+
+Correo de autenticación (Staging):
+
+| Comprobación | Resultado |
+|---|---|
+| Registro habilitado; confirmación de correo obligatoria | Correcto |
+| Antes de confirmar: no inicia sesión; las páginas protegidas llevan a `/login` | Correcto |
+| Enlace de confirmación (`token_hash`) → confirma y entra a `/onboarding` | Correcto |
+| Enlace de recuperación abierto en **otro navegador** → nueva contraseña → entra; la antigua deja de servir | Correcto |
+| Enlace falsificado / caducado → «olvidé mi contraseña» con explicación, sin sesión | Correcto |
+| Correo desconocido en «olvidé mi contraseña» → misma respuesta (sin enumeración) | Correcto |
+| **Registro desde el formulario** | **Falla**: Supabase rechaza el alta («No se pudo crear la cuenta»); en #35 el envío de recuperación sí quedó registrado |
+| **Segundo envío de recuperación** | **Falla**: HTTP 429 «Demasiados intentos» (límite de envío del servicio de correo integrado de Supabase) |
+| **Destino de los enlaces de Supabase** | **Falla**: van a la **Site URL `localhost:3000`**, no a la Preview |
+
+Causa: **configuración de Supabase Auth de Staging**, no código de la app. Sin SMTP propio, Supabase usa su
+servicio integrado (pocos envíos por hora y solo a direcciones autorizadas del equipo), y la Site URL /
+URL de redirección no apuntan a la Preview. Con esa configuración, un usuario real que se registre en Staging no
+recibiría el correo o su enlace lo llevaría a `localhost`. Los flujos de la app con enlaces válidos funcionan.
+
+Corregido en el código (alcance autorizado): la prueba RLS `e3-compat` conoce los permisos de 0039 / 0043 / 0044;
+la prueba de correo lee el mensaje del formulario (no el anunciador vacío de Next.js) y anota la causa exacta
+(estado y código de Supabase); el registro (`signUp`) ahora **registra el estado y el código del error** (sin
+correo) y responde «Demasiados intentos» ante un 429, como ya hacía la recuperación — antes el error se perdía.
+
+Acceso que falta (Supabase → proyecto `businessai-staging` → Authentication; no hay credencial de gestión en
+este entorno y no es un secreto que deba pegarse en la conversación):
+
+1. **URL Configuration**: Site URL = la URL de la Preview de Staging; Redirect URLs: añadir
+   `https://businessai-git-claude-businessai-platform-52cd8d-ortiiz0037-lab.vercel.app/**`.
+2. **SMTP propio** (Settings → SMTP) con un remitente del dominio de BusinessAI; subir el límite de envío.
+3. Opcional, para comprobar la **entrega** real: un buzón de pruebas (dirección que pueda leerse) para repetir
+   el paso 5 con un correo de verdad.
+Después: volver a ejecutar `staging:test` (el paso 5 debe dar 20 / 20).

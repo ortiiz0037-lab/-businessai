@@ -90,6 +90,12 @@ try {
   let u = null
   for (let i = 0; i < 10 && !u; i++) { u = await findUser(); if (!u) await new Promise((r) => setTimeout(r, 1000)) }
   if (!u) {
+    // the cause, straight from Supabase Auth (status and code only): the form shows a generic message
+    const { error: why } = await anon().auth.signUp({ email, password, options: { emailRedirectTo: `${base}/auth/confirm?next=/onboarding` } })
+    info(`Supabase Auth answer to the sign-up: ${why ? `HTTP ${why.status ?? '?'} code=${why.code ?? '-'} "${String(why.message ?? '').replace(/[^\s@]+@[^\s@]+/g, '[email]').slice(0, 120)}"` : 'accepted on the second attempt'}`)
+    u = await findUser()
+  }
+  if (!u) {
     info('the sign-up did not create the user; creating it with the admin API to test the remaining steps')
     const { data, error } = await admin.auth.admin.createUser({ email, password, email_confirm: false })
     if (error) throw error

@@ -21,7 +21,12 @@ export async function signUp(_: FormState, formData: FormData): Promise<FormStat
     email, password,
     options: { data: { full_name: fullName }, ...(origin ? { emailRedirectTo: `${origin}/auth/confirm?next=${encodeURIComponent(next)}` } : {}) },
   })
-  if (error) return { error: en ? 'The account could not be created. Check the details and try again.' : 'No se pudo crear la cuenta. Revisa los datos e inténtalo de nuevo.' }
+  if (error) {
+    // status and code only (no email): e.g. SMTP not configured, email send rate limit, invalid address
+    if (error.status !== 429) console.error('SIGN_UP_ERROR', { status: error.status, code: error.code })
+    if (error.status === 429) return { error: en ? 'Too many attempts. Wait a few minutes and try again.' : 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.' }
+    return { error: en ? 'The account could not be created. Check the details and try again.' : 'No se pudo crear la cuenta. Revisa los datos e inténtalo de nuevo.' }
+  }
   // Plan chosen on /precios: kept until the company is created (then /billing selects it).
   const plan = formData.get('plan')
   if (isPlanKey(plan)) {
