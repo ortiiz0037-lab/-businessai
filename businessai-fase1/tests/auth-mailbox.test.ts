@@ -10,6 +10,19 @@ describe('staging Auth test mailbox', () => {
     for (const v of ['a@example.com', 'a@example.org', 'a@example.net', 'a@x.test', 'a@foo.invalid', 'a@b.example', 'a@host.localhost']) expect(parseMailbox(v)).toBeNull()
   })
   it('refuses empty or malformed values', () => {
-    for (const v of [undefined, '', 'nobody', '@gmail.com', 'a@b', 'a b@gmail.com']) expect(parseMailbox(v)).toBeNull()
+    for (const v of [undefined, '', 'nobody', '@gmail.com', 'a@b', 'a b@gmail.com', '"ana@gmail.com"', 'Ana <ana@gmail.com>']) expect(parseMailbox(v)).toBeNull()
+  })
+})
+
+describe('why a mailbox value is refused (shape only, never the value)', () => {
+  it('tells a missing secret from a malformed one', async () => {
+    const { mailboxProblem } = await import('../scripts/staging/auth-mailbox.mjs')
+    expect(mailboxProblem(undefined)).toMatch(/^not set/)
+    expect(mailboxProblem('')).toMatch(/^not set/)
+    expect(mailboxProblem('"ana@gmail.com"')).toMatch(/quotes/)
+    expect(mailboxProblem('Ana <ana@gmail.com>')).toMatch(/quotes or < >/)
+    expect(mailboxProblem('a@example.com')).toMatch(/placeholder/)
+    expect(mailboxProblem('ana@gmail.com')).toBeNull()
+    expect(mailboxProblem('Ana <ana@gmail.com>')).not.toContain('ana@gmail.com')
   })
 })

@@ -34,7 +34,7 @@
  */
 import { createRequire } from 'node:module'
 import { createClient } from '@supabase/supabase-js'
-import { parseMailbox } from './auth-mailbox.mjs'
+import { mailboxProblem, parseMailbox } from './auth-mailbox.mjs'
 
 const env = process.env
 const mode = (process.argv.find((a) => a.startsWith('--mode=')) ?? '--mode=links').slice(7)
@@ -51,7 +51,7 @@ if (!host.startsWith(`${env.STAGING_PROJECT_REF}.`)) fail('STAGING_SUPABASE_URL 
 if (env.PRODUCTION_PROJECT_REF && (host.startsWith(`${env.PRODUCTION_PROJECT_REF}.`) || env.STAGING_URL.includes(env.PRODUCTION_PROJECT_REF))) fail('refusing to run against PRODUCTION')
 
 const mailbox = parseMailbox(env.STAGING_AUTH_TEST_EMAIL)
-if (!mailbox) fail('STAGING_AUTH_TEST_EMAIL is not set (repository secret: the mailbox of a member of the Supabase organisation; placeholder domains such as example.com are refused)')
+if (!mailbox) fail(`STAGING_AUTH_TEST_EMAIL ${mailboxProblem(env.STAGING_AUTH_TEST_EMAIL)}`)
 
 const base = env.STAGING_URL.replace(/\/$/, '')
 const stamp = Date.now()
