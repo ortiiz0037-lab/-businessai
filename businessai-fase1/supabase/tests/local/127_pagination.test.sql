@@ -56,7 +56,7 @@ begin
   foreach target in array array[999, 1000, 1001, 2500] loop
     select count(*) into n from public.documents where company_id = co::uuid;
     insert into public.documents (company_id, client_id, document_type, document_number, status, subtotal, total, issue_date, due_date)
-    select co::uuid, ('a9300000-0000-4000-8000-' || lpad((1 + (g % 1001))::text, 12, '0'))::uuid, 'invoice', 'PG-' || g, 'sent', 10 + (g % 7), 10 + (g % 7), current_date - (g % 120), current_date + 30 - (g % 90)
+    select co::uuid, ('a9300000-0000-4000-8000-' || lpad((1 + (g % 1001))::text, 12, '0'))::uuid, 'invoice', 'PG-' || g, 'sent', 10 + (g % 7), 10 + (g % 7), public.ba_today() - (g % 120), public.ba_today() + 30 - (g % 90)
     from generate_series(n + 1, target) g;
     full_rows := pg9.full(format('public.ar_invoice_balances(%L, null)', co), 'order by document_id');
     paged_rows := pg9.paged(format('public.ar_invoice_balances(%L, null)', co), 'order by document_id', target);
@@ -91,13 +91,13 @@ begin
   -- entries with two lines on the same account (receivable) inside one entry
   perform set_config('request.jwt.claims', '{"sub":"a9000000-0000-4000-8000-000000000001","role":"authenticated"}', true);
   for i in 1..30 loop
-    perform public.ledger_post(co, current_date - 1, 'Reclasificación ' || i, null, 'manual', null,
+    perform public.ledger_post(co, public.ba_today() - 1, 'Reclasificación ' || i, null, 'manual', null,
       jsonb_build_array(jsonb_build_object('account', acct, 'debit', 100 + i), jsonb_build_object('account', acct, 'debit', 7),
                         jsonb_build_object('key', 'sales_revenue', 'credit', 107 + i)), 'pg9-multi-' || lpad(i::text, 4, '0'));
   end loop;
   perform set_config('request.jwt.claims', '', true);
-  f := pg9.full(format('public.ledger_account_activity(%L, %L, %L)', acct, current_date - 400, current_date + 1), '');
-  p := pg9.paged(format('public.ledger_account_activity(%L, %L, %L)', acct, current_date - 400, current_date + 1), '', 2600);
+  f := pg9.full(format('public.ledger_account_activity(%L, %L, %L)', acct, public.ba_today() - 400, public.ba_today() + 1), '');
+  p := pg9.paged(format('public.ledger_account_activity(%L, %L, %L)', acct, public.ba_today() - 400, public.ba_today() + 1), '', 2600);
   perform pg9.ok(jsonb_array_length(f) > 2500 and p = f, format('ledger_account_activity, %s rows: pages in the function''s own order equal the full result', jsonb_array_length(f)));
   select coalesce(sum(l.debit_cents - l.credit_cents), 0) into bal from public.journal_lines l where l.account_id = acct;
   perform pg9.ok((p -> (jsonb_array_length(p) - 1) ->> 'balance_cents')::bigint = bal, 'ledger_account_activity: the last running balance of the pages equals the account balance');
