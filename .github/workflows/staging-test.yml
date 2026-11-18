@@ -16,6 +16,9 @@ name: Staging tests
 #   4. real screenshots of every screen on iPhone, iPad and desktop
 #      (scripts/staging/screenshots.mjs; temporary user, removed; uploaded as
 #      the "preview-screenshots" artifact).
+#   5. sign-up, email confirmation and password recovery through the Preview's
+#      forms against staging Auth (scripts/staging/e2e-auth-email.mjs; one
+#      temporary @example.com user, removed).
 # Steps 2 and 3 run even if an earlier test step fails, so every result is
 # visible; the job fails if any of them fails or if the RLS suites are skipped.
 # Never production: refs pinned below, TEST Stripe key only.
@@ -91,6 +94,8 @@ jobs:
         env:
           STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+          # the deployed webhook is called directly by scenario 10 (forged / unsigned requests must be refused)
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: node scripts/staging/e2e-billing.mjs
 
       - name: 3. RLS tests against staging (runs even if billing failed)
@@ -128,6 +133,16 @@ jobs:
           npx playwright install --with-deps chromium
           node scripts/staging/screenshots.mjs
 
+      - name: 5. Sign-up, email confirmation and password recovery (staging Auth + Preview; temporary user, removed)
+        id: authmail
+        if: ${{ !cancelled() && steps.guard.outcome == 'success' }}
+        env:
+          STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: |
+          [ -d node_modules/playwright ] || { npm install --no-save --no-audit --no-fund playwright@1.63.0 && npx playwright install --with-deps chromium; }
+          node scripts/staging/e2e-auth-email.mjs
+
       - name: Upload screenshots
         if: ${{ !cancelled() && steps.guard.outcome == 'success' }}
         uses: actions/upload-artifact@v4
@@ -145,3 +160,4 @@ jobs:
           echo "billing: ${{ steps.billing.outcome }}"
           echo "rls:     ${{ steps.rls.outcome }}"
           echo "shots:   ${{ steps.shots.outcome }}"
+          echo "authmail: ${{ steps.authmail.outcome }}"

@@ -254,6 +254,106 @@ async function main() {
     check('declined card: the company has no access (billing state "none")', (await state(user, companyId))?.state === 'none')
   }
 
+  /** Moves the scenario's clock forward by `days` and waits for Stripe. */
+  async function advanceDays(customer, days) {
+    const clock = await stripe.testHelpers.testClocks.retrieve(customer.clock.id)
+    await stripe.testHelpers.testClocks.advance(clock.id, { frozen_time: clock.frozen_time + days * 86400 })
+    await waitFor('test clock', () => stripe.testHelpers.testClocks.retrieve(clock.id), (c) => c.status === 'ready')
+  }
+  const paidTotal = async (subId) => (await stripe.invoices.list({ subscription: subId, status: 'paid', limit: 20 }))
+    .data.reduce((n, i) => n + (i.amount_paid > 0 ? 1 : 0), 0)
+
+  // -------------------------------------------- 6. monthly renewal
+  {
+    const { companyId, customer, user } = await newCompany('renew')
+    await withCard(customer, 'pm_card_visa')
+    const sub = await startTrial(customer, companyId)
+    await waitFor('trialing', row(companyId), (x) => x.status === 'trialing')
+    await passTrial(customer)
+    const first = await waitFor('active after trial', row(companyId), (x) => x.status === 'active' && x.current_period_end)
+    await advanceDays(customer, 32)
+    const renewed = await waitFor('second period', row(companyId),
+      (x) => x.status === 'active' && x.current_period_end && x.current_period_end > first.current_period_end)
+    check('renewal: the next month is charged automatically', (await paidTotal(sub.id)) === 2, `${await paidTotal(sub.id)} paid invoices`)
+    check('renewal: the webhook moved the period forward and access continues',
+      renewed.current_period_end > first.current_period_end && (await tryCreateClient(user, companyId)) === 'ok',
+      `${first.current_period_end} → ${renewed.current_period_end}`)
+  }
+
+  // ------------------------------------ 7. failed charge, then recovery
+  {
+    const { companyId, customer, user } = await newCompany('recover')
+    await withCard(customer, 'pm_card_chargeCustomerFail')
+    const sub = await startTrial(customer, companyId)
+    await waitFor('trialing', row(companyId), (x) => x.status === 'trialing')
+    await passTrial(customer)
+    await waitFor('past_due', row(companyId), (x) => x.status === 'past_due')
+    // the customer updates the card (what the Customer Portal does) and the open invoice is paid
+    const good = await withCard(customer, 'pm_card_visa')
+    const open = (await stripe.subscriptions.retrieve(sub.id)).latest_invoice
+    const paid = await stripe.invoices.pay(typeof open === 'string' ? open : open.id, { payment_method: good })
+    const r = await waitFor('active again', row(companyId), (x) => x.status === 'active')
+    check('recovery: a new card pays the failed invoice → active again',
+      paid.status === 'paid' && r.status === 'active' && (await state(user, companyId))?.can_write === true, `invoice ${paid.status}`)
+  }
+
+  // ------------------------------------ 8. plan change (Pro → Premium)
+  {
+    const premiumKey = plans.find((p) => p.plan === 'premium')?.stripe_lookup_key
+    const premium = premiumKey ? (await stripe.prices.list({ lookup_keys: [premiumKey], active: true, limit: 1 })).data[0] : null
+    if (!premium) {
+      check('plan change: an active TEST price for Premium exists', false, `lookup key ${premiumKey}`)
+    } else {
+      const { companyId, customer, user } = await newCompany('upgrade')
+      await withCard(customer, 'pm_card_visa')
+      const sub = await startTrial(customer, companyId)
+      await waitFor('trialing', row(companyId), (x) => x.status === 'trialing')
+      await passTrial(customer)
+      await waitFor('active', row(companyId), (x) => x.status === 'active')
+      await stripe.subscriptions.update(sub.id, {
+        items: [{ id: sub.items.data[0].id, price: premium.id }], proration_behavior: 'create_prorations' })
+      const planRow = async () => (await admin.from('company_subscriptions').select('plan').eq('company_id', companyId).maybeSingle()).data
+      const p = await waitFor('plan premium', planRow, (x) => x.plan === 'premium')
+      const usage = (await user.rpc('company_usage', { target: companyId })).data ?? []
+      const clients = usage.find((u) => u.metric === 'clients')
+      check('plan change: the webhook records Premium and its limits apply (clients unlimited)',
+        p.plan === 'premium' && clients && clients.max_allowed === null, `plan ${p.plan}, clients max ${clients?.max_allowed}`)
+    }
+  }
+
+  // ------------------------------ 9. cancel an active subscription now
+  {
+    const { companyId, customer, user } = await newCompany('cancel-now')
+    await withCard(customer, 'pm_card_visa')
+    const sub = await startTrial(customer, companyId)
+    await waitFor('trialing', row(companyId), (x) => x.status === 'trialing')
+    await passTrial(customer)
+    await waitFor('active', row(companyId), (x) => x.status === 'active')
+    check('before cancelling: the company can create clients', (await tryCreateClient(user, companyId)) === 'ok')
+    await stripe.subscriptions.cancel(sub.id)
+    await waitFor('canceled', row(companyId), (x) => x.status === 'canceled')
+    const kept = (await admin.from('clients').select('id', { count: 'exact', head: true }).eq('company_id', companyId)).count
+    check('cancelled active subscription → read-only, data kept',
+      (await tryCreateClient(user, companyId)) === 'BILLING_INACTIVE' && kept >= 1, `${kept} client(s) kept`)
+  }
+
+  // ------------------------------ 10. webhook endpoint security (deployed)
+  if (env.STAGING_URL) {
+    const url = new URL('/api/stripe/webhook', env.STAGING_URL).toString()
+    const headers = { 'content-type': 'application/json',
+      ...(env.VERCEL_AUTOMATION_BYPASS_SECRET ? { 'x-vercel-protection-bypass': env.VERCEL_AUTOMATION_BYPASS_SECRET } : {}) }
+    const fakeId = `evt_e2e_forged_${stamp}`
+    const body = JSON.stringify({ id: fakeId, object: 'event', type: 'customer.subscription.updated', data: { object: {} } })
+    const unsigned = await fetch(url, { method: 'POST', headers, body })
+    const forged = await fetch(url, { method: 'POST', headers: { ...headers, 'stripe-signature': `t=${Math.floor(Date.now() / 1000)},v1=${'0'.repeat(64)}` }, body })
+    check('webhook: a request without signature is rejected', unsigned.status >= 400 && unsigned.status < 500, `HTTP ${unsigned.status}`)
+    check('webhook: a forged signature is rejected', forged.status >= 400 && forged.status < 500, `HTTP ${forged.status}`)
+    const { data: stored } = await admin.from('stripe_events').select('id').eq('id', fakeId)
+    check('webhook: a rejected request writes nothing', (stored ?? []).length === 0)
+  } else {
+    check('webhook security: STAGING_URL is set', false)
+  }
+
   // ---------------------------------------------- 5. webhook bookkeeping
   {
     const { data } = await admin.from('stripe_events').select('status').gte('created_at', new Date(stamp).toISOString())
