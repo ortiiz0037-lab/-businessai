@@ -55,7 +55,7 @@ const appRoutes = pages(appDir).map((f) => '/' + relative(appDir, f).split(sep).
 
 // distinctive interface words (not names used by the seed)
 const SPANISH_UI = ['Guardar', 'Cancelar', 'Buscar', 'Eliminar', 'Agregar', 'Configuración', 'Sucursal', 'Acciones', 'Ninguno', 'Ninguna',
-  'Todavía', 'Aún no', 'Cerrar sesión', 'Descargar', 'Siguiente', 'Anterior', 'Fecha de', 'Importe', 'Proveedor', 'Factura']
+  'Todavía', 'Aún no', 'Cerrar sesión', 'Descargar', 'Siguiente', 'Anterior', 'Fecha de', 'Importe', 'Factura']   // not 'Proveedor': the seed vendor is "Proveedor E2E"
 
 const browser = await chromium.launch()
 let stack = null

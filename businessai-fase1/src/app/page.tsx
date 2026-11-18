@@ -7,6 +7,7 @@ import { LANDING, toLocale, type LandingCopy } from '@/lib/i18n/landing'
 import { Check, PlanCards } from '@/components/marketing/plan-cards'
 import { Brand } from '@/components/ui/brand'
 import { Icon, type IconName } from '@/components/ui/icon'
+import { HtmlLang } from '@/components/html-lang'
 
 export const dynamic = 'force-dynamic'
 
@@ -37,6 +38,7 @@ export default async function HomePage({ searchParams }: Props) {
 
   return (
     <div lang={copy.htmlLang} className="min-h-screen bg-app text-fg">
+      <HtmlLang locale={locale} />
       <Header copy={copy} signedIn={signedIn} links={links} />
 
       <main>
