@@ -38,9 +38,19 @@ const FULL_MEMBER_LACKS = [...MEMBER_LACKS, 'members.invite', 'members.manage', 
   'crm.view_all', 'crm.configure', 'branches.manage']
 /** The modules (0015–0035) are present: detected by the last module's permission. */
 const hasModules = (keys: string[]) => keys.includes('crm.view')
-const memberLacks = (keys: string[]) => (hasModules(keys) ? FULL_MEMBER_LACKS : MEMBER_LACKS)
+// Later steps, declared from their migrations (staging since 2026-11-17): each adds its permissions; admin gets
+// all of them, members lack the approval / management ones. 0036–0038, 0040–0042 and 0045 add none.
+const LATER_STEPS = [
+  { step: '0039_catalog', keys: ['catalog.view', 'catalog.manage'], memberLacks: ['catalog.manage'] },
+  { step: '0043_inventory', keys: ['inventory.view', 'inventory.operate', 'inventory.approve'], memberLacks: ['inventory.approve'] },
+  { step: '0044_pos', keys: ['pos.view', 'pos.sell', 'pos.approve', 'pos.manage'], memberLacks: ['pos.approve', 'pos.manage'] },
+]
+const laterSteps = (keys: string[]) => LATER_STEPS.filter((s) => keys.includes(s.keys[0]))
+/** The catalog expected for the stage the database is at (declared, never read back). */
+const expectedCatalog = (keys: string[]) => [...FULL_CATALOG, ...laterSteps(keys).flatMap((s) => s.keys)]
+const memberLacks = (keys: string[]) => (hasModules(keys) ? [...FULL_MEMBER_LACKS, ...laterSteps(keys).flatMap((s) => s.memberLacks)] : MEMBER_LACKS)
 const adminLacks = (keys: string[]) => (hasModules(keys) ? FULL_ADMIN_LACKS : has0015(keys) ? ['billing.manage'] : [])
-const matrixRows = (keys: string[]) => (hasModules(keys) ? FULL_CATALOG.length * 3 - FULL_ADMIN_LACKS.length - FULL_MEMBER_LACKS.length : has0015(keys) ? 50 : 49)
+const matrixRows = (keys: string[]) => (hasModules(keys) ? expectedCatalog(keys).length * 3 - adminLacks(keys).length - memberLacks(keys).length : has0015(keys) ? 50 : 49)
 
 let A: Company, B: Company, O: Actor, AD: Actor, M: Actor, OB: Actor
 let clientId = ''
@@ -72,13 +82,19 @@ describe.skipIf(!enabled)('permission catalog', () => {
     expect(new Set(FULL_MEMBER_LACKS).size).toBe(FULL_MEMBER_LACKS.length)
     for (const k of [...FULL_ADMIN_LACKS, ...FULL_MEMBER_LACKS]) expect(FULL_CATALOG).toContain(k)
     expect(matrixRows(FULL_CATALOG)).toBe(130)
+    // with 0039 (135), 0043 (143) and 0044 (153): the sizes scripts/staging/verify-step.sh expects on staging
+    const all = [...FULL_CATALOG, ...LATER_STEPS.flatMap((s) => s.keys)]
+    expect(matrixRows([...FULL_CATALOG, 'catalog.view', 'catalog.manage'])).toBe(135)
+    expect(matrixRows([...FULL_CATALOG, 'catalog.view', 'catalog.manage', 'inventory.view', 'inventory.operate', 'inventory.approve'])).toBe(143)
+    expect(new Set(all).size).toBe(68)
+    expect(matrixRows(all)).toBe(153)
   })
 
-  it('authenticated users read the catalog and the matrix (0014a: 18 / 49; with 0015: 19 / 50; with 0015–0035: 59 / 130)', async () => {
+  it('authenticated users read the catalog and the matrix (0014a: 18 / 49; 0015: 19 / 50; 0015–0035: 59 / 130; 0039: 61 / 135; 0043: 64 / 143; 0044–0045: 68 / 153)', async () => {
     const p = await M.client.from('permissions').select('key')
     expect(p.error).toBeNull()
     keys = (p.data ?? []).map((r) => r.key).sort()
-    if (hasModules(keys)) expect(keys).toEqual([...FULL_CATALOG].sort())
+    if (hasModules(keys)) expect(keys).toEqual([...expectedCatalog(keys)].sort())
     else expect(keys).toHaveLength(has0015(keys) ? 19 : 18)
     const rp = await M.client.from('role_permissions').select('role, permission_key')
     expect(rp.error).toBeNull()

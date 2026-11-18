@@ -81,12 +81,14 @@ try {
   await page.fill('input[name="email"]', email)
   await page.fill('input[name="password"]', password)
   await page.locator('form button[type="submit"]').first().click()
-  const answer = page.locator('[role="status"], [role="alert"]').first()
+  const answer = page.locator('p.alert-success, p.alert-danger').first()
   await answer.waitFor({ timeout: 30000 }).catch(() => {})
   const said = (await answer.innerText().catch(() => '')).trim()
   const signupOk = /Te enviamos un correo/.test(said)
   check('B. sign-up form: "we sent you an email to confirm"', signupOk, signupOk ? '' : `the form answered: "${said.slice(0, 120)}"`)
-  let u = await findUser()
+  // the form's own answer (not Next.js's empty route announcer, which also has role="alert")
+  let u = null
+  for (let i = 0; i < 10 && !u; i++) { u = await findUser(); if (!u) await new Promise((r) => setTimeout(r, 1000)) }
   if (!u) {
     info('the sign-up did not create the user; creating it with the admin API to test the remaining steps')
     const { data, error } = await admin.auth.admin.createUser({ email, password, email_confirm: false })
@@ -122,7 +124,7 @@ try {
     const target = loc ? new URL(loc, env.STAGING_SUPABASE_URL) : null
     check('E. Supabase sends its links back to the Preview (redirect URL allowed in staging Auth)',
       r.status >= 300 && r.status < 400 && target?.origin === new URL(base).origin,
-      target ? `redirects to ${target.origin === new URL(base).origin ? 'the Preview' : 'another site (the Site URL): add the Preview URL to Auth → URL configuration'}` : `HTTP ${r.status}`)
+      target ? `redirects to ${target.origin === new URL(base).origin ? 'the Preview' : `${target.host} (the Site URL), not the Preview: add the Preview URL to Auth → URL configuration → Redirect URLs`}` : `HTTP ${r.status}`)
   }
 
   // ----------------------------------------------------------------- F. forgot-password form
@@ -133,7 +135,7 @@ try {
     await p.goto(`${base}/forgot-password?lang=es`, { waitUntil: 'networkidle' })
     await p.fill('input[name="email"]', email)
     await p.locator('form button[type="submit"]').first().click()
-    const a = p.locator('[role="status"], [role="alert"]').first()
+    const a = p.locator('p.alert-success, p.alert-danger').first()
     await a.waitFor({ timeout: 30000 }).catch(() => {})
     const msg = (await a.innerText().catch(() => '')).trim()
     check('F. forgot-password form: generic answer (no account enumeration)', /Si existe una cuenta/.test(msg), msg.slice(0, 120))
