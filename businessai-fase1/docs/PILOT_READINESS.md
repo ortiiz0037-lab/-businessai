@@ -43,7 +43,35 @@ No se debilitó ninguna protección: todos los cambios añaden comprobaciones o 
 
 ## C. Pruebas ejecutadas y resultados exactos
 
-Ver la tabla final al pie (se completa con la ejecución de CI del último commit).
+CI del último commit (`bfe53f7`, mismo código que `ed554fb`): **19 / 19 comprobaciones en verde**
+(`test` + 18 suites de navegador, ejecución 44224683651). Todas en una pila **local** del runner (PostgreSQL 16
+con 0001–0045, PostgREST, sustituto de Auth): nada contacta Supabase, Stripe ni Vercel.
+
+| Suite (navegador, Chromium) | Resultado | Suite | Resultado |
+|---|---|---|---|
+| **sweep (nueva)** — 92 pantallas × 5 vistas + 12 públicas × 2 | **2420 / 0**, 0 avisos | **public** (ahora en CI) | **171 / 0** |
+| finance | 85 / 0 | finance-flows | 97 / 0 |
+| studio | 50 / 0 | studio-branches | 26 / 0 |
+| studio-finance | 29 / 0 | studio-advanced | 28 / 0 |
+| catalog | 35 / 0 | assistant (doble del modelo) | 80 / 0 |
+| assistant-s4 | 24 / 0 | banking (dobles Plaid / OCR) | 56 / 0 |
+| inventory | 72 / 0 | pos (dobles de proveedores) | 38 / 0 |
+| workforce | 53 / 0 | employee-link | 24 / 0 |
+| payroll | 41 / 0 | crm | 57 / 0 |
+
+**Total en navegador: 3386 verificaciones, 0 fallidas.**
+
+| Otras pruebas | Resultado |
+|---|---|
+| `npm run test:db` (local, 52 escenarios: migraciones, rollbacks, RLS, carreras, flujos A–H, paginación) | **680 / 0** (ejecutada a las 01:50 UTC, la franja que fallaba antes de R-1) |
+| CI `test` (lint, TypeScript, vitest, build, `test:db`) | Verde |
+| `vitest` (local) | **918 aprobadas**, 51 omitidas (requieren servicios externos) |
+| `tsc --noEmit` · ESLint | 0 errores · 0 errores, 6 avisos preexistentes |
+| `next build` (Next.js 16.4.5) | Correcto |
+| `npm audit --omit=dev` | **0 vulnerabilidades** (desarrollo: ver limitaciones) |
+| Staging (real): 0037–0045 una por ejecución + respaldo verificado tras cada una | 9 / 9 migraciones y 9 / 9 respaldos correctos (`STAGING_STATUS.md`) |
+
+Iteraciones del barrido: 1.ª ejecución 2390 / 20 fallos (R-2, R-4) → 2.ª 2418 / 2 (R-6) → final 2420 / 0.
 
 ## D. Funciones que dependen de credenciales o proveedores reales (no probadas con el proveedor)
 
