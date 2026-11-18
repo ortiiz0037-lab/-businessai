@@ -47,7 +47,8 @@ async function waitForServer(ms = 60_000) {
   throw new Error('server did not start')
 }
 
-const server = spawn('npx', ['next', 'start', '-p', String(PORT), '-H', '127.0.0.1'], { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'] })
+// own process group: stopping it also stops the next-server child (npx alone would leave it serving an old build)
+const server = spawn('npx', ['next', 'start', '-p', String(PORT), '-H', '127.0.0.1'], { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true })
 let serverLog = ''
 server.stdout.on('data', (d) => { serverLog += d })
 server.stderr.on('data', (d) => { serverLog += d })
@@ -87,6 +88,14 @@ try {
     await context.close()
   }
 
+  // Security headers on public and protected responses (next.config.ts)
+  for (const path of ['/', '/login', '/dashboard']) {
+    const r = await fetch(`${BASE}${path}`, { redirect: 'manual' })
+    const h = (k) => r.headers.get(k) ?? ''
+    check(/frame-ancestors 'none'/.test(h('content-security-policy')) && h('x-frame-options') === 'DENY', `${path}: cannot be framed by another site`)
+    check(h('x-content-type-options') === 'nosniff' && h('referrer-policy') === 'strict-origin-when-cross-origin', `${path}: nosniff and referrer policy`)
+    check(/camera=\(self\)/.test(h('permissions-policy')) && /geolocation=\(\)/.test(h('permissions-policy')), `${path}: camera only for the app, no location`)
+  }
   // Language of the sign-in pages: ?lang= first, then the remembered choice (ba_locale), then the
   // browser's language, else Spanish — the rule of the app and of the sign-in server actions.
   {
@@ -163,7 +172,7 @@ try {
   console.log(`FAIL: ${error instanceof Error ? error.message : String(error)}`)
   console.log(serverLog.slice(-2000))
 } finally {
-  server.kill('SIGTERM')
+  try { process.kill(-server.pid, 'SIGTERM') } catch { server.kill('SIGTERM') }
 }
 console.log(`\nE2E result: ${passed} passed, ${failed} failed`)
 process.exit(failed ? 1 : 0)
