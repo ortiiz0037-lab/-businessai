@@ -21,7 +21,7 @@ jobs:
       fail-fast: false
       matrix:
         suite: [finance, finance-flows, studio, studio-branches, studio-finance, studio-advanced, catalog, assistant, assistant-s4,
-                banking, inventory, pos, workforce, employee-link, payroll, crm, sweep]
+                banking, inventory, pos, workforce, employee-link, payroll, crm, sweep, public]
     defaults:
       run:
         working-directory: businessai-fase1
@@ -60,4 +60,7 @@ jobs:
       - name: Build (no Supabase config baked in, no secrets)
         run: npm run build
       - name: Signed-in browser suite
-        run: PG_PORT=5432 DB=ba_e2e_fin node e2e/${{ matrix.suite }}.auth.e2e.mjs
+        # public: the signed-out suite (its Supabase URL is an unreachable local port; no data needed)
+        run: |
+          f=e2e/${{ matrix.suite }}.auth.e2e.mjs; [ -f "$f" ] || f=e2e/${{ matrix.suite }}.e2e.mjs
+          PG_PORT=5432 DB=ba_e2e_fin node "$f"
