@@ -47,8 +47,11 @@ export async function updateSession(request: NextRequest) {
   const isPublic = PUBLIC_EXACT.includes(path) || PUBLIC.some((p) => path === p || path.startsWith(p + '/'))
 
   const lang = request.nextUrl.searchParams.get('lang')
+  // A prefetch is not a choice: Next prefetches visible links (e.g. `/login?lang=en` on an English page) in the
+  // background, and a late prefetch must not undo the language the person just picked.
+  const isPrefetch = request.headers.get('next-router-prefetch') === '1' || /prefetch/i.test(request.headers.get('sec-purpose') ?? request.headers.get('purpose') ?? '')
   const rememberLang = (res: NextResponse) => {
-    if ((lang === 'es' || lang === 'en') && request.cookies.get(LOCALE_COOKIE)?.value !== lang) {
+    if (!isPrefetch && (lang === 'es' || lang === 'en') && request.cookies.get(LOCALE_COOKIE)?.value !== lang) {
       res.cookies.set(LOCALE_COOKIE, lang, LOCALE_COOKIE_OPTIONS)
     }
     return res

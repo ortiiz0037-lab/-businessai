@@ -6,9 +6,9 @@ beforeAll(() => {
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??= 'placeholder'
 })
 
-async function run(path: string, method = 'GET') {
+async function run(path: string, method = 'GET', headers: Record<string, string> = {}) {
   const { updateSession } = await import('@/lib/supabase/proxy')
-  return updateSession(new NextRequest(`http://localhost:3000${path}`, { method }))
+  return updateSession(new NextRequest(`http://localhost:3000${path}`, { method, headers }))
 }
 
 describe('proxy de sesión', () => {
@@ -60,5 +60,12 @@ describe('proxy de sesión', () => {
       expect(res.status, path).toBe(307)
       expect(res.headers.get('location'), path).toContain('/login?next=')
     }
+  })
+
+  it('remembers ?lang= on a real visit, never on a background prefetch', async () => {
+    expect((await run('/login?lang=en')).cookies.get('ba_locale')?.value).toBe('en')
+    expect((await run('/login?lang=en', 'GET', { 'next-router-prefetch': '1' })).cookies.get('ba_locale')).toBeUndefined()
+    expect((await run('/login?lang=en', 'GET', { 'sec-purpose': 'prefetch' })).cookies.get('ba_locale')).toBeUndefined()
+    expect((await run('/dashboard?lang=en', 'GET', { 'next-router-prefetch': '1' })).cookies.get('ba_locale')).toBeUndefined()
   })
 })
