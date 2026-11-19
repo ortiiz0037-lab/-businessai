@@ -45,7 +45,7 @@ const info = (t) => console.log(`INFO: ${t}`)
 const fail = (m) => { console.error(`ERROR: ${m}`); process.exit(1) }
 const redact = (t) => String(t ?? '').replace(/[^\s@]+@[^\s@]+/g, '[email]').slice(0, 200)
 
-if (!['links', 'inbox'].includes(mode)) fail(`unknown mode ${mode}`)
+if (!['links', 'inbox', 'recovery'].includes(mode)) fail(`unknown mode ${mode}`)
 for (const k of ['STAGING_URL', 'STAGING_PROJECT_REF', 'STAGING_SUPABASE_URL', 'STAGING_SUPABASE_PUBLISHABLE_KEY', 'STAGING_SUPABASE_SERVICE_ROLE_KEY']) if (!env[k]) fail(`${k} is required`)
 const host = new URL(env.STAGING_SUPABASE_URL).hostname
 if (!host.startsWith(`${env.STAGING_PROJECT_REF}.`)) fail('STAGING_SUPABASE_URL does not match STAGING_PROJECT_REF')
@@ -62,7 +62,7 @@ const site = env.APP_URL ? env.APP_URL.replace(/\/+$/, '') : base
 if (env.PRODUCTION_PROJECT_REF && site.includes(env.PRODUCTION_PROJECT_REF)) fail('refusing to run against PRODUCTION')
 const stamp = Date.now()
 // links mode: a sub-address of the authorised mailbox, never emailed; inbox mode: the mailbox itself
-const email = mode === 'inbox' ? mailbox.address : `${mailbox.local}+e2e-${stamp}@${mailbox.domain}`
+const email = mode !== 'links' ? mailbox.address : `${mailbox.local}+e2e-${stamp}@${mailbox.domain}`
 const password = `E2e-${stamp}-Aa1!`
 const newPassword = `E2e-new-${stamp}-Bb2!`
 const WAIT = Number(env.AUTH_INBOX_WAIT_MS ?? 15 * 60_000)
@@ -164,8 +164,8 @@ async function linksMode(browser) {
   info(`links mode: flows run on ${new URL(site).host}; no email was sent`)
 }
 
-async function inboxMode(browser) {
-  // 0. preconditions — nothing is sent unless all hold
+/** 0. preconditions — nothing is sent unless all hold. */
+async function preconditions() {
   const redirectsOk = await settingsAndRedirects()
   const users = await allUsers()
   const hourAgo = Date.now() - 60 * 60_000
@@ -177,9 +177,12 @@ async function inboxMode(browser) {
   if (existing && isTestUser(existing)) { await admin.auth.admin.deleteUser(existing.id); info('removed a previous test account for the mailbox') }
   const blocked = existing && !isTestUser(existing)
   check('0. the mailbox has no real account in staging (a test must not touch it)', !blocked, blocked ? 'an account that is not a test account uses it: use another member mailbox' : '')
-  if (!redirectsOk || recent.length || blocked) { info('STOPPED before sending any email'); return }
+  if (!redirectsOk || recent.length || blocked) { info('STOPPED before sending any email'); return false }
+  return true
+}
 
-  // 1. sign-up → confirmation email
+/** 1. sign-up form → ONE real confirmation email; waits for the person to tap the link. */
+async function signupStep(browser) {
   const ctx = await browser.newContext({ extraHTTPHeaders: headers, locale: 'es-PR' })
   const page = await ctx.newPage()
   await page.goto(`${site}/signup?lang=es`, { waitUntil: 'networkidle', timeout: 60000 })
@@ -199,9 +202,11 @@ async function inboxMode(browser) {
   console.log(`ACTION: open the confirmation email ("Confirm your signup") in the authorised mailbox and tap the link — waiting up to ${Math.round(WAIT / 60000)} minutes`)
   u = await waitFor('the confirmation link to be opened', (x) => Boolean(x.email_confirmed_at))
   check('1. the REAL confirmation email arrived and its link confirmed the address', Boolean(u?.email_confirmed_at))
-  if (!u?.email_confirmed_at) return
+  return Boolean(u?.email_confirmed_at)
+}
 
-  // 2. forgot password → recovery email
+/** 2. forgot-password form → ONE real recovery email; waits for the person to open it and save a new password. */
+async function recoveryStep(browser) {
   const c2 = await browser.newContext({ extraHTTPHeaders: headers, locale: 'es-PR' })
   const p2 = await c2.newPage()
   await p2.goto(`${site}/forgot-password?lang=es`, { waitUntil: 'networkidle' })
@@ -225,12 +230,32 @@ async function inboxMode(browser) {
   check('2. the new password was saved: the old one no longer works', Boolean(saved))
 }
 
+/** Both emails: confirmation, then (only if confirmed) recovery. */
+async function inboxMode(browser) {
+  if (!(await preconditions())) return
+  if (await signupStep(browser)) await recoveryStep(browser)
+}
+
+/** Recovery email ONLY: the account is created already confirmed with the service role (Supabase sends nothing
+ *  for that), then the forgot-password form sends the single email. Used when the confirmation email was already
+ *  verified in a previous run. */
+async function recoveryMode(browser) {
+  if (!(await preconditions())) return
+  const { data, error } = await admin.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { businessai_e2e: true } })
+  if (error) throw error
+  cleanup.push(data.user.id)
+  check('0. confirmed test account created for the mailbox (no email sent)', Boolean(data.user?.email_confirmed_at))
+  check('0. the account can sign in with its first password', await canSignIn(password))
+  await recoveryStep(browser)
+}
+
 const cleanup = []
 const { chromium } = createRequire(import.meta.url)('playwright')
 const browser = await chromium.launch()
 try {
   info(`mode: ${mode}`)
   if (mode === 'links') await linksMode(browser)
+  else if (mode === 'recovery') await recoveryMode(browser)
   else await inboxMode(browser)
 } catch (e) {
   check('unexpected error', false, redact(e?.message ?? e))

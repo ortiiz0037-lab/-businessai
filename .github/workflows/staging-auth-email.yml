@@ -6,6 +6,8 @@ name: Staging auth email (real mailbox)
 # exactly TWO emails to the authorised mailbox (repository secret STAGING_AUTH_TEST_EMAIL) and waits for a person
 # to open them (up to 15 minutes each); it refuses to send anything if an Auth email went out in the last hour,
 # if Supabase's links would not come back to the Preview, or if a real account already uses the mailbox.
+# Label `staging:auth-email-recovery` sends ONLY the recovery email (ONE email): the mailbox's test account is
+# created already confirmed by the service role (no email for that), then the forgot-password form is used.
 # Writes no configuration: no Auth settings, Stripe, Vercel or database changes. Never production.
 
 on:
@@ -19,7 +21,7 @@ jobs:
   inbox:
     concurrency: staging
     if: >-
-      github.event.label.name == 'staging:auth-email' &&
+      (github.event.label.name == 'staging:auth-email' || github.event.label.name == 'staging:auth-email-recovery') &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -34,6 +36,7 @@ jobs:
       STAGING_URL: ${{ vars.STAGING_URL }}
       STAGING_SUPABASE_URL: https://${{ vars.STAGING_PROJECT_REF }}.supabase.co
       STAGING_SUPABASE_PUBLISHABLE_KEY: ${{ vars.STAGING_SUPABASE_PUBLISHABLE_KEY }}
+      EMAIL_MODE: ${{ github.event.label.name == 'staging:auth-email-recovery' && 'recovery' || 'inbox' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -65,10 +68,10 @@ jobs:
       - name: Playwright (browser only, not saved in package.json)
         run: npm install --no-save --no-audit --no-fund playwright@1.63.0 && npx playwright install --with-deps chromium
 
-      - name: Sign-up confirmation and password recovery — 2 real emails; open them when the log says ACTION
+      - name: Real Auth emails (auth-email = 2, auth-email-recovery = 1 recovery email); open them when the log says ACTION
         env:
           STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
           STAGING_AUTH_TEST_EMAIL: ${{ secrets.STAGING_AUTH_TEST_EMAIL }}
           APP_URL: https://staging.mybusinessai.site
-        run: node scripts/staging/e2e-auth-email.mjs --mode=inbox
+        run: node scripts/staging/e2e-auth-email.mjs --mode=$EMAIL_MODE
