@@ -24,7 +24,7 @@ jobs:
       (github.event.label.name == 'staging:auth-email' || github.event.label.name == 'staging:auth-email-recovery') &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 75
     defaults:
       run:
         working-directory: businessai-fase1
@@ -37,6 +37,8 @@ jobs:
       STAGING_SUPABASE_URL: https://${{ vars.STAGING_PROJECT_REF }}.supabase.co
       STAGING_SUPABASE_PUBLISHABLE_KEY: ${{ vars.STAGING_SUPABASE_PUBLISHABLE_KEY }}
       EMAIL_MODE: ${{ github.event.label.name == 'staging:auth-email-recovery' && 'recovery' || 'inbox' }}
+      # how long to wait for the person at each step (link opened, password saved): 30 minutes
+      AUTH_INBOX_WAIT_MS: '1800000'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
