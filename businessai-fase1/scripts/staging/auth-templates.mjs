@@ -48,7 +48,9 @@ async function main() {
   const call = async (method, body) => {
     const res = await fetch(url, { method, headers: { Authorization: `Bearer ${env.SUPABASE_ACCESS_TOKEN}`, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined })
     const json = await res.json().catch(() => ({}))
-    if (!res.ok) throw new Error(`Management API ${method} config/auth: HTTP ${res.status}${res.status === 401 || res.status === 403 ? ' (token missing access to the staging project)' : ''}`)
+    // Supabase's error text (never contains the token) says why a change is refused
+    const why = String(json?.message ?? json?.msg ?? json?.error ?? '').replace(/sbp_[A-Za-z0-9]+/g, '[token]').slice(0, 300)
+    if (!res.ok) throw new Error(`Management API ${method} config/auth: HTTP ${res.status}${res.status === 401 || res.status === 403 ? ' (token missing access to the staging project)' : ''}${why ? ` — ${why}` : ''}`)
     return json
   }
   const cfg = await call('GET')
