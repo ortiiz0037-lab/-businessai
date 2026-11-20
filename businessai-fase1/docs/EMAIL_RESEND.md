@@ -70,3 +70,20 @@ sin ellas no se envía nada ni se marca nada como enviado).
    cambiar código.
 
 Ningún paso de §2 se ha ejecutado.
+
+### Staging: SMTP de Resend preparado (pendiente de DNS y clave)
+
+Motivo: en el plan gratuito de Supabase, con el servicio de correo por defecto, la API rechaza cambiar las
+plantillas (*"Email template modification is not available for free tier projects using the default email
+provider"*). Con SMTP propio, las plantillas con `token_hash` funcionan en cualquier navegador o dispositivo.
+
+| Paso | Quién | Qué |
+|---|---|---|
+| 1 | Propietario | Resend → Domains → Add domain `mail.mybusinessai.site` (región us-east-1) |
+| 2 | Propietario | Spaceship → DNS de `mybusinessai.site`: los 3 registros que muestra Resend (DKIM `resend._domainkey.mail`, MX y TXT SPF `send.mail`); ningún registro existente cambia |
+| 3 | Propietario | Resend → API Keys → *Sending access*, dominio `mail.mybusinessai.site` → secreto de GitHub `STAGING_RESEND_SMTP_KEY` |
+| 4 | Etiqueta `staging:auth-smtp-plan` | Solo lectura: DNS publicados + SMTP actual/objetivo de Staging |
+| 5 | Etiqueta `staging:auth-smtp-apply` | Solo los campos `smtp_*` de Staging (`smtp.resend.com:465`, usuario `resend`, remitente `BusinessAI (Staging) <no-reply@mail.mybusinessai.site>`) |
+| 6 | Etiqueta `staging:auth-templates-apply` | Solo el enlace de las plantillas Confirm signup y Reset password → `token_hash` |
+| 7 | `staging:test` (0 correos) y, con aprobación, 1 correo de recuperación abierto en el teléfono | Verificación entre dispositivos |
+
