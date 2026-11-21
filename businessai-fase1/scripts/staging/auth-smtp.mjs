@@ -30,12 +30,14 @@ export function checkDomain(domain) {
   return null
 }
 
-/** What Resend needs to be published (pure check of DNS answers). */
+/** What Resend needs to be published (pure check of DNS answers). The exact values are Resend's own (they changed
+ *  over time: Amazon SES or Resend's MTA); Resend's "Verified" status is the authority on them, this only checks
+ *  that a DKIM key, a bounce MX and an SPF record exist where Resend puts them. */
 export function judgeDns({ dkim, mx, spf }) {
   return [
     { ok: dkim.some((t) => /p=[A-Za-z0-9+/=]{100,}/.test(t)), text: 'DKIM TXT resend._domainkey.<domain> published' },
-    { ok: mx.some((m) => /amazonses\.com\.?$/.test(m.exchange)), text: 'bounce MX send.<domain> → feedback-smtp.<region>.amazonses.com' },
-    { ok: spf.some((t) => /^v=spf1 .*include:amazonses\.com/.test(t)), text: 'SPF TXT send.<domain> includes amazonses.com' },
+    { ok: mx.some((m) => /^[a-z0-9.-]+\.[a-z]{2,}\.?$/i.test(m.exchange ?? '')), text: 'bounce MX send.<domain> published' },
+    { ok: spf.some((t) => /^v=spf1 .*(include:|ip4:|ip6:)/.test(t)), text: 'SPF TXT send.<domain> published' },
   ]
 }
 
@@ -59,6 +61,9 @@ async function main() {
       const t = (await txt(h)).filter((v) => v.startsWith('v=spf1')).map((v) => `TXT ${v}`)
       console.log(`  ${h}: ${[...m, ...t].join(' · ') || 'no MX / SPF'}`)
     }
+  } else {
+    const shown = [...mx.map((r) => `MX ${r.priority} ${r.exchange}`), ...(await txt(`send.${domain}`)).filter((v) => v.startsWith('v=spf1')).map((v) => `TXT ${v}`)]
+    console.log(`  send.${domain}: ${shown.join(' · ')}`)
   }
 
   const url = `https://api.supabase.com/v1/projects/${env.STAGING_PROJECT_REF}/config/auth`

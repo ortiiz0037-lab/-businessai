@@ -21,6 +21,8 @@ describe('staging Auth SMTP (Resend)', () => {
     expect(judgeDns({ ...good, dkim: [] }).some((d) => !d.ok)).toBe(true)
     expect(judgeDns({ ...good, mx: [] }).some((d) => !d.ok)).toBe(true)
     expect(judgeDns({ ...good, spf: ['v=spf1 -all'] }).some((d) => !d.ok)).toBe(true)
+    // Resend's current values (its own MTA) are accepted too
+    expect(judgeDns({ ...good, mx: [{ exchange: 'feedback.forge.rmta.net', priority: 10 }], spf: ['v=spf1 ip4:52.3.252.119 ip4:199.249.231.0/24 ~all'] }).every((d) => d.ok)).toBe(true)
   })
   it('the workflow writes only with the apply label, staging pinned, key never printed', () => {
     const yml = readFileSync(new URL('../../.github/workflows/staging-auth-smtp.yml', import.meta.url), 'utf8')
