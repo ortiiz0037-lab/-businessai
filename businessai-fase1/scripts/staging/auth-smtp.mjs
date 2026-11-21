@@ -51,6 +51,15 @@ async function main() {
   const mx = await resolveMx(`send.${domain}`).catch(() => [])
   const dns = judgeDns({ dkim: await txt(`resend._domainkey.${domain}`), mx, spf: await txt(`send.${domain}`) })
   for (const d of dns) console.log(`${d.ok ? 'PASS' : 'FAIL'}: ${d.text.replaceAll('<domain>', domain)}`)
+  if (dns.some((d) => !d.ok)) {
+    // where the bounce/SPF records were actually published (public records only, read-only)
+    const root = domain.split('.').slice(-2).join('.')
+    for (const h of [...new Set([`send.${domain}`, `send.${root}`, domain, `send.mail.${domain}`])]) {
+      const m = (await resolveMx(h).catch(() => [])).map((r) => `MX ${r.priority} ${r.exchange}`)
+      const t = (await txt(h)).filter((v) => v.startsWith('v=spf1')).map((v) => `TXT ${v}`)
+      console.log(`  ${h}: ${[...m, ...t].join(' · ') || 'no MX / SPF'}`)
+    }
+  }
 
   const url = `https://api.supabase.com/v1/projects/${env.STAGING_PROJECT_REF}/config/auth`
   const call = async (method, body) => {
