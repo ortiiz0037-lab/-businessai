@@ -69,7 +69,7 @@ sin ellas no se envía nada ni se marca nada como enviado).
    sigue igual (`STAGING_AUTH_TEST_EMAIL` puede ser cualquier buzón de pruebas que alguien lea); no hace falta
    cambiar código.
 
-Ningún paso de §2 se ha ejecutado.
+§2 en Staging: hecho el 2026-11-21 (SMTP de Resend, plantillas token_hash, prueba real en iPhone 12 / 12; ver `docs/PILOT_READINESS.md`). Production: pendiente.
 
 ### Staging: SMTP de Resend preparado (pendiente de DNS y clave)
 

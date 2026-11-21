@@ -182,3 +182,49 @@ cambios en la configuración de Auth, el resultado del correo no puede mejorar: 
 se prueban con la etiqueta `staging:auth-email` hacia un buzón de un miembro de la organización (secreto
 `STAGING_AUTH_TEST_EMAIL`), con una persona que abre los correos. Pendiente del propietario: Site URL y Redirect URLs
 de Staging (valores en ese documento) y el secreto. Resend queda documentado para cuando haya dominio.
+
+## Actualización 2026-11-21: correo de autenticación verificado en un dispositivo real (Staging)
+
+**Prueba real en iPhone — correcta.** `staging-auth-email.yml` (etiqueta `staging:auth-email-recovery`), ejecución
+#25 (44934979126), 18:20–18:27 UTC, commit `276c0b7`: **12 / 12**. Un único correo «Reset Your Password» enviado por
+Resend (`BusinessAI (Staging) <no-reply@mail.mybusinessai.site>`) al buzón autorizado; la persona lo abrió en su
+iPhone (otro dispositivo y otro navegador que el que pidió el enlace), llegó al formulario de nueva contraseña y la
+guardó. Supabase registró el inicio de sesión por el enlace (18:27:12) y la contraseña anterior dejó de servir
+(18:27:43). La cuenta de prueba se borró al terminar (por diseño: es una cuenta temporal de la prueba).
+
+Causa del fallo anterior (resuelta): la plantilla por defecto `{{ .ConfirmationURL }}` usa PKCE, cuyo código solo
+puede canjearlo el navegador que pidió el enlace. Cambios en **Staging** (`wbfpvxptoujgvflljasc`), con autorización:
+
+| Cambio | Ejecución | Verificación |
+|---|---|---|
+| SMTP propio: `smtp.resend.com:465`, usuario `resend`, remitente `no-reply@mail.mybusinessai.site` (dominio verificado en Resend; DKIM, MX y SPF publicados) | `staging-auth-smtp.yml` #4 | Relectura: campos iguales; Site URL sin cambios |
+| Plantillas Confirm signup y Reset password: solo el enlace → `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=…&next=…`; resto idéntico | `staging-auth-templates.yml` #10 | Relectura: enlace nuevo, resto byte a byte igual |
+| `NEXT_PUBLIC_APP_URL=https://staging.mybusinessai.site` (solo Preview) | `staging-app-url.yml` #3 | La compilación acepta ese origen (#4) |
+
+`staging:test` #61 (0 correos): humo, Stripe TEST, RLS, 79 capturas y enlaces **15 / 15** (confirmación,
+recuperación en otro navegador, token falsificado rechazado). Correos reales enviados en total: confirmación de
+registro (recibida, 2026-11-19) y recuperación (recibida y completada en iPhone, 2026-11-21).
+
+## Bloqueos que quedan para el lanzamiento comercial (2026-11-21)
+
+Ya no bloquean: correo de autenticación (Staging), Stripe TEST de extremo a extremo, esquema completo en Staging
+(0001–0045), dominio propio y subdominio de Staging. Pendientes, por orden:
+
+| # | Bloqueo | Tipo | Qué hace falta |
+|---|---|---|---|
+| 1 | **Production sin esquema**: `rugqcumiuqrjbfwpuslm` no tiene 0005–0045 | Autorización | Aprobar `docs/PRODUCTION_MIGRATION_PLAN.md`: respaldo, una migración por ejecución, verificación tras cada una |
+| 2 | **Fusión del PR #1 y despliegue de Production** | Autorización | Revisión del PR; `main` y Production no se han tocado |
+| 3 | **Dominio de Production**: `mybusinessai.site` → Vercel Production; `NEXT_PUBLIC_APP_URL` de Production (obligatoria: sin ella no se envían enlaces de recuperación); Site URL y Redirect URLs de Production | Autorización + DNS | Mismo procedimiento que Staging |
+| 4 | **Correo de Auth en Production**: Supabase gratuito no permite cambiar plantillas sin SMTP propio | Autorización | SMTP de Resend (mismo dominio `mail.mybusinessai.site`, clave propia de Production) + plantillas `token_hash`; scripts listos, hoy fijados a Staging |
+| 5 | **Stripe LIVE**: productos y precios (Basic 19.99 / Pro 39.99 / Premium 59.99, mismas lookup keys), webhook LIVE, claves en Vercel Production | Autorización + credenciales | Nada de LIVE se ha tocado |
+| 6 | **Textos legales**: términos y privacidad son **borradores** con datos pendientes (razón social, registro, dirección, correo de contacto, correo de privacidad) y **solo en español** | Contenido / legal | Datos del titular, revisión legal y versión en inglés |
+| 7 | **Correo transaccional de la app** (invitaciones de equipo, recordatorios de cobro): `RESEND_API_KEY` y `EMAIL_FROM` no están en Vercel; sin ellas no se envía nada | Configuración | Clave de Resend «Sending access» para la app (Preview y Production) y una prueba real con aprobación |
+| 8 | **Soporte**: correo de soporte y plan de atención | Operación | Dirección (p. ej. en el dominio propio) visible en la app y los textos legales |
+| 9 | **Funciones con proveedor externo sin probar con el proveedor**: asistente (clave de Anthropic y límite de gasto), Plaid, OCR Azure, POS (Square/Clover/Shopify/Lightspeed), hardware | Decisión | Elegir qué se ofrece en el piloto; lo no elegido queda desactivado (cerrado por defecto) |
+
+No bloquean un piloto supervisado: aviso de Node 20 en GitHub Actions (`docs/CI_NODE24.md`), aviso de `picomatch`
+solo en herramientas de desarrollo, 6 avisos de ESLint, iPad no probado en dispositivo físico.
+
+Seguridad: el secreto `SUPABASE_ACCESS_TOKEN` es un token de cuenta (alcanza también Production); los scripts
+fijan la referencia de Staging y rechazan la de Production. Recomendado: revocarlo en Supabase cuando no se use, o
+mantenerlo solo para los pasos de Production que usted autorice.
