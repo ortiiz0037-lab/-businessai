@@ -1,9 +1,29 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-const PUBLIC = ['/login', '/signup', '/auth']
+// Páginas públicas: autenticación y páginas informativas (precios y textos legales).
+const PUBLIC = ['/login', '/signup', '/register', '/forgot-password', '/invite', '/clock/link', '/kiosk', '/auth', '/precios', '/terminos', '/privacidad']
+// Página principal pública (solo la ruta exacta "/").
+const PUBLIC_EXACT = ['/', '/manifest.webmanifest']
+
+// Rutas llamadas por servicios externos sin sesión de usuario. Cada una se
+// autentica por su cuenta (Stripe: verificación de la firma `stripe-signature`).
+const MACHINE_ROUTES = ['/api/stripe/webhook', '/api/banking/webhooks/plaid',
+  // POS (0044): provider webhooks (each verifies its provider's signature), the local bridge (bearer token)
+  // and the recovery job (POS_CRON_SECRET); they write only through the server-signed functions
+  '/api/pos/webhooks/square', '/api/pos/webhooks/clover', '/api/pos/webhooks/shopify', '/api/pos/webhooks/lightspeed_x', '/api/pos/bridge', '/api/pos/recover']
+
+// `?lang=es|en` on any page (e.g. coming from the public site) is remembered
+// for the app in the same cookie the language selector writes.
+const LOCALE_COOKIE = 'ba_locale'
+const LOCALE_COOKIE_OPTIONS = { path: '/', maxAge: 60 * 60 * 24 * 365, sameSite: 'lax' as const, httpOnly: true }
 
 export async function updateSession(request: NextRequest) {
+  // Sin cookies, sin redirección: el webhook valida la firma de Stripe.
+  if (MACHINE_ROUTES.includes(request.nextUrl.pathname)) {
+    return NextResponse.next({ request })
+  }
+
   let response = NextResponse.next({ request })
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -24,7 +44,18 @@ export async function updateSession(request: NextRequest) {
   const { data } = await supabase.auth.getClaims()
   const isAuthed = !!data?.claims
   const path = request.nextUrl.pathname
-  const isPublic = PUBLIC.some((p) => path === p || path.startsWith(p + '/'))
+  const isPublic = PUBLIC_EXACT.includes(path) || PUBLIC.some((p) => path === p || path.startsWith(p + '/'))
+
+  const lang = request.nextUrl.searchParams.get('lang')
+  // A prefetch is not a choice: Next prefetches visible links (e.g. `/login?lang=en` on an English page) in the
+  // background, and a late prefetch must not undo the language the person just picked.
+  const isPrefetch = request.headers.get('next-router-prefetch') === '1' || /prefetch/i.test(request.headers.get('sec-purpose') ?? request.headers.get('purpose') ?? '')
+  const rememberLang = (res: NextResponse) => {
+    if (!isPrefetch && (lang === 'es' || lang === 'en') && request.cookies.get(LOCALE_COOKIE)?.value !== lang) {
+      res.cookies.set(LOCALE_COOKIE, lang, LOCALE_COOKIE_OPTIONS)
+    }
+    return res
+  }
 
   const redirectTo = (to: string, next?: string) => {
     const url = request.nextUrl.clone()
@@ -32,12 +63,12 @@ export async function updateSession(request: NextRequest) {
     url.search = next ? `?next=${encodeURIComponent(next)}` : ''
     const res = NextResponse.redirect(url)
     response.cookies.getAll().forEach((c) => res.cookies.set(c))
-    return res
+    return rememberLang(res)
   }
 
-  if (!isAuthed && !isPublic) return redirectTo('/login', path === '/' ? undefined : path)
+  if (!isAuthed && !isPublic) return redirectTo('/login', path)
   if (isAuthed && (path === '/login' || path === '/signup')) return redirectTo('/dashboard')
 
   response.headers.set('Cache-Control', 'private, no-store')
-  return response
+  return rememberLang(response)
 }

@@ -1,0 +1,15 @@
+{
+  "appId": "com.businessai.app",
+  "appName": "BusinessAI",
+  "webDir": "public",
+  "server": {
+    "url": "https://REPLACE-WITH-THE-AUTHORISED-APP-DOMAIN",
+    "cleartext": false,
+    "allowNavigation": ["REPLACE-WITH-THE-AUTHORISED-APP-DOMAIN"]
+  },
+  "ios": { "contentInset": "never", "limitsNavigationsToAppBoundDomains": true },
+  "android": { "allowMixedContent": false, "webContentsDebuggingEnabled": false },
+  "plugins": {
+    "SplashScreen": { "backgroundColor": "#070b14", "launchAutoHide": true }
+  }
+}

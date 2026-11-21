@@ -1,12 +1,15 @@
 // Requiere la migración aplicada y SUPABASE_SERVICE_ROLE_KEY (solo para crear/borrar usuarios de prueba).
+// Se ejecuta solo si RLS_TEST_PROJECT_REF coincide con la URL y no es el
+// proyecto de producción (tests/staging-helpers.ts); si no, se omite.
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { stagingEnv } from './staging-helpers'
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
 const opts = { auth: { persistSession: false, autoRefreshToken: false } }
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-const hasEnv = Boolean(url && anonKey && serviceKey)
+const hasEnv = stagingEnv.enabled
 const admin = hasEnv ? createClient(url, serviceKey!, opts) : (null as unknown as SupabaseClient)
 const stamp = Date.now()
 const password = `Test-passw0rd-${stamp}`

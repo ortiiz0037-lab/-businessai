@@ -1,0 +1,34 @@
+name: Staging domain check (read-only)
+
+# READ-ONLY check of the staging custom domain (label `staging:domain-check` on the pull request): DNS, TLS,
+# protection, same deployment as the branch alias, webhook signature. Writes nothing: no Vercel, Supabase,
+# Stripe or DNS change. Never production (only a staging.* domain; production refs refused).
+
+on:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+jobs:
+  domain:
+    concurrency: staging
+    if: >-
+      github.event.label.name == 'staging:domain-check' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: businessai-fase1
+    env:
+      STAGING_DOMAIN: staging.mybusinessai.site
+      STAGING_URL: ${{ vars.STAGING_URL }}
+      PRODUCTION_PROJECT_REF: ${{ vars.PRODUCTION_PROJECT_REF }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Domain check (DNS, TLS, protection, same deployment, webhook signature)
+        env:
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: bash scripts/staging/domain-check.sh

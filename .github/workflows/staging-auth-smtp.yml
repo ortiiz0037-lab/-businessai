@@ -1,0 +1,53 @@
+name: Staging Auth SMTP (Resend)
+
+# Custom SMTP through Resend for the STAGING Supabase project only (scripts/staging/auth-smtp.mjs):
+#   label `staging:auth-smtp-plan`  → READ-ONLY: DNS records of the sending domain + current/target SMTP settings.
+#   label `staging:auth-smtp-apply` → writes ONLY the staging project's smtp_* fields, then reads back. Owner approval.
+# Secrets: SUPABASE_ACCESS_TOKEN, STAGING_RESEND_SMTP_KEY (Resend API key, "Sending access" to the domain only).
+# Sends no email. No DNS, Stripe, Vercel, database or Production change (staging ref pinned, production refused).
+
+on:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+jobs:
+  smtp:
+    concurrency: staging
+    if: >-
+      (github.event.label.name == 'staging:auth-smtp-plan' || github.event.label.name == 'staging:auth-smtp-apply') &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: businessai-fase1
+    env:
+      PINNED_STAGING_REF: wbfpvxptoujgvflljasc
+      STAGING_PROJECT_REF: ${{ vars.STAGING_PROJECT_REF }}
+      PRODUCTION_PROJECT_REF: ${{ vars.PRODUCTION_PROJECT_REF }}
+      EXPECTED_SITE_URL: https://staging.mybusinessai.site
+      SENDER_DOMAIN: ${{ vars.STAGING_EMAIL_DOMAIN || 'mail.mybusinessai.site' }}
+      SENDER_NAME: BusinessAI (Staging)
+      MODE: ${{ github.event.label.name == 'staging:auth-smtp-apply' && 'apply' || 'plan' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Guard (staging only; names only, never values)
+        env:
+          HAS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN != '' }}
+          HAS_KEY: ${{ secrets.STAGING_RESEND_SMTP_KEY != '' }}
+        run: |
+          [ "$STAGING_PROJECT_REF" = "$PINNED_STAGING_REF" ] || { echo "ERROR: not the pinned staging project"; exit 1; }
+          [ "$HAS_TOKEN" = true ] || { echo "ERROR: repository secret SUPABASE_ACCESS_TOKEN is not set"; exit 1; }
+          [ "$MODE" = plan ] || [ "$HAS_KEY" = true ] || { echo "ERROR: repository secret STAGING_RESEND_SMTP_KEY is not set"; exit 1; }
+          echo "Mode: $MODE · project $STAGING_PROJECT_REF (staging) · sender domain $SENDER_DOMAIN · key present: $HAS_KEY"
+      - name: Custom SMTP (Resend) for staging Auth email
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          RESEND_SMTP_KEY: ${{ secrets.STAGING_RESEND_SMTP_KEY }}
+        run: node scripts/staging/auth-smtp.mjs --$MODE

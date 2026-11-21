@@ -1,0 +1,49 @@
+name: Staging Auth email templates (link format)
+
+# Supabase Auth email templates of the STAGING project only (scripts/staging/auth-templates.mjs):
+#   label `staging:auth-templates-plan`  → READ-ONLY: Site URL check + what would change.
+#   label `staging:auth-templates-apply` → replaces ONLY the link in "Confirm signup" and "Reset password"
+#                                          ({{ .ConfirmationURL }} → token_hash link), then reads back to verify.
+# Needs the repository secret SUPABASE_ACCESS_TOKEN (a Supabase access token, Management API). Sends no email;
+# no Stripe, Vercel, database or Production change (production ref refused, staging ref pinned).
+
+on:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+jobs:
+  templates:
+    concurrency: staging
+    if: >-
+      (github.event.label.name == 'staging:auth-templates-plan' || github.event.label.name == 'staging:auth-templates-apply') &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: businessai-fase1
+    env:
+      PINNED_STAGING_REF: wbfpvxptoujgvflljasc
+      STAGING_PROJECT_REF: ${{ vars.STAGING_PROJECT_REF }}
+      PRODUCTION_PROJECT_REF: ${{ vars.PRODUCTION_PROJECT_REF }}
+      EXPECTED_SITE_URL: https://staging.mybusinessai.site
+      MODE: ${{ github.event.label.name == 'staging:auth-templates-apply' && 'apply' || 'plan' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Guard (staging only; names only, never values)
+        env:
+          HAS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN != '' }}
+        run: |
+          [ "$STAGING_PROJECT_REF" = "$PINNED_STAGING_REF" ] || { echo "ERROR: not the pinned staging project"; exit 1; }
+          [ "$HAS_TOKEN" = true ] || { echo "ERROR: repository secret SUPABASE_ACCESS_TOKEN is not set"; exit 1; }
+          echo "Mode: $MODE · project $STAGING_PROJECT_REF (staging)"
+      - name: Auth email templates (Confirm signup, Reset password)
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: node scripts/staging/auth-templates.mjs --$MODE

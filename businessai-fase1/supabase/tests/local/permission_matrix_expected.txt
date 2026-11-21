@@ -1,0 +1,258 @@
+oa|select companies A/B|1/0
+oa|select memberships A/B|3/0
+oa|select company_profiles A/B|1/0
+oa|select company_subscriptions A/B|1/0
+oa|select clients A/B|2/0
+oa|select documents A/B|2/0
+oa|select payments A/B|1/0
+oa|select document_deletion_audit A/B|1/0
+oa|select storage logo A/B|1/0
+oa|select storage signature A/B|1/0
+oa|select billing_plans|3
+oa|rpc company_billing_state(A)|active:true
+oa|rpc company_usage(A)|3
+oa|rpc create_company|true
+oa|update company A|rows=1
+oa|update company_profile A|rows=1
+oa|upsert company_profile A|rows=1
+oa|update client A|rows=1
+oa|update document A (title, status)|rows=1
+oa|update payment A|error 42501
+oa|update membership role in A|error 42501
+oa|insert client A|rows=1
+oa|insert document A|rows=1
+oa|insert document A with client of B|error 42501
+oa|insert payment A|rows=1
+oa|insert payment A as another user|rows=1
+oa|insert deletion audit A|rows=1
+oa|insert storage logo A|rows=1
+oa|insert storage signature A|rows=1
+oa|insert company directly|error 42501
+oa|insert membership into A|error 42501
+oa|delete client A|rows=1
+oa|delete document A|rows=1
+oa|delete payment A|error 42501
+oa|delete deletion audit A|rows=0
+oa|delete storage logo A|rows=0
+oa|delete storage signature A|rows=1
+oa|delete company A|error 42501
+oa|delete membership in A|error 42501
+oa|update client B|rows=0
+oa|insert client B|error 42501
+oa|delete document B|rows=0
+oa|insert storage signature B|error 42501
+aa|select companies A/B|1/0
+aa|select memberships A/B|3/0
+aa|select company_profiles A/B|1/0
+aa|select company_subscriptions A/B|1/0
+aa|select clients A/B|2/0
+aa|select documents A/B|2/0
+aa|select payments A/B|1/0
+aa|select document_deletion_audit A/B|1/0
+aa|select storage logo A/B|1/0
+aa|select storage signature A/B|1/0
+aa|select billing_plans|3
+aa|rpc company_billing_state(A)|active:true
+aa|rpc company_usage(A)|3
+aa|rpc create_company|true
+aa|update company A|rows=1
+aa|update company_profile A|rows=1
+aa|upsert company_profile A|rows=1
+aa|update client A|rows=1
+aa|update document A (title, status)|rows=1
+aa|update payment A|error 42501
+aa|update membership role in A|error 42501
+aa|insert client A|rows=1
+aa|insert document A|rows=1
+aa|insert document A with client of B|error 42501
+aa|insert payment A|rows=1
+aa|insert payment A as another user|error 42501
+aa|insert deletion audit A|rows=1
+aa|insert storage logo A|rows=1
+aa|insert storage signature A|rows=1
+aa|insert company directly|error 42501
+aa|insert membership into A|error 42501
+aa|delete client A|rows=1
+aa|delete document A|rows=1
+aa|delete payment A|error 42501
+aa|delete deletion audit A|rows=0
+aa|delete storage logo A|rows=0
+aa|delete storage signature A|rows=1
+aa|delete company A|error 42501
+aa|delete membership in A|error 42501
+aa|update client B|rows=0
+aa|insert client B|error 42501
+aa|delete document B|rows=0
+aa|insert storage signature B|error 42501
+ma|select companies A/B|1/0
+ma|select memberships A/B|3/0
+ma|select company_profiles A/B|1/0
+ma|select company_subscriptions A/B|1/0
+ma|select clients A/B|2/0
+ma|select documents A/B|2/0
+ma|select payments A/B|1/0
+ma|select document_deletion_audit A/B|1/0
+ma|select storage logo A/B|0/0
+ma|select storage signature A/B|1/0
+ma|select billing_plans|3
+ma|rpc company_billing_state(A)|active:true
+ma|rpc company_usage(A)|3
+ma|rpc create_company|true
+ma|update company A|rows=0
+ma|update company_profile A|rows=0
+ma|upsert company_profile A|error 42501
+ma|update client A|rows=1
+ma|update document A (title, status)|rows=1
+ma|update payment A|error 42501
+ma|update membership role in A|error 42501
+ma|insert client A|rows=1
+ma|insert document A|rows=1
+ma|insert document A with client of B|error 42501
+ma|insert payment A|rows=1
+ma|insert payment A as another user|error 42501
+ma|insert deletion audit A|rows=1
+ma|insert storage logo A|error 42501
+ma|insert storage signature A|error 42501
+ma|insert company directly|error 42501
+ma|insert membership into A|error 42501
+ma|delete client A|rows=0
+ma|delete document A|rows=0
+ma|delete payment A|error 42501
+ma|delete deletion audit A|rows=0
+ma|delete storage logo A|rows=0
+ma|delete storage signature A|rows=0
+ma|delete company A|error 42501
+ma|delete membership in A|error 42501
+ma|update client B|rows=0
+ma|insert client B|error 42501
+ma|delete document B|rows=0
+ma|insert storage signature B|error 42501
+ob|select companies A/B|0/1
+ob|select memberships A/B|0/1
+ob|select company_profiles A/B|0/1
+ob|select company_subscriptions A/B|0/1
+ob|select clients A/B|0/1
+ob|select documents A/B|0/2
+ob|select payments A/B|0/1
+ob|select document_deletion_audit A/B|0/1
+ob|select storage logo A/B|0/1
+ob|select storage signature A/B|0/1
+ob|select billing_plans|3
+ob|rpc company_billing_state(A)|none
+ob|rpc company_usage(A)|0
+ob|rpc create_company|true
+ob|update company A|rows=0
+ob|update company_profile A|rows=0
+ob|upsert company_profile A|error 42501
+ob|update client A|rows=0
+ob|update document A (title, status)|rows=0
+ob|update payment A|error 42501
+ob|update membership role in A|error 42501
+ob|insert client A|error 42501
+ob|insert document A|error 42501
+ob|insert document A with client of B|error 42501
+ob|insert payment A|error 42501
+ob|insert payment A as another user|error 42501
+ob|insert deletion audit A|error 42501
+ob|insert storage logo A|error 42501
+ob|insert storage signature A|error 42501
+ob|insert company directly|error 42501
+ob|insert membership into A|error 42501
+ob|delete client A|rows=0
+ob|delete document A|rows=0
+ob|delete payment A|error 42501
+ob|delete deletion audit A|rows=0
+ob|delete storage logo A|rows=0
+ob|delete storage signature A|rows=0
+ob|delete company A|error 42501
+ob|delete membership in A|error 42501
+ob|update client B|rows=1
+ob|insert client B|rows=1
+ob|delete document B|rows=1
+ob|insert storage signature B|rows=1
+x|select companies A/B|0/0
+x|select memberships A/B|0/0
+x|select company_profiles A/B|0/0
+x|select company_subscriptions A/B|0/0
+x|select clients A/B|0/0
+x|select documents A/B|0/0
+x|select payments A/B|0/0
+x|select document_deletion_audit A/B|0/0
+x|select storage logo A/B|0/0
+x|select storage signature A/B|0/0
+x|select billing_plans|3
+x|rpc company_billing_state(A)|none
+x|rpc company_usage(A)|0
+x|rpc create_company|true
+x|update company A|rows=0
+x|update company_profile A|rows=0
+x|upsert company_profile A|error 42501
+x|update client A|rows=0
+x|update document A (title, status)|rows=0
+x|update payment A|error 42501
+x|update membership role in A|error 42501
+x|insert client A|error 42501
+x|insert document A|error 42501
+x|insert document A with client of B|error 42501
+x|insert payment A|error 42501
+x|insert payment A as another user|error 42501
+x|insert deletion audit A|error 42501
+x|insert storage logo A|error 42501
+x|insert storage signature A|error 42501
+x|insert company directly|error 42501
+x|insert membership into A|error 42501
+x|delete client A|rows=0
+x|delete document A|rows=0
+x|delete payment A|error 42501
+x|delete deletion audit A|rows=0
+x|delete storage logo A|rows=0
+x|delete storage signature A|rows=0
+x|delete company A|error 42501
+x|delete membership in A|error 42501
+x|update client B|rows=0
+x|insert client B|error 42501
+x|delete document B|rows=0
+x|insert storage signature B|error 42501
+anon|select companies A/B|error 42501
+anon|select memberships A/B|error 42501
+anon|select company_profiles A/B|error 42501
+anon|select company_subscriptions A/B|error 42501
+anon|select clients A/B|error 42501
+anon|select documents A/B|error 42501
+anon|select payments A/B|error 42501
+anon|select document_deletion_audit A/B|0/0
+anon|select storage logo A/B|0/0
+anon|select storage signature A/B|0/0
+anon|select billing_plans|3
+anon|rpc company_billing_state(A)|error 42501
+anon|rpc company_usage(A)|error 42501
+anon|rpc create_company|error 42501
+anon|update company A|error 42501
+anon|update company_profile A|error 42501
+anon|upsert company_profile A|error 42501
+anon|update client A|error 42501
+anon|update document A (title, status)|error 42501
+anon|update payment A|error 42501
+anon|update membership role in A|error 42501
+anon|insert client A|error 42501
+anon|insert document A|error 42501
+anon|insert document A with client of B|error 42501
+anon|insert payment A|error 42501
+anon|insert payment A as another user|error 42501
+anon|insert deletion audit A|error 42501
+anon|insert storage logo A|error 42501
+anon|insert storage signature A|error 42501
+anon|insert company directly|error 42501
+anon|insert membership into A|error 42501
+anon|delete client A|error 42501
+anon|delete document A|error 42501
+anon|delete payment A|error 42501
+anon|delete deletion audit A|rows=0
+anon|delete storage logo A|rows=0
+anon|delete storage signature A|rows=0
+anon|delete company A|error 42501
+anon|delete membership in A|error 42501
+anon|update client B|error 42501
+anon|insert client B|error 42501
+anon|delete document B|error 42501
+anon|insert storage signature B|error 42501
