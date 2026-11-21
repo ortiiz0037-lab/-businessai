@@ -1,0 +1,149 @@
+name: Production migration (one per run, owner approval)
+
+# ONE migration on PRODUCTION (Supabase project rugqcumiuqrjbfwpuslm, pinned in scripts/production/lib.sh).
+#   label `production:plan:<migration>`    → READ-ONLY: confirms <migration> is exactly the next one. No backup.
+#   label `production:migrate:<migration>` → verified encrypted backup → apply ONLY <migration> (one transaction)
+#                                            → verification → verified encrypted backup after.
+# Every run that touches Production waits for the owner's approval in the GitHub Environment "production"
+# (required reviewers). The "protection" job refuses to start anything if that Environment does not exist or
+# has no required reviewer, so an unprotected Environment can never be created by a run.
+# Phase 2 (0010 onwards) also needs the Environment variable PRODUCTION_PHASE2_DECISION (a or b,
+# docs/PRODUCTION_GRACE_OPTIONS.md). Migrations run in the order of scripts/staging/apply-migrations.sh.
+# This repository is PUBLIC: logs show PASS/FAIL and checksums of files only; backups are kept ENCRYPTED only.
+# Never deploys, never touches Stripe, Vercel or Auth settings.
+
+on:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+jobs:
+  protection:
+    if: >-
+      (startsWith(github.event.label.name, 'production:plan:') || startsWith(github.event.label.name, 'production:migrate:')) &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      target: ${{ steps.parse.outputs.target }}
+      mode: ${{ steps.parse.outputs.mode }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: parse
+        name: Requested migration (from the label) and branch
+        env:
+          LABEL: ${{ github.event.label.name }}
+          BRANCH: ${{ github.head_ref }}
+        run: |
+          [ "$BRANCH" = "claude/businessai-platform-audit-vjjcoc" ] || { echo "ERROR: not the authorised branch"; exit 1; }
+          case "$LABEL" in production:plan:*) mode=plan; target=${LABEL#production:plan:} ;; production:migrate:*) mode=apply; target=${LABEL#production:migrate:} ;; esac
+          source businessai-fase1/scripts/production/lib.sh
+          prod_order | grep -qx -- "$target" || { echo "ERROR: '$target' is not a Production migration"; exit 1; }
+          echo "target=$target" >> "$GITHUB_OUTPUT"; echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "Requested: $mode $target · phase $(is_phase1 "$target" && echo 1 || echo 2) · project $PRODUCTION_REF"
+      - name: "Environment 'production' exists and requires a reviewer"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          env_json=$(gh api "repos/${{ github.repository }}/environments/production" 2>/dev/null) || { echo "ERROR: the GitHub Environment 'production' does not exist (Settings → Environments). Nothing was started."; exit 1; }
+          reviewers=$(echo "$env_json" | jq '[.protection_rules[]? | select(.type == "required_reviewers") | .reviewers[]?] | length')
+          [ "${reviewers:-0}" -ge 1 ] || { echo "ERROR: Environment 'production' has no required reviewer. Nothing was started."; exit 1; }
+          echo "OK: Environment 'production' requires approval ($reviewers reviewer(s))"
+
+  migrate:
+    needs: protection
+    environment: production
+    concurrency:
+      group: production
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: businessai-fase1
+    env:
+      TARGET: ${{ needs.protection.outputs.target }}
+      MODE: ${{ needs.protection.outputs.mode }}
+      PHASE2_DECISION: ${{ vars.PRODUCTION_PHASE2_DECISION }}
+      HAS_URL: ${{ secrets.PRODUCTION_DB_URL != '' }}
+      HAS_KEY: ${{ secrets.PRODUCTION_BACKUP_PASSPHRASE != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Guard: pinned Production project, secrets present (names only)"
+        env:
+          PRODUCTION_DB_URL: ${{ secrets.PRODUCTION_DB_URL }}
+        run: |
+          [ "$HAS_URL" = true ] || { echo "ERROR: Environment secret PRODUCTION_DB_URL is missing"; exit 1; }
+          [ "$MODE" = plan ] || [ "$HAS_KEY" = true ] || { echo "ERROR: Environment secret PRODUCTION_BACKUP_PASSPHRASE is missing: no migration without an encrypted backup"; exit 1; }
+          source scripts/production/lib.sh; strict_production_url "$PRODUCTION_DB_URL"
+          echo "OK: $MODE $TARGET on $PRODUCTION_REF"
+      - name: PostgreSQL tools matching the Production server (read-only probe)
+        env:
+          PRODUCTION_DB_URL: ${{ secrets.PRODUCTION_DB_URL }}
+        run: |
+          major=$(PGOPTIONS='-c default_transaction_read_only=on' PGCONNECT_TIMEOUT=15 psql "$PRODUCTION_DB_URL" -X -q -tA -c "show server_version_num" | cut -c1-2) \
+            || { echo "ERROR: cannot reach the Production database (read-only)"; exit 1; }
+          echo "server major: $major"
+          if [ ! -x "/usr/lib/postgresql/$major/bin/pg_dump" ] || [ ! -x "/usr/lib/postgresql/$major/bin/initdb" ]; then
+            sudo install -d /usr/share/postgresql-common/pgdg
+            sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+            echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+            sudo apt-get update -q >/dev/null && sudo apt-get install -y -q "postgresql-$major" >/dev/null
+          fi
+          echo "PGB=/usr/lib/postgresql/$major/bin" >> "$GITHUB_ENV"
+      - name: Plan (read-only) — the requested migration must be exactly the next one
+        env:
+          PRODUCTION_DB_URL: ${{ secrets.PRODUCTION_DB_URL }}
+        run: MODE=plan PG_BIN="$PGB" bash scripts/production/migrate.sh
+      - name: Scratch PostgreSQL for the restore tests (unix socket, local only)
+        if: env.MODE == 'apply'
+        run: |
+          SOCK=/tmp/ba-pr-sock; DATA=/tmp/ba-pr-data
+          sudo mkdir -p "$SOCK" "$DATA" && sudo chown postgres "$SOCK" "$DATA" && sudo chmod 755 "$SOCK"
+          sudo -u postgres "$PGB/initdb" -D "$DATA" -U postgres -A trust >/dev/null
+          sudo -u postgres "$PGB/pg_ctl" -D "$DATA" -o "-k $SOCK -p 5432 -c listen_addresses=''" -l /tmp/ba-pr.log -w start
+      - name: Backup BEFORE (read-only on Production; restore-tested and encrypted, or no migration)
+        if: env.MODE == 'apply'
+        env:
+          PRODUCTION_DB_URL: ${{ secrets.PRODUCTION_DB_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.PRODUCTION_BACKUP_PASSPHRASE }}
+        run: |
+          LABEL="before-$TARGET" PG_BIN="$PGB" OUT_DIR="$RUNNER_TEMP/prod-backup" \
+          RESTORE_PSQL="$PGB/psql -h /tmp/ba-pr-sock -p 5432 -U postgres" RESTORE_HOST=/tmp/ba-pr-sock RESTORE_PORT=5432 \
+            bash scripts/production/backup.sh
+      - name: Keep the encrypted backup BEFORE (uploaded before any change)
+        if: env.MODE == 'apply'
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-backup-before-${{ env.TARGET }}
+          path: ${{ runner.temp }}/prod-backup/*.enc
+          if-no-files-found: error
+          retention-days: 90
+      - name: Apply ONLY the requested migration, then verify
+        if: env.MODE == 'apply'
+        env:
+          PRODUCTION_DB_URL: ${{ secrets.PRODUCTION_DB_URL }}
+        run: MODE=apply PG_BIN="$PGB" bash scripts/production/migrate.sh
+      - name: Backup AFTER (restore-tested and encrypted)
+        if: env.MODE == 'apply'
+        env:
+          PRODUCTION_DB_URL: ${{ secrets.PRODUCTION_DB_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.PRODUCTION_BACKUP_PASSPHRASE }}
+        run: |
+          rm -f "$RUNNER_TEMP"/prod-backup/*.enc
+          LABEL="after-$TARGET" PG_BIN="$PGB" OUT_DIR="$RUNNER_TEMP/prod-backup" \
+          RESTORE_PSQL="$PGB/psql -h /tmp/ba-pr-sock -p 5432 -U postgres" RESTORE_HOST=/tmp/ba-pr-sock RESTORE_PORT=5432 \
+            bash scripts/production/backup.sh
+      - name: Keep the encrypted backup AFTER
+        if: env.MODE == 'apply'
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-backup-after-${{ env.TARGET }}
+          path: ${{ runner.temp }}/prod-backup/*.enc
+          if-no-files-found: error
+          retention-days: 90
+      - name: Remove working files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/prod-backup"

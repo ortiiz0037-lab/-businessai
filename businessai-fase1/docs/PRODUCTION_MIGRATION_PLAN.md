@@ -78,7 +78,7 @@ salidas (CSV) con el respaldo.
 
 ## 6. Forma de ejecución
 
-| | A. Manual (procedimiento actual) | B. Flujo `production-migrate` (recomendado, **no construido**) |
+| | A. Manual (procedimiento actual) | B. Flujo `production-migrate` (recomendado, **construido el 2026-11-21, sin ejecutar**: §12) |
 |---|---|---|
 | Cómo | Pegar cada archivo en el SQL Editor | Una migración por ejecución, con el nombre exacto como entrada, igual que en Staging |
 | Protección | Disciplina del operador | GitHub Environment `production` con **aprobación obligatoria del propietario**, ref fijado, ensayo (dry run) que debe listar exactamente esa migración, registro en `ba_meta.applied_migrations`, comprobaciones y respaldo cifrado tras cada paso |
@@ -145,3 +145,53 @@ también el enlace por defecto en el mismo navegador). La verificación equivale
 5. Fase 1, migración por migración.
 6. Decisión 3.1 y fase 2, migración por migración, con la ventana y el despliegue de PR #1.
 7. Stripe LIVE, SMTP y variables de Vercel Production.
+
+## 12. Preparado el 2026-11-21 (nada ejecutado; ninguna conexión a Production)
+
+| Pieza | Qué hace | Estado |
+|---|---|---|
+| `.github/workflows/production-inspect.yml` (etiqueta `production:inspect`) | Reinspección **de solo lectura** del §4 con `scripts/production/inspect.sh`: estado (siguiente = 0005), línea base de seguridad idéntica a la inspección del 2026-11-08, vista previa de 0007, integridad de relaciones, impacto de 0010, `verify_after_migrations`; guarda las políticas de Storage y las funciones para los rollbacks. Salidas solo **cifradas** | Listo, sin ejecutar |
+| `.github/workflows/production-migrate.yml` (etiquetas `production:plan:<migración>` y `production:migrate:<migración>`) | **Una migración por ejecución**: plan de solo lectura (la pedida debe ser exactamente la siguiente) → respaldo ANTES verificado y cifrado (subido antes de tocar nada) → solo esa migración (una transacción) → verificación → respaldo DESPUÉS | Listo, sin ejecutar |
+| Protección | Un primer trabajo **sin secretos ni conexión** comprueba que el Environment `production` existe y exige un revisor; si no, no empieza nada (así ninguna ejecución crea un Environment sin protección). Todo trabajo que conecta con Production espera su **aprobación** en ese Environment | Requiere crear el Environment |
+| Proyecto fijado | `PRODUCTION_REF=rugqcumiuqrjbfwpuslm` está **en el código** (`scripts/production/lib.sh`), no en una variable; la URL debe ser exactamente `postgres.rugqcumiuqrjbfwpuslm` (pooler) o `db.rugqcumiuqrjbfwpuslm.supabase.co`; cualquier URL con el ref de Staging se rechaza; una base con el marcador de Staging (`ba_meta.environment`) también | Probado (sin conexión) |
+| Estado sin tabla de registro | El siguiente paso se decide por el catálogo (`inspect_migration_state.sql`): todo lo anterior aplicado, todo lo posterior no, nada `PARTIAL`. No se crea `ba_meta` en Production | Probado |
+| Fase 2 | Rechazada sin `PRODUCTION_PHASE2_DECISION` = `a` o `b` (`docs/PRODUCTION_GRACE_OPTIONS.md`); `b` exige además la migración de gracia revisada | Probado |
+| Ensayo local `scripts/production/rehearse-local.sh` | Forma inspeccionada + datos de la app actual: guardia de URL (7 casos), orden de 39, **prueba de restauración** (volcado → restauración → mismas filas y mismas sumas de contenido; un cambio de un céntimo en un pago se detecta), las **39 migraciones una a una** (cada una era la siguiente, se aplicó, se detecta, deja un prefijo limpio y **no cambia ningún dato existente**), matriz de 153, sin `ba_meta`, y los rechazos | **24 / 24** |
+
+### Qué demuestra que un respaldo sirve (criterio de `scripts/production/backup.sh`)
+
+Un respaldo **solo cuenta** si pasan todas estas comprobaciones; si no, la ejecución se detiene antes de la migración:
+
+1. Volcado `pg_dump -Fc` de `public`, `auth` y `storage` (sesión de solo lectura), legible por `pg_restore --list`,
+   con una entrada de datos por cada tabla existente.
+2. **Restauración real** en una base desechable de un servidor local del runner (nunca en Supabase).
+3. **Mismo número de filas en cada tabla** que en Production en ese momento.
+4. **Misma suma de contenido** (md5 de todas las filas, en orden fijo) en empresas, miembros, perfiles,
+   suscripciones, clientes, documentos, pagos, auditoría de borrado, eventos de Stripe y usuarios: demuestra que
+   los datos son los mismos, no solo que hay las mismas filas.
+5. Mismo estado de migraciones en la copia.
+6. Paquete **cifrado** (AES-256, PBKDF2 600 000) que se descifra de nuevo y coincide (sha256); el texto en claro se
+   borra. El paquete incluye además el CSV de políticas de Storage y el código de las funciones (rollbacks de
+   0007 / 0008).
+
+Fuera del alcance del volcado (decirlo para no suponerlo): los **archivos** de Storage (ninguna migración los
+toca), la configuración de Auth (SMTP, plantillas, URL) y los roles/ajustes propios de Supabase. **Respaldo de la
+plataforma**: en el plan gratuito de Supabase no hay copias diarias descargables ni PITR (llegan con Pro / el
+complemento PITR); confirme qué plan tiene Production. Si es gratuito, el volcado cifrado es el único respaldo y
+conviene descargar el artefacto y guardarlo también fuera de GitHub.
+
+### Lo que solo puede hacer el propietario (antes de la primera ejecución)
+
+1. **GitHub → Settings → Environments → New environment `production`** → *Required reviewers*: usted. Opcional:
+   *Deployment branches* limitado a la rama autorizada.
+2. En ese Environment, **secretos** (nunca en la conversación):
+   - `PRODUCTION_DB_URL`: cadena de conexión de Production (Supabase → Project Settings → Database → *Session
+     pooler*, usuario `postgres.rugqcumiuqrjbfwpuslm`).
+   - `PRODUCTION_BACKUP_PASSPHRASE`: clave nueva y **distinta** de la de Staging; guárdela fuera de GitHub (sin
+     ella los respaldos no se pueden abrir).
+3. Variable del Environment `PRODUCTION_PHASE2_DECISION` (`a` / `b`) solo cuando decida la fase 2.
+4. Confirmar el plan de Supabase de Production (copias de la plataforma / PITR).
+5. Aprobar cada ejecución: primero `production:inspect`; después, migración por migración.
+
+Nota: el repositorio es público; los artefactos (siempre cifrados) pueden descargarlos usuarios de GitHub con
+sesión. Por eso la clave debe ser larga y aleatoria, y los registros no muestran recuentos ni datos.

@@ -1,0 +1,67 @@
+name: Production reinspection (read-only, owner approval)
+
+# READ-ONLY reinspection of PRODUCTION (pinned project rugqcumiuqrjbfwpuslm): label `production:inspect`.
+# Runs scripts/production/inspect.sh — the supabase/inspect/*.sql queries in read-only sessions — and checks
+# Production still matches the inspection of 2026-11-08 (docs/PRODUCTION_MIGRATION_PLAN.md §4).
+# Writes nothing anywhere. Waits for the owner's approval in the GitHub Environment "production"; refuses to start
+# if that Environment does not exist or has no required reviewer. Outputs are kept only ENCRYPTED.
+
+on:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+jobs:
+  protection:
+    if: github.event.label.name == 'production:inspect' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: "Environment 'production' exists and requires a reviewer"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          env_json=$(gh api "repos/${{ github.repository }}/environments/production" 2>/dev/null) || { echo "ERROR: the GitHub Environment 'production' does not exist (Settings → Environments). Nothing was started."; exit 1; }
+          reviewers=$(echo "$env_json" | jq '[.protection_rules[]? | select(.type == "required_reviewers") | .reviewers[]?] | length')
+          [ "${reviewers:-0}" -ge 1 ] || { echo "ERROR: Environment 'production' has no required reviewer. Nothing was started."; exit 1; }
+          echo "OK: Environment 'production' requires approval ($reviewers reviewer(s))"
+
+  inspect:
+    needs: protection
+    environment: production
+    concurrency:
+      group: production
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: businessai-fase1
+    env:
+      HAS_URL: ${{ secrets.PRODUCTION_DB_URL != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Guard: pinned Production project (names only)"
+        env:
+          PRODUCTION_DB_URL: ${{ secrets.PRODUCTION_DB_URL }}
+        run: |
+          [ "$HAS_URL" = true ] || { echo "ERROR: Environment secret PRODUCTION_DB_URL is missing"; exit 1; }
+          source scripts/production/lib.sh; strict_production_url "$PRODUCTION_DB_URL" && echo "OK: read-only inspection of $PRODUCTION_REF"
+      - name: Reinspection (read-only)
+        env:
+          PRODUCTION_DB_URL: ${{ secrets.PRODUCTION_DB_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.PRODUCTION_BACKUP_PASSPHRASE }}
+        run: OUT_DIR="$RUNNER_TEMP/prod-inspect" bash scripts/production/inspect.sh
+      - name: Keep the encrypted outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-inspection-encrypted
+          path: ${{ runner.temp }}/prod-inspect/*.enc
+          if-no-files-found: ignore
+          retention-days: 90
+      - name: Remove working files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/prod-inspect"
