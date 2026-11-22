@@ -47,6 +47,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: "Guard: pinned Production project (names only)"
+        id: guard
         env:
           PRODUCTION_DB_URL: ${{ secrets.PRODUCTION_DB_URL }}
         run: |
@@ -54,6 +55,7 @@ jobs:
           [ "$HAS_KEY" = true ] || { echo "ERROR: Environment secret PRODUCTION_BACKUP_PASSPHRASE is missing"; exit 1; }
           source scripts/production/lib.sh; strict_production_url "$PRODUCTION_DB_URL" && echo "OK: secrets PRODUCTION_DB_URL and PRODUCTION_BACKUP_PASSPHRASE present; URL is the pinned project $PRODUCTION_REF (session pooler user postgres.$PRODUCTION_REF); read-only inspection"
       - name: PostgreSQL tools matching the Production server (read-only probe)
+        id: tools
         env:
           PRODUCTION_DB_URL: ${{ secrets.PRODUCTION_DB_URL }}
         run: |
@@ -73,14 +75,14 @@ jobs:
           BACKUP_PASSPHRASE: ${{ secrets.PRODUCTION_BACKUP_PASSPHRASE }}
         run: OUT_DIR="$RUNNER_TEMP/prod-inspect" PG_BIN="$PGB" bash scripts/production/inspect.sh
       - name: Scratch PostgreSQL for the restore test (unix socket, local only)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.guard.outcome == 'success' && steps.tools.outcome == 'success' }}
         run: |
           SOCK=/tmp/ba-pr-sock; DATA=/tmp/ba-pr-data
           sudo mkdir -p "$SOCK" "$DATA" && sudo chown postgres "$SOCK" "$DATA" && sudo chmod 755 "$SOCK"
           sudo -u postgres "$PGB/initdb" -D "$DATA" -U postgres -A trust >/dev/null
           sudo -u postgres "$PGB/pg_ctl" -D "$DATA" -o "-k $SOCK -p 5432 -c listen_addresses=''" -l /tmp/ba-pr.log -w start
       - name: Backup proof (read-only on Production; restore-tested locally and encrypted)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.guard.outcome == 'success' && steps.tools.outcome == 'success' }}
         env:
           PRODUCTION_DB_URL: ${{ secrets.PRODUCTION_DB_URL }}
           BACKUP_PASSPHRASE: ${{ secrets.PRODUCTION_BACKUP_PASSPHRASE }}
