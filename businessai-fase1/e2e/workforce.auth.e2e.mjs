@@ -128,7 +128,9 @@ try {
   check(created >= 20 && created <= 28, 'direct supervisor: generates the concrete shifts (no duplicates, skips leave)', String(created))
   r = await submit(m, m.getByTestId('shift-patterns').getByRole('button', { name: 'Generar turnos' }).first())
   check(new URL(r.url).searchParams.get('created') === '0', 'generating again creates nothing (idempotent)')
-  await open(BASE, m, '/workforce/schedule')
+  // the week of day +7: all of it is after the pattern's start (tomorrow) and it always has a Saturday and a Sunday
+  // (the current week has no generated shift when today is the last day of the week, e.g. a Sunday)
+  await open(BASE, m, `/workforce/schedule?week=${prDay(7)}`)
   check(/\(\+1\)/.test(await m.locator('section[aria-label="Semana"]').innerText()), 'the week shows overnight shifts ending the next day (+1)')
   await shot(m, 'supervisor-schedule')
 
