@@ -46,18 +46,19 @@ jobs:
       HAS_KEY: ${{ secrets.PRODUCTION_BACKUP_PASSPHRASE != '' }}
     steps:
       - uses: actions/checkout@v4
-      - name: "Diagnostic: names of the secrets this job receives (never values)"
+      - name: "Diagnostic: which secrets reach this job (true/false only, never values)"
         env:
-          # the JSON stays inside the runner; only its KEYS are printed (secret names are not secret)
-          VISIBLE_SECRETS: ${{ toJSON(secrets) }}
+          ENV_DB_URL: ${{ secrets.PRODUCTION_DB_URL != '' }}
+          ENV_KEY: ${{ secrets.PRODUCTION_BACKUP_PASSPHRASE != '' }}
+          REPO_SECRET: ${{ secrets.STAGING_DB_URL != '' }}
+          AS_VARIABLE_URL: ${{ vars.PRODUCTION_DB_URL != '' }}
+          AS_VARIABLE_KEY: ${{ vars.PRODUCTION_BACKUP_PASSPHRASE != '' }}
         run: |
-          echo "event: ${{ github.event_name }} · ref: ${{ github.ref }} · head: ${{ github.head_ref }} · environment requested by this job: production"
-          echo "secret names available to this job:"
-          printf '%s' "$VISIBLE_SECRETS" | jq -r 'keys[] | select(. != "github_token")' | sed 's/^/  - /'
-          for n in PRODUCTION_DB_URL PRODUCTION_BACKUP_PASSPHRASE; do
-            printf '%s' "$VISIBLE_SECRETS" | jq -e --arg n "$n" 'has($n) and (.[$n] | length > 0)' >/dev/null && echo "  $n: present" || echo "  $n: NOT present"
-          done
-          unset VISIBLE_SECRETS
+          echo "event: ${{ github.event_name }} · head: ${{ github.head_ref }} · job environment: production"
+          echo "PRODUCTION_DB_URL (secret) present: $ENV_DB_URL"
+          echo "PRODUCTION_BACKUP_PASSPHRASE (secret) present: $ENV_KEY"
+          echo "a repository secret (STAGING_DB_URL) reaches this job: $REPO_SECRET"
+          echo "saved as a VARIABLE instead of a secret — PRODUCTION_DB_URL: $AS_VARIABLE_URL · PRODUCTION_BACKUP_PASSPHRASE: $AS_VARIABLE_KEY"
       - name: "Guard: pinned Production project (names only)"
         id: guard
         env:
