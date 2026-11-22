@@ -47,6 +47,12 @@ describe('Production procedure (scripts/production)', () => {
     expect(migrateYml).toMatch(/Plan \(read-only\)[\s\S]*Backup BEFORE/)
     expect(inspectYml).toContain("github.event.label.name == 'production:inspect'")
   })
+  it('the secret diagnostic prints names only; restore steps need the guard and real binaries', () => {
+    expect(inspectYml).toContain("jq -r 'keys[] | select(. != \"github_token\")'")
+    expect(inspectYml).not.toMatch(/echo "\$VISIBLE_SECRETS"|cat .*VISIBLE_SECRETS|\.\[\$n\]\s*\|\s*\.\s*'/)
+    for (const yml of [inspectYml, migrateYml]) expect(yml).toContain('[ -x "$PGB/initdb" ]')
+    expect(inspectYml).toMatch(/Backup proof[^\n]*\n\s*if: \$\{\{ !cancelled\(\) && steps\.guard\.outcome == 'success' && steps\.tools\.outcome == 'success' \}\}/)
+  })
   it('only encrypted files leave the runner', () => {
     for (const yml of [migrateYml, inspectYml]) {
       const paths = [...yml.matchAll(/path: (.+)/g)].map((m) => m[1])

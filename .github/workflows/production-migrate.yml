@@ -100,6 +100,8 @@ jobs:
       - name: Scratch PostgreSQL for the restore tests (unix socket, local only)
         if: env.MODE == 'apply'
         run: |
+          [ -n "${PGB:-}" ] && [ -x "$PGB/initdb" ] && [ -x "$PGB/pg_ctl" ] && [ -x "$PGB/pg_dump" ] && [ -x "$PGB/pg_restore" ] \
+            || { echo "ERROR: PostgreSQL binaries matching the server were not found (PGB='${PGB:-unset}')"; exit 1; }
           SOCK=/tmp/ba-pr-sock; DATA=/tmp/ba-pr-data
           sudo mkdir -p "$SOCK" "$DATA" && sudo chown postgres "$SOCK" "$DATA" && sudo chmod 755 "$SOCK"
           sudo -u postgres "$PGB/initdb" -D "$DATA" -U postgres -A trust >/dev/null

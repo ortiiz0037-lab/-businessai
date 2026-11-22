@@ -46,6 +46,18 @@ jobs:
       HAS_KEY: ${{ secrets.PRODUCTION_BACKUP_PASSPHRASE != '' }}
     steps:
       - uses: actions/checkout@v4
+      - name: "Diagnostic: names of the secrets this job receives (never values)"
+        env:
+          # the JSON stays inside the runner; only its KEYS are printed (secret names are not secret)
+          VISIBLE_SECRETS: ${{ toJSON(secrets) }}
+        run: |
+          echo "event: ${{ github.event_name }} · ref: ${{ github.ref }} · head: ${{ github.head_ref }} · environment requested by this job: production"
+          echo "secret names available to this job:"
+          printf '%s' "$VISIBLE_SECRETS" | jq -r 'keys[] | select(. != "github_token")' | sed 's/^/  - /'
+          for n in PRODUCTION_DB_URL PRODUCTION_BACKUP_PASSPHRASE; do
+            printf '%s' "$VISIBLE_SECRETS" | jq -e --arg n "$n" 'has($n) and (.[$n] | length > 0)' >/dev/null && echo "  $n: present" || echo "  $n: NOT present"
+          done
+          unset VISIBLE_SECRETS
       - name: "Guard: pinned Production project (names only)"
         id: guard
         env:
@@ -77,6 +89,8 @@ jobs:
       - name: Scratch PostgreSQL for the restore test (unix socket, local only)
         if: ${{ !cancelled() && steps.guard.outcome == 'success' && steps.tools.outcome == 'success' }}
         run: |
+          [ -n "${PGB:-}" ] && [ -x "$PGB/initdb" ] && [ -x "$PGB/pg_ctl" ] && [ -x "$PGB/pg_dump" ] && [ -x "$PGB/pg_restore" ] \
+            || { echo "ERROR: PostgreSQL binaries matching the server were not found (PGB='${PGB:-unset}')"; exit 1; }
           SOCK=/tmp/ba-pr-sock; DATA=/tmp/ba-pr-data
           sudo mkdir -p "$SOCK" "$DATA" && sudo chown postgres "$SOCK" "$DATA" && sudo chmod 755 "$SOCK"
           sudo -u postgres "$PGB/initdb" -D "$DATA" -U postgres -A trust >/dev/null
