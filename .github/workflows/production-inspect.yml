@@ -5,6 +5,8 @@ name: Production reinspection (read-only, owner approval)
 # Production still matches the inspection of 2026-11-08 (docs/PRODUCTION_MIGRATION_PLAN.md §4).
 # Writes nothing anywhere. Waits for the owner's approval in the GitHub Environment "production"; refuses to start
 # if that Environment does not exist or has no required reviewer. Outputs are kept only ENCRYPTED.
+# It also proves a Production backup can be made and verified (scripts/production/backup.sh: dump in a read-only
+# session, restore into a throw-away LOCAL database with the same row counts and content checksums, encrypted).
 
 on:
   pull_request:
@@ -41,6 +43,7 @@ jobs:
         working-directory: businessai-fase1
     env:
       HAS_URL: ${{ secrets.PRODUCTION_DB_URL != '' }}
+      HAS_KEY: ${{ secrets.PRODUCTION_BACKUP_PASSPHRASE != '' }}
     steps:
       - uses: actions/checkout@v4
       - name: "Guard: pinned Production project (names only)"
@@ -48,12 +51,43 @@ jobs:
           PRODUCTION_DB_URL: ${{ secrets.PRODUCTION_DB_URL }}
         run: |
           [ "$HAS_URL" = true ] || { echo "ERROR: Environment secret PRODUCTION_DB_URL is missing"; exit 1; }
-          source scripts/production/lib.sh; strict_production_url "$PRODUCTION_DB_URL" && echo "OK: read-only inspection of $PRODUCTION_REF"
+          [ "$HAS_KEY" = true ] || { echo "ERROR: Environment secret PRODUCTION_BACKUP_PASSPHRASE is missing"; exit 1; }
+          source scripts/production/lib.sh; strict_production_url "$PRODUCTION_DB_URL" && echo "OK: secrets PRODUCTION_DB_URL and PRODUCTION_BACKUP_PASSPHRASE present; URL is the pinned project $PRODUCTION_REF (session pooler user postgres.$PRODUCTION_REF); read-only inspection"
+      - name: PostgreSQL tools matching the Production server (read-only probe)
+        env:
+          PRODUCTION_DB_URL: ${{ secrets.PRODUCTION_DB_URL }}
+        run: |
+          major=$(PGOPTIONS='-c default_transaction_read_only=on' PGCONNECT_TIMEOUT=15 psql "$PRODUCTION_DB_URL" -X -q -tA -c "show server_version_num" | cut -c1-2) \
+            || { echo "ERROR: cannot reach the Production database (read-only)"; exit 1; }
+          echo "server major: $major"
+          if [ ! -x "/usr/lib/postgresql/$major/bin/pg_dump" ] || [ ! -x "/usr/lib/postgresql/$major/bin/initdb" ]; then
+            sudo install -d /usr/share/postgresql-common/pgdg
+            sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+            echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+            sudo apt-get update -q >/dev/null && sudo apt-get install -y -q "postgresql-$major" >/dev/null
+          fi
+          echo "PGB=/usr/lib/postgresql/$major/bin" >> "$GITHUB_ENV"
       - name: Reinspection (read-only)
         env:
           PRODUCTION_DB_URL: ${{ secrets.PRODUCTION_DB_URL }}
           BACKUP_PASSPHRASE: ${{ secrets.PRODUCTION_BACKUP_PASSPHRASE }}
-        run: OUT_DIR="$RUNNER_TEMP/prod-inspect" bash scripts/production/inspect.sh
+        run: OUT_DIR="$RUNNER_TEMP/prod-inspect" PG_BIN="$PGB" bash scripts/production/inspect.sh
+      - name: Scratch PostgreSQL for the restore test (unix socket, local only)
+        if: ${{ !cancelled() }}
+        run: |
+          SOCK=/tmp/ba-pr-sock; DATA=/tmp/ba-pr-data
+          sudo mkdir -p "$SOCK" "$DATA" && sudo chown postgres "$SOCK" "$DATA" && sudo chmod 755 "$SOCK"
+          sudo -u postgres "$PGB/initdb" -D "$DATA" -U postgres -A trust >/dev/null
+          sudo -u postgres "$PGB/pg_ctl" -D "$DATA" -o "-k $SOCK -p 5432 -c listen_addresses=''" -l /tmp/ba-pr.log -w start
+      - name: Backup proof (read-only on Production; restore-tested locally and encrypted)
+        if: ${{ !cancelled() }}
+        env:
+          PRODUCTION_DB_URL: ${{ secrets.PRODUCTION_DB_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.PRODUCTION_BACKUP_PASSPHRASE }}
+        run: |
+          LABEL="inspection-baseline" PG_BIN="$PGB" OUT_DIR="$RUNNER_TEMP/prod-inspect" \
+          RESTORE_PSQL="$PGB/psql -h /tmp/ba-pr-sock -p 5432 -U postgres" RESTORE_HOST=/tmp/ba-pr-sock RESTORE_PORT=5432 \
+            bash scripts/production/backup.sh
       - name: Keep the encrypted outputs
         if: always()
         uses: actions/upload-artifact@v4
