@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 const read = (p: string) => readFileSync(new URL(p, import.meta.url), 'utf8')
 const migrateYml = read('../../.github/workflows/production-migrate.yml')
 const inspectYml = read('../../.github/workflows/production-inspect.yml')
+const backupYml = read('../../.github/workflows/production-backup-proof.yml')
 const lib = read('../scripts/production/lib.sh')
 const bash = (script: string) => execFileSync('bash', ['-c', `source scripts/production/lib.sh; ${script}`], { cwd: new URL('..', import.meta.url).pathname, encoding: 'utf8' }).trim()
 
@@ -33,7 +34,7 @@ describe('Production procedure (scripts/production)', () => {
     expect(bash(`{ echo '0001–0004 base schema|applied'; echo 'staging bookkeeping (ba_meta)|present (staging?)'; } | next_migration || true`)).toMatch(/^STOP/)
   })
   it('every Production run waits for the owner in the protected Environment, one migration per label', () => {
-    for (const yml of [migrateYml, inspectYml]) {
+    for (const yml of [migrateYml, inspectYml, backupYml]) {
       expect(yml).toContain('environment: production')
       expect(yml).toContain('environments/production')
       expect(yml).toContain('select(.type == "required_reviewers")')
@@ -46,15 +47,18 @@ describe('Production procedure (scripts/production)', () => {
     expect(migrateYml).toMatch(/Backup BEFORE[\s\S]*Apply ONLY the requested migration[\s\S]*Backup AFTER/)
     expect(migrateYml).toMatch(/Plan \(read-only\)[\s\S]*Backup BEFORE/)
     expect(inspectYml).toContain("github.event.label.name == 'production:inspect'")
+    expect(backupYml).toContain("github.event.label.name == 'production:backup-proof'")
   })
-  it('the secret diagnostic prints names only; restore steps need the guard and real binaries', () => {
+  it('the reinspection is read-only only; the backup proof is separate and needs real binaries', () => {
+    const code = (y: string) => y.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n')
+    expect(code(inspectYml)).not.toMatch(/backup\.sh|pg_dump|pg_restore|initdb|migrate\.sh/)
+    expect(code(backupYml)).toContain('bash scripts/production/backup.sh')
+    expect(code(backupYml)).not.toMatch(/migrate\.sh|inspect\.sh/)
+    for (const yml of [backupYml, migrateYml]) expect(yml).toContain('[ -x "$PGB/initdb" ]')
     expect(inspectYml).not.toContain('toJSON(secrets)')
-    expect(inspectYml).toContain("ENV_DB_URL: ${{ secrets.PRODUCTION_DB_URL != '' }}")
-    for (const yml of [inspectYml, migrateYml]) expect(yml).toContain('[ -x "$PGB/initdb" ]')
-    expect(inspectYml).toMatch(/Backup proof[^\n]*\n\s*if: \$\{\{ !cancelled\(\) && steps\.guard\.outcome == 'success' && steps\.tools\.outcome == 'success' \}\}/)
   })
   it('only encrypted files leave the runner', () => {
-    for (const yml of [migrateYml, inspectYml]) {
+    for (const yml of [migrateYml, inspectYml, backupYml]) {
       const paths = [...yml.matchAll(/path: (.+)/g)].map((m) => m[1])
       expect(paths.length).toBeGreaterThan(0)
       for (const p of paths) expect(p).toMatch(/\*\.enc$/)

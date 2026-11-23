@@ -195,3 +195,13 @@ conviene descargar el artefacto y guardarlo también fuera de GitHub.
 
 Nota: el repositorio es público; los artefactos (siempre cifrados) pueden descargarlos usuarios de GitHub con
 sesión. Por eso la clave debe ser larga y aleatoria, y los registros no muestran recuentos ni datos.
+
+### 12.1 Separación (2026-11-23)
+
+| Etiqueta | Workflow | Qué hace en Production |
+|---|---|---|
+| `production:inspect` | `production-inspect.yml` | Solo consultas `supabase/inspect/*.sql` en sesiones de solo lectura. Sin volcado, sin restauración, sin migración |
+| `production:backup-proof` | `production-backup-proof.yml` | Volcado en sesión de solo lectura; restauración y comparación en un servidor **local** del runner; paquete cifrado |
+| `production:plan:<m>` / `production:migrate:<m>` | `production-migrate.yml` | Plan de solo lectura / una migración con respaldo antes y después |
+
+Cada una espera su propia aprobación en el Environment `production`.
