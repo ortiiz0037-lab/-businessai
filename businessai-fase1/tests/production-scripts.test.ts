@@ -56,9 +56,16 @@ describe('Production procedure (scripts/production)', () => {
     expect(code(backupYml)).not.toMatch(/migrate\.sh|inspect\.sh/)
     for (const yml of [backupYml, migrateYml]) expect(yml).toContain('[ -x "$PGB/initdb" ]')
     expect(inspectYml).not.toContain('toJSON(secrets)')
+    // the reinspection stores nothing: no artifact, no output file, no encryption key
+    expect(code(inspectYml)).not.toMatch(/upload-artifact|BACKUP_PASSPHRASE|OUT_DIR/)
+    const inspectSh = read('../scripts/production/inspect.sh')
+    expect(inspectSh).not.toMatch(/OUT_DIR|openssl|tar -|> *"\$|>> *"\$/)
+    // PASS/FAIL and BLOCKER lines only: no measured value, no company / subscription / plan counts in the log
+    expect(inspectSh).not.toMatch(/got '|by_status|by_plan|echo "    \$c: /)
+    expect(inspectSh).toContain('ok() { if [[ "$1" == "$2" ]]; then echo "PASS: $3"; else fail=1; echo "FAIL: $3"; fi; }')
   })
   it('only encrypted files leave the runner', () => {
-    for (const yml of [migrateYml, inspectYml, backupYml]) {
+    for (const yml of [migrateYml, backupYml]) {
       const paths = [...yml.matchAll(/path: (.+)/g)].map((m) => m[1])
       expect(paths.length).toBeGreaterThan(0)
       for (const p of paths) expect(p).toMatch(/\*\.enc$/)

@@ -5,7 +5,8 @@ name: Production reinspection (read-only, owner approval)
 # Production still matches the inspection of 2026-11-08 (docs/PRODUCTION_MIGRATION_PLAN.md §4).
 # No dump, no restore, no migration: the backup proof is a separate workflow (production-backup-proof.yml).
 # Waits for the owner's approval in the GitHub Environment "production"; refuses to start if that Environment does
-# not exist or has no required reviewer. Outputs are kept only ENCRYPTED (when the backup key secret is present).
+# not exist or has no required reviewer. Nothing is stored or uploaded: no artifact, no file; the log shows only
+# PASS/FAIL and BLOCKER lines (no counts), never personal data, rows, structure or code.
 
 on:
   pull_request:
@@ -42,29 +43,16 @@ jobs:
         working-directory: businessai-fase1
     env:
       HAS_URL: ${{ secrets.PRODUCTION_DB_URL != '' }}
-      HAS_KEY: ${{ secrets.PRODUCTION_BACKUP_PASSPHRASE != '' }}
     steps:
       - uses: actions/checkout@v4
       - name: "Guard: pinned Production project (true/false only, never values)"
         env:
           PRODUCTION_DB_URL: ${{ secrets.PRODUCTION_DB_URL }}
         run: |
-          echo "PRODUCTION_DB_URL (environment secret) present: $HAS_URL · PRODUCTION_BACKUP_PASSPHRASE present: $HAS_KEY"
+          echo "PRODUCTION_DB_URL (environment secret) present: $HAS_URL"
           [ "$HAS_URL" = true ] || { echo "ERROR: Environment secret PRODUCTION_DB_URL is missing. Nothing was connected."; exit 1; }
           source scripts/production/lib.sh; strict_production_url "$PRODUCTION_DB_URL" && echo "OK: URL is the pinned project $PRODUCTION_REF (session pooler user postgres.$PRODUCTION_REF); read-only inspection"
-      - name: Reinspection (read-only sessions, inspect queries only)
+      - name: Reinspection (read-only sessions, inspect queries only; PASS/FAIL and BLOCKER lines only, nothing stored)
         env:
           PRODUCTION_DB_URL: ${{ secrets.PRODUCTION_DB_URL }}
-          BACKUP_PASSPHRASE: ${{ secrets.PRODUCTION_BACKUP_PASSPHRASE }}
-        run: OUT_DIR="$RUNNER_TEMP/prod-inspect" bash scripts/production/inspect.sh
-      - name: Keep the encrypted outputs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: production-inspection-encrypted
-          path: ${{ runner.temp }}/prod-inspect/*.enc
-          if-no-files-found: ignore
-          retention-days: 90
-      - name: Remove working files
-        if: always()
-        run: rm -rf "$RUNNER_TEMP/prod-inspect"
+        run: bash scripts/production/inspect.sh
