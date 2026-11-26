@@ -9,10 +9,10 @@
  *   --apply  writes ONLY smtp_* and the two template bodies, then reads back to verify. Sends no email.
  *            Requires CONFIRM_PRODUCTION=<pinned ref> as well as the flag.
  *
- * Refuses unless: the ref is the pinned Production project (never Staging), EXPECTED_SITE_URL is the https
- * Production origin (not staging.*, not *.vercel.app, not localhost) and equals the project's Site URL, and the
+ * Refuses unless: the ref is the pinned Production project (never Staging), EXPECTED_SITE_URL is the Production
+ * origin https://mybusinessai.site (the default; nothing else is accepted) and equals the project's Site URL, and the
  * Resend DNS records are published. A template with neither link is never touched.
- * Env: SUPABASE_ACCESS_TOKEN, RESEND_SMTP_KEY (apply only), EXPECTED_SITE_URL, SENDER_DOMAIN, [SENDER_NAME],
+ * Env: SUPABASE_ACCESS_TOKEN, RESEND_SMTP_KEY (apply only), [EXPECTED_SITE_URL], SENDER_DOMAIN, [SENDER_NAME],
  *      [CONFIRM_PRODUCTION].
  */
 import { resolveMx, resolveTxt } from 'node:dns/promises'
@@ -21,6 +21,8 @@ import { SMTP, checkDomain, judgeDns, smtpPatch } from '../staging/auth-smtp.mjs
 
 export const PRODUCTION_REF = 'rugqcumiuqrjbfwpuslm'
 export const STAGING_REF = 'wbfpvxptoujgvflljasc'
+/** The Production origin chosen by the owner (apex domain). Auth links, Stripe return URLs and the webhook use it. */
+export const PRODUCTION_ORIGIN = 'https://mybusinessai.site'
 
 /** The Production origin the app is served from (pure). */
 export function checkProductionSiteUrl(value) {
@@ -30,6 +32,7 @@ export function checkProductionSiteUrl(value) {
   if (/^staging\./.test(u.hostname) || /\.vercel\.app$/.test(u.hostname) || /^(localhost|127\.)/.test(u.hostname))
     return 'EXPECTED_SITE_URL must be the Production domain (not staging, a Vercel alias or localhost)'
   if (u.pathname !== '/' || u.search || u.hash) return 'EXPECTED_SITE_URL must be an origin (no path, query or fragment)'
+  if (u.origin !== PRODUCTION_ORIGIN) return `EXPECTED_SITE_URL must be ${PRODUCTION_ORIGIN}`
   return null
 }
 
@@ -48,7 +51,7 @@ export function applyAllowed(argv, env) {
 }
 
 async function main() {
-  const env = process.env
+  const env = { ...process.env, EXPECTED_SITE_URL: process.env.EXPECTED_SITE_URL || PRODUCTION_ORIGIN }
   const apply = process.argv.includes('--apply')
   if (apply && !applyAllowed(process.argv, env)) throw new Error(`--apply also needs CONFIRM_PRODUCTION=${PRODUCTION_REF}`)
   if (!env.SUPABASE_ACCESS_TOKEN) throw new Error('SUPABASE_ACCESS_TOKEN is not set')

@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { PRODUCTION_REF, applyAllowed, checkProductionSiteUrl, checkProductionTarget } from '../scripts/production/auth-email.mjs'
+import { PRODUCTION_ORIGIN, PRODUCTION_REF, applyAllowed, checkProductionSiteUrl, checkProductionTarget } from '../scripts/production/auth-email.mjs'
 import { REQUIRED, planProductionAppUrl, readiness } from '../scripts/production/vercel-env.mjs'
 
 const env = { EXPECTED_SITE_URL: 'https://mybusinessai.site' }
 
 describe('production auth email guards', () => {
-  it('accepts only the https Production origin', () => {
+  it('accepts only https://mybusinessai.site', () => {
+    expect(PRODUCTION_ORIGIN).toBe('https://mybusinessai.site')
     expect(checkProductionSiteUrl('https://mybusinessai.site')).toBeNull()
-    expect(checkProductionSiteUrl('https://app.mybusinessai.site')).toBeNull()
+    expect(checkProductionSiteUrl('https://mybusinessai.site/')).toBeNull()
+    expect(checkProductionSiteUrl('https://app.mybusinessai.site')).toMatch(/must be https:\/\/mybusinessai\.site/)
+    expect(checkProductionSiteUrl('https://www.mybusinessai.site')).toMatch(/must be https:\/\/mybusinessai\.site/)
     expect(checkProductionSiteUrl('https://staging.mybusinessai.site')).toMatch(/Production domain/)
     expect(checkProductionSiteUrl('https://businessai-x.vercel.app')).toMatch(/Production domain/)
     expect(checkProductionSiteUrl('http://mybusinessai.site')).toMatch(/https/)

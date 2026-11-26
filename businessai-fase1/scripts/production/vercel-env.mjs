@@ -9,9 +9,10 @@
  *            NEXT_PUBLIC_* are compiled at build time, so the value takes effect on the next Production deploy, which
  *            is a separate, owner-authorised step. Requires CONFIRM_PRODUCTION=vercel-production too.
  * Never touches an entry that also targets Preview/Development (Staging keeps its own value).
- * Env: VERCEL_TOKEN, VERCEL_PROJECT_ID, [VERCEL_TEAM_ID], APP_URL (https://<production domain>), [CONFIRM_PRODUCTION].
+ * Env: VERCEL_TOKEN, VERCEL_PROJECT_ID, [VERCEL_TEAM_ID], [APP_URL] (default and only accepted value: https://mybusinessai.site),
+ *      [CONFIRM_PRODUCTION].
  */
-import { checkProductionSiteUrl } from './auth-email.mjs'
+import { PRODUCTION_ORIGIN, checkProductionSiteUrl } from './auth-email.mjs'
 
 export const KEY = 'NEXT_PUBLIC_APP_URL'
 
@@ -43,8 +44,9 @@ export function planProductionAppUrl(entries, appUrl) {
 }
 
 async function main() {
-  const { VERCEL_TOKEN: token, VERCEL_PROJECT_ID: projectId, APP_URL: raw } = process.env
-  if (!token || !projectId || !raw) throw new Error('VERCEL_TOKEN, VERCEL_PROJECT_ID and APP_URL are required')
+  const { VERCEL_TOKEN: token, VERCEL_PROJECT_ID: projectId } = process.env
+  const raw = process.env.APP_URL || PRODUCTION_ORIGIN
+  if (!token || !projectId) throw new Error('VERCEL_TOKEN and VERCEL_PROJECT_ID are required')
   const appUrl = raw.replace(/\/+$/, '')
   const bad = checkProductionSiteUrl(appUrl); if (bad) throw new Error(bad.replace('EXPECTED_SITE_URL', 'APP_URL'))
   const apply = process.argv.includes('--apply')
