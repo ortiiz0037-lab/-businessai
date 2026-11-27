@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { describe, expect, it } from 'vitest'
 
 const read = (p: string) => readFileSync(new URL(p, import.meta.url), 'utf8')
@@ -48,6 +49,60 @@ describe('Production procedure (scripts/production)', () => {
     expect(migrateYml).toMatch(/Plan \(read-only\)[\s\S]*Backup BEFORE/)
     expect(inspectYml).toContain("github.event.label.name == 'production:inspect'")
     expect(backupYml).toContain("github.event.label.name == 'production:backup-proof'")
+  })
+  it('Production secrets exist only as Environment secrets, read only by the approved Production jobs', () => {
+    // Policy: PRODUCTION_DB_URL and PRODUCTION_BACKUP_PASSPHRASE are Environment secrets of "production" (required
+    // reviewer). A repository-level copy or fallback (e.g. *_CI) is forbidden: GitHub cannot restrict a repository
+    // secret to one workflow, branch or job, so any workflow on any branch of the repository could read it.
+    // YAML is parsed with js-yaml, already installed in the project (dependency of eslint → @eslint/eslintrc)
+    const yaml = createRequire(import.meta.url)('js-yaml') as { load: (s: string) => unknown }
+    type Job = { environment?: unknown; needs?: unknown; steps?: unknown[]; [k: string]: unknown }
+    type Workflow = { on?: unknown; true?: unknown; jobs?: Record<string, Job> }
+    const dir = new URL('../../.github/workflows/', import.meta.url).pathname
+    const files = execFileSync('ls', [dir], { encoding: 'utf8' }).trim().split('\n').filter((f) => /\.ya?ml$/.test(f))
+    // the three Production workflows and the one job in each that may read the Production secrets
+    const production: Record<string, string> = { 'production-backup-proof.yml': 'backup', 'production-inspect.yml': 'inspect', 'production-migrate.yml': 'migrate' }
+    const prodSecret = /secrets\.(PRODUCTION_[A-Z_]+)/g
+    for (const f of Object.keys(production)) expect(files, f).toContain(f)
+    for (const f of files) {
+      const raw = read(`../../.github/workflows/${f}`)
+      const wf = yaml.load(raw) as Workflow
+      const triggers = Object.keys((wf.on ?? wf.true ?? {}) as object)
+      const jobs = Object.entries(wf.jobs ?? {})
+      // no privileged PR trigger, no reusable workflow, no forwarding of every secret
+      expect(triggers, f).not.toContain('pull_request_target')
+      expect(triggers, f).not.toContain('workflow_call')
+      expect(raw, f).not.toMatch(/secrets:\s*inherit|toJSON\(secrets\)/)
+      for (const [id, job] of jobs) {
+        const body = JSON.stringify(job)
+        expect(typeof job.uses === 'string' && job.uses.startsWith('./'), `${f}:${id} calls a local reusable workflow`).toBe(false)
+        const names = [...body.matchAll(prodSecret)].map((m) => m[1])
+        // no repository-level fallback (e.g. PRODUCTION_DB_URL_CI): only the two Environment secrets exist
+        for (const n of names) expect(['PRODUCTION_DB_URL', 'PRODUCTION_BACKUP_PASSPHRASE'], `${f}:${id}`).toContain(n)
+        if (!names.length) continue
+        // a job that reads them is exactly the authorised Production job, bound to the protected Environment and
+        // started only after the protection job
+        expect(production[f], `${f}:${id} reads Production secrets but is not an authorised Production job`).toBe(id)
+        expect(job.environment, `${f}:${id}`).toBe('production')
+        expect(job.needs, `${f}:${id}`).toBe('protection')
+        // never printed or exported (values only reach the scripts through step env)
+        for (const s of (job.steps ?? []) as { run?: string }[]) {
+          expect(s.run ?? '', `${f}:${id}`).not.toMatch(/echo[^\n]*\$\{?(PRODUCTION_DB_URL|BACKUP_PASSPHRASE)\b|(PRODUCTION_DB_URL|BACKUP_PASSPHRASE)[^\n]*(GITHUB_ENV|GITHUB_OUTPUT)/)
+        }
+      }
+      if (!(f in production)) continue
+      // each Production workflow: the authorised job exists with environment: production + needs: protection, and the
+      // protection job (no Environment, runs before the approval) never sees a Production secret
+      const job = wf.jobs?.[production[f]]
+      expect(job, `${f}: job ${production[f]}`).toBeDefined()
+      expect(job?.environment, `${f}:${production[f]}`).toBe('production')
+      expect(job?.needs, `${f}:${production[f]}`).toBe('protection')
+      expect(JSON.stringify(job), `${f}:${production[f]}`).toMatch(/secrets\.PRODUCTION_DB_URL/)
+      const protection = wf.jobs?.protection
+      expect(protection, `${f}: protection job`).toBeDefined()
+      expect(protection?.environment, `${f}:protection`).toBeUndefined()
+      expect(JSON.stringify(protection), `${f}:protection`).not.toMatch(/PRODUCTION_DB_URL|PRODUCTION_BACKUP_PASSPHRASE/)
+    }
   })
   it('the reinspection is read-only only; the backup proof is separate and needs real binaries', () => {
     const code = (y: string) => y.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n')
