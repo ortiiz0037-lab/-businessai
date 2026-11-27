@@ -46,6 +46,14 @@ echo "next migration in ORDER: $next"
 ok "$next" "$TARGET" "the requested migration is exactly the next one"
 [[ $fail -eq 0 ]] || { echo "STOPPED: $TARGET is not the next migration. Nothing was done."; exit 1; }
 echo "file: $TARGET.sql · sha256 $(sha256sum "$file" | cut -c1-16) · $(wc -l < "$file") lines · phase $(is_phase1 "$TARGET" && echo 1 || echo 2)"
+verify_row() { ro -f "$ROOT/supabase/inspect/verify_after_migrations.sql" | tr '|' ','; }
+if is_phase1 "$TARGET"; then
+  # The catalog must be exactly what the previous step left (RUNBOOK §3): otherwise Production changed since
+  # the inspection / the previous step, and nothing is applied.
+  want_before="$(verify_before "$TARGET")"
+  ok "$(verify_row)" "$want_before" "verify_after_migrations before $TARGET = $want_before (RUNBOOK §3)"
+  [[ $fail -eq 0 ]] || { echo "STOPPED: the catalog is not the expected state before $TARGET. Nothing was done."; exit 1; }
+fi
 if [[ "$MODE" == plan ]]; then echo "PLAN ONLY — nothing was written. --apply would run exactly $TARGET.sql in one transaction."; exit 0; fi
 
 echo "== 2. Apply $TARGET (one transaction)"
@@ -64,11 +72,10 @@ after_next="$(next_migration <<<"$state")"; rc=$?
 ok "$rc" 0 "state is still a clean prefix of the order (nothing PARTIAL, nothing later applied): next is $after_next"
 after="$(checksums)"
 ok "$(diff <(echo "$before") <(echo "$after") | grep -c '^[<>]')" 0 "existing companies, members, profiles, subscriptions, clients, documents, payments and users unchanged (row count + content checksum)"
-case "$TARGET" in
-  0005_security_baseline|0006_payments_document_fk|0007_storage_company_assets|0008_definer_function_grants|0009_private_signatures)
-    echo "verify_after_migrations: $(ro -f "$ROOT/supabase/inspect/verify_after_migrations.sql" | tr '\n' ' ') (compare with supabase/RUNBOOK.md §3 for this step)" ;;
-  0014a_permissions) ok "$(ro -f "$ROOT/supabase/inspect/verify_0014a.sql" | tail -1)" OK "verify_0014a" ;;
-esac
+if is_phase1 "$TARGET"; then
+  ok "$(verify_row)" "${VERIFY_AFTER[$TARGET]}" "verify_after_migrations after $TARGET = ${VERIFY_AFTER[$TARGET]} (RUNBOOK §3)"
+fi
+[[ "$TARGET" == 0014a_permissions ]] && ok "$(ro -f "$ROOT/supabase/inspect/verify_0014a.sql" | tail -1)" OK "verify_0014a"
 declare -A MATRIX=([0037_studio_branches]=130 [0038_studio_finance]=130 [0039_catalog]=135 [0040_assistant_finance]=135 [0041_studio_advanced]=135 [0042_banking]=135 [0043_inventory]=143 [0044_pos]=153 [0045_platform_stabilization]=153)
 [[ -n "${MATRIX[$TARGET]:-}" ]] && ok "$(ro -c "select count(*) from public.role_permissions")" "${MATRIX[$TARGET]}" "permission matrix: ${MATRIX[$TARGET]} rows"
 [[ $fail -eq 0 ]] && echo "OK: $TARGET applied and verified on Production" || echo "STOPPED: $TARGET verification failed. It is NOT rolled back automatically: review (supabase/RUNBOOK.md §10)."

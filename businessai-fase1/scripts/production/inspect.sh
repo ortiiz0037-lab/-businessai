@@ -69,7 +69,7 @@ yesno over_member_limit_0011 "companies above their plan's member limit after 00
 (( blockers == 0 )) || echo "Phase 2 (0010 onwards) needs the owner's decision above; phase 1 (0005–0009) is not affected."
 
 echo "== 6. verify_after_migrations baseline"
-ok "$( [[ "$(ro -f "$INS/verify_after_migrations.sql" | tr '|' ',')" == "0,12,4,2,t,12,11,0,,,f,t" ]] && echo match || echo differs)" match "verification baseline before 0005 (supabase/RUNBOOK.md §3)"
+ok "$( [[ "$(ro -f "$INS/verify_after_migrations.sql" | tr '|' ',')" == "$VERIFY_BASELINE" ]] && echo match || echo differs)" match "verification baseline before 0005 (supabase/RUNBOOK.md §3)"
 
 [[ $fail -eq 0 ]] && echo "OK: Production matches the inspection; next migration 0005_security_baseline" || echo "STOPPED: Production differs from the inspection: review before any migration"
 exit $fail

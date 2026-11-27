@@ -16,6 +16,25 @@ prod_order() {
 PHASE1="0005_security_baseline 0007_storage_company_assets 0009_private_signatures 0006_payments_document_fk 0008_definer_function_grants"
 is_phase1() { [[ " $PHASE1 " == *" $1 "* ]]; }
 
+# verify_after_migrations.sql (one row, '|' → ',') expected on Production BEFORE phase 1 and AFTER each phase-1
+# step: supabase/RUNBOOK.md §3. Columns: ba_table_policies, old_table_policies, audit_policies,
+# payment_edit_policies, payments_editable, truncate_grants, logo_bucket_policies, signature_policies,
+# signatures_bucket_private, logo_types_limited, payments_fk_no_action, anon_can_edit_fn (empty = NULL).
+VERIFY_BASELINE='0,12,4,2,t,12,11,0,,,f,t'
+declare -A VERIFY_AFTER=(
+  [0005_security_baseline]='10,0,2,0,f,0,11,0,,,f,t'
+  [0007_storage_company_assets]='10,0,2,0,f,0,2,0,,,f,t'
+  [0009_private_signatures]='10,0,2,0,f,0,2,3,t,t,f,t'
+  [0006_payments_document_fk]='10,0,2,0,f,0,2,3,t,t,t,t'
+  [0008_definer_function_grants]='10,0,2,0,f,0,2,3,t,t,t,f'
+)
+# expected verify row just BEFORE a phase-1 step = the row after the previous step (or the baseline)
+verify_before() {
+  local prev="" m
+  for m in $PHASE1; do [[ "$m" == "$1" ]] && break; prev="$m"; done
+  [[ -z "$prev" ]] && echo "$VERIFY_BASELINE" || echo "${VERIFY_AFTER[$prev]}"
+}
+
 # strict_production_url URL — returns 1 (with the reason) unless the URL is exactly the pinned Production
 # project: user postgres.<ref> (pooler) or host db.<ref>.supabase.co; never the Staging ref.
 strict_production_url() {
