@@ -1,0 +1,14 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["REPLACE_TEAM_ID.com.businessai.app"],
+        "components": [
+          { "/": "/auth/*", "comment": "email confirmation and password reset" },
+          { "/": "/invite/*", "comment": "team invitations" },
+          { "/": "/clock/link/*", "comment": "employee access links" }
+        ]
+      }
+    ]
+  }
+}

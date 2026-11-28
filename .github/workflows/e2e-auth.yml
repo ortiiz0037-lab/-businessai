@@ -1,0 +1,66 @@
+name: E2E (signed-in browser, local stack)
+
+# The signed-in browser suites (e2e/*.auth.e2e.mjs) need PostgREST next to a throw-away local
+# PostgreSQL. Nothing here reaches Supabase, Stripe, Vercel or any remote environment: the database
+# is created on the runner from the repository's migrations, the auth service is the local stand-in
+# (e2e/local-stack/auth-stub.mjs) and every key is generated per run. No repository secret is used.
+# Runs on pull requests that touch the app and on demand (workflow_dispatch, once on the default branch).
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ['businessai-fase1/**', '.github/workflows/e2e-auth.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [finance, finance-flows, studio, studio-branches, studio-finance, studio-advanced, catalog, assistant, assistant-s4,
+                banking, inventory, pos, workforce, employee-link, payroll, crm, sweep, public]
+    defaults:
+      run:
+        working-directory: businessai-fase1
+    env:
+      PGRST_VERSION: v12.2.3
+      PLAYWRIGHT_VERSION: 1.63.0
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: businessai-fase1/package-lock.json
+      - run: npm ci
+      - name: Playwright (browser only, not saved in package.json)
+        run: npm i --no-save playwright@${PLAYWRIGHT_VERSION} && npx playwright install --with-deps chromium
+      - name: PostgREST (release binary from the PostgREST project)
+        run: |
+          mkdir -p "$RUNNER_TEMP/pgrst" && cd "$RUNNER_TEMP/pgrst"
+          curl -fsSL -o p.tar.xz "https://github.com/PostgREST/postgrest/releases/download/${PGRST_VERSION}/postgrest-${PGRST_VERSION}-linux-static-x64.tar.xz"
+          tar -xJf p.tar.xz && ./postgrest --version
+          echo "PGRST_BIN=$RUNNER_TEMP/pgrst/postgrest" >> "$GITHUB_ENV"
+      - name: Throw-away PostgreSQL 16 on a unix socket
+        run: |
+          PGB=/usr/lib/postgresql/16/bin
+          SOCK=/tmp/ba-pgsock; DATA=/tmp/ba-pgdata   # /tmp: the postgres user cannot traverse the runner home
+          sudo mkdir -p "$SOCK" "$DATA" && sudo chown postgres "$SOCK" "$DATA" && sudo chmod 755 "$SOCK"
+          sudo -u postgres $PGB/initdb -D "$DATA" -U postgres -A trust >/dev/null
+          sudo -u postgres $PGB/pg_ctl -D "$DATA" -o "-k $SOCK -p 5432 -c listen_addresses=''" -l /tmp/ba-pg.log -w start
+          echo "PG_SOCKET=$SOCK" >> "$GITHUB_ENV"
+      - name: Database for the suite (all migrations, local seed)
+        run: PSQL="psql -h $PG_SOCKET -p 5432 -U postgres" DB=ba_e2e_fin bash e2e/local-stack/db.sh
+      # Built WITHOUT any NEXT_PUBLIC_SUPABASE_* value: Next.js inlines those at build time, and the suites
+      # pass the local stack's URL when they start `next start` (a placeholder here sent sign-in nowhere).
+      - name: Build (no Supabase config baked in, no secrets)
+        run: npm run build
+      - name: Signed-in browser suite
+        # public: the signed-out suite (its Supabase URL is an unreachable local port; no data needed)
+        run: |
+          f=e2e/${{ matrix.suite }}.auth.e2e.mjs; [ -f "$f" ] || f=e2e/${{ matrix.suite }}.e2e.mjs
+          PG_PORT=5432 DB=ba_e2e_fin node "$f"

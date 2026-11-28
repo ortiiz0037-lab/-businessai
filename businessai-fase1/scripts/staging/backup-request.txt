@@ -1,0 +1,13 @@
+# Each line is one request for a read-only, verified Staging backup (.github/workflows/staging-backup.yml).
+# Changing this file and pushing starts the run. Nothing else starts it.
+2026-11-17 before 0037: verify dump + restore + count 34 (owner authorization: autonomous Staging backup)
+2026-11-17 encrypted backup before 0037 (owner created STAGING_BACKUP_PASSPHRASE)
+2026-11-17 encrypted backup after 0037 expect_applied=35
+2026-11-17 encrypted backup after 0038 expect_applied=36
+2026-11-17 encrypted backup after 0039 expect_applied=37
+2026-11-17 encrypted backup after 0040 expect_applied=38
+2026-11-17 encrypted backup after 0041 expect_applied=39
+2026-11-17 encrypted backup after 0042 expect_applied=40
+2026-11-17 encrypted backup after 0043 expect_applied=41
+2026-11-17 encrypted backup after 0044 expect_applied=42
+2026-11-18 encrypted backup after 0045 expect_applied=43

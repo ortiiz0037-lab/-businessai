@@ -1,0 +1,105 @@
+name: Production backup proof (read-only on Production, owner approval)
+
+# Proves a Production backup can be made and verified, SEPARATELY from the reinspection and from any migration:
+# label `production:backup-proof`. scripts/production/backup.sh: dump in a READ-ONLY session (pg_dump, ACCESS SHARE
+# locks only), restore into a throw-away database of a LOCAL scratch server on the runner (never Supabase), same
+# row counts and content checksums, encrypted bundle. Writes nothing to Production; no migration, no restore there.
+# Waits for the owner's approval in the GitHub Environment "production"; refuses to start without a required reviewer.
+
+on:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+jobs:
+  protection:
+    if: github.event.label.name == 'production:backup-proof' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: "Environment 'production' exists and requires a reviewer"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          env_json=$(gh api "repos/${{ github.repository }}/environments/production" 2>/dev/null) || { echo "ERROR: the GitHub Environment 'production' does not exist (Settings → Environments). Nothing was started."; exit 1; }
+          reviewers=$(echo "$env_json" | jq '[.protection_rules[]? | select(.type == "required_reviewers") | .reviewers[]?] | length')
+          [ "${reviewers:-0}" -ge 1 ] || { echo "ERROR: Environment 'production' has no required reviewer. Nothing was started."; exit 1; }
+          echo "OK: Environment 'production' requires approval ($reviewers reviewer(s))"
+
+  backup:
+    needs: protection
+    environment: production
+    concurrency:
+      group: production
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: businessai-fase1
+    env:
+      HAS_URL: ${{ secrets.PRODUCTION_DB_URL != '' }}
+      HAS_KEY: ${{ secrets.PRODUCTION_BACKUP_PASSPHRASE != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Guard: pinned Production project, both secrets present (true/false only)"
+        id: guard
+        env:
+          PRODUCTION_DB_URL: ${{ secrets.PRODUCTION_DB_URL }}
+        run: |
+          echo "PRODUCTION_DB_URL present: $HAS_URL · PRODUCTION_BACKUP_PASSPHRASE present: $HAS_KEY"
+          [ "$HAS_URL" = true ] || { echo "ERROR: Environment secret PRODUCTION_DB_URL is missing. Nothing was connected."; exit 1; }
+          [ "$HAS_KEY" = true ] || { echo "ERROR: Environment secret PRODUCTION_BACKUP_PASSPHRASE is missing: a backup is never kept unencrypted"; exit 1; }
+          source scripts/production/lib.sh; strict_production_url "$PRODUCTION_DB_URL" && echo "OK: pinned project $PRODUCTION_REF"
+      - name: PostgreSQL tools matching the Production server (read-only probe)
+        id: tools
+        env:
+          PRODUCTION_DB_URL: ${{ secrets.PRODUCTION_DB_URL }}
+        shell: bash   # bash -eo pipefail: a failed psql is not hidden by the pipe
+        run: |
+          # same single read-only query as before; the major version is computed, not cut from the string
+          # (server_version_num = major * 10000 + minor, e.g. 170011 for PostgreSQL 17.11)
+          num=$(PGOPTIONS='-c default_transaction_read_only=on' PGCONNECT_TIMEOUT=15 psql "$PRODUCTION_DB_URL" -X -q -tA -c "show server_version_num") \
+            || { echo "ERROR: cannot reach the Production database (read-only)"; exit 1; }
+          [[ "$num" =~ ^[0-9]{6,7}$ ]] || { echo "ERROR: unexpected server_version_num '$num'"; exit 1; }
+          major=$(( num / 10000 ))
+          (( major >= 15 )) || { echo "ERROR: server major $major is older than supported (15+)"; exit 1; }
+          echo "server major: $major"
+          if [ ! -x "/usr/lib/postgresql/$major/bin/pg_dump" ] || [ ! -x "/usr/lib/postgresql/$major/bin/initdb" ]; then
+            sudo install -d /usr/share/postgresql-common/pgdg
+            sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+            echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+            sudo apt-get update -q >/dev/null && sudo apt-get install -y -q "postgresql-$major" >/dev/null
+          fi
+          for b in initdb pg_ctl pg_dump pg_restore psql; do
+            [ -x "/usr/lib/postgresql/$major/bin/$b" ] || { echo "ERROR: /usr/lib/postgresql/$major/bin/$b missing after install"; exit 1; }
+          done
+          echo "PGB=/usr/lib/postgresql/$major/bin" >> "$GITHUB_ENV"
+      - name: Scratch PostgreSQL for the restore test (unix socket, local only)
+        run: |
+          [ -n "${PGB:-}" ] && [ -x "$PGB/initdb" ] && [ -x "$PGB/pg_ctl" ] && [ -x "$PGB/pg_dump" ] && [ -x "$PGB/pg_restore" ] \
+            || { echo "ERROR: PostgreSQL binaries matching the server were not found (PGB='${PGB:-unset}')"; exit 1; }
+          SOCK=/tmp/ba-pr-sock; DATA=/tmp/ba-pr-data
+          sudo mkdir -p "$SOCK" "$DATA" && sudo chown postgres "$SOCK" "$DATA" && sudo chmod 755 "$SOCK"
+          sudo -u postgres "$PGB/initdb" -D "$DATA" -U postgres -A trust >/dev/null
+          sudo -u postgres "$PGB/pg_ctl" -D "$DATA" -o "-k $SOCK -p 5432 -c listen_addresses=''" -l /tmp/ba-pr.log -w start
+      - name: Backup proof (read-only dump; restore-tested locally; encrypted)
+        env:
+          PRODUCTION_DB_URL: ${{ secrets.PRODUCTION_DB_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.PRODUCTION_BACKUP_PASSPHRASE }}
+        run: |
+          LABEL="baseline" PG_BIN="$PGB" OUT_DIR="$RUNNER_TEMP/prod-backup" \
+          RESTORE_PSQL="$PGB/psql -h /tmp/ba-pr-sock -p 5432 -U postgres" RESTORE_HOST=/tmp/ba-pr-sock RESTORE_PORT=5432 \
+            bash scripts/production/backup.sh
+      - name: Keep the encrypted backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-backup-baseline-encrypted
+          path: ${{ runner.temp }}/prod-backup/*.enc
+          if-no-files-found: error
+          retention-days: 90
+      - name: Remove working files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/prod-backup"

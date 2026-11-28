@@ -14,3 +14,7 @@ next-env.d.ts
 .env.local
 
 .env.local
+
+# benchmark outputs (reports, engine bundle)
+/bench/out/
+/.audit-evidence/

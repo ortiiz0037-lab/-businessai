@@ -1,0 +1,58 @@
+name: Production reinspection (read-only, owner approval)
+
+# READ-ONLY reinspection of PRODUCTION (pinned project rugqcumiuqrjbfwpuslm): label `production:inspect`.
+# Runs scripts/production/inspect.sh — only the supabase/inspect/*.sql queries, in read-only sessions — and checks
+# Production still matches the inspection of 2026-11-08 (docs/PRODUCTION_MIGRATION_PLAN.md §4).
+# No dump, no restore, no migration: the backup proof is a separate workflow (production-backup-proof.yml).
+# Waits for the owner's approval in the GitHub Environment "production"; refuses to start if that Environment does
+# not exist or has no required reviewer. Nothing is stored or uploaded: no artifact, no file; the log shows only
+# PASS/FAIL and BLOCKER lines (no counts), never personal data, rows, structure or code.
+
+on:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+jobs:
+  protection:
+    if: github.event.label.name == 'production:inspect' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: "Environment 'production' exists and requires a reviewer"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          env_json=$(gh api "repos/${{ github.repository }}/environments/production" 2>/dev/null) || { echo "ERROR: the GitHub Environment 'production' does not exist (Settings → Environments). Nothing was started."; exit 1; }
+          reviewers=$(echo "$env_json" | jq '[.protection_rules[]? | select(.type == "required_reviewers") | .reviewers[]?] | length')
+          [ "${reviewers:-0}" -ge 1 ] || { echo "ERROR: Environment 'production' has no required reviewer. Nothing was started."; exit 1; }
+          echo "OK: Environment 'production' requires approval ($reviewers reviewer(s))"
+
+  inspect:
+    needs: protection
+    environment: production
+    concurrency:
+      group: production
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: businessai-fase1
+    env:
+      HAS_URL: ${{ secrets.PRODUCTION_DB_URL != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Guard: pinned Production project (true/false only, never values)"
+        env:
+          PRODUCTION_DB_URL: ${{ secrets.PRODUCTION_DB_URL }}
+        run: |
+          echo "PRODUCTION_DB_URL (environment secret) present: $HAS_URL"
+          [ "$HAS_URL" = true ] || { echo "ERROR: Environment secret PRODUCTION_DB_URL is missing. Nothing was connected."; exit 1; }
+          source scripts/production/lib.sh; strict_production_url "$PRODUCTION_DB_URL" && echo "OK: URL is the pinned project $PRODUCTION_REF (session pooler user postgres.$PRODUCTION_REF); read-only inspection"
+      - name: Reinspection (read-only sessions, inspect queries only; PASS/FAIL and BLOCKER lines only, nothing stored)
+        env:
+          PRODUCTION_DB_URL: ${{ secrets.PRODUCTION_DB_URL }}
+        run: bash scripts/production/inspect.sh
